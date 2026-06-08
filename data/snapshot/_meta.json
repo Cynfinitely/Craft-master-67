@@ -1,0 +1,10 @@
+{
+  "source": "https://repoe-fork.github.io/poe2",
+  "files": [
+    "base_items.json",
+    "mods.json",
+    "tags.json",
+    "item_classes.json"
+  ],
+  "fetchedAt": "2026-06-08T15:44:55.892Z"
+}

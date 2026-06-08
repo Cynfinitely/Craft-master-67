@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  background-color: theme("colors.forge.bg");
+  color: #d8d2c2;
+}
+
+body {
+  background-image: radial-gradient(
+      ellipse at top,
+      rgba(200, 170, 110, 0.05),
+      transparent 60%
+    ),
+    radial-gradient(ellipse at bottom, rgba(166, 90, 46, 0.04), transparent 55%);
+  min-height: 100vh;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-forge-border bg-forge-panel;
+  }
+
+  .panel-inset {
+    @apply rounded-md border border-forge-border/70 bg-forge-panel2;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-forge-border bg-forge-panel2 px-3 py-1.5 text-sm font-medium text-forge-gold transition-colors hover:border-forge-gold/60 hover:text-forge-goldbright disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-forge-gold/50 bg-forge-rust/20 text-forge-goldbright hover:bg-forge-rust/30;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-forge-border bg-forge-bg/60 px-3 py-2 text-sm text-forge-goldbright placeholder:text-forge-gold/40 focus:border-forge-gold/60 focus:outline-none;
+  }
+
+  .tag-chip {
+    @apply inline-flex items-center rounded-full border border-forge-border bg-forge-panel2 px-2 py-0.5 text-xs text-forge-gold/80;
+  }
+}
+
+/* thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme("colors.forge.border") transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: theme("colors.forge.border");
+  border-radius: 9999px;
+}
