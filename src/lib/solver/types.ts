@@ -71,6 +71,8 @@ export interface CraftPlan {
   steps: CraftStep[];
   /** Mirror of the cheapest feasible method's overall odds. */
   overallOdds: number;
+  /** Live Divine Orb price in Exalted Orbs (for dual-currency display). */
+  divinePriceExalted?: number;
 }
 
 export interface GroupChoice {

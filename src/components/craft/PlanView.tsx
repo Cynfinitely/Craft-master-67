@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CraftMethod, CraftPlan } from "@/lib/solver/types";
+import { formatCost } from "@/lib/pricing/format";
 import { SavePlanButton } from "./SavePlanButton";
 
 function oddsLabel(odds?: number): string {
@@ -12,20 +13,14 @@ function oddsLabel(odds?: number): string {
   return `${pct.toFixed(1)}%`;
 }
 
-function costLabel(cost: number | null): string {
-  if (cost == null) return "n/a";
-  if (cost >= 1000) return `${(cost / 1000).toFixed(1)}k ex`;
-  if (cost >= 10) return `${Math.round(cost)} ex`;
-  if (cost >= 1) return `${cost.toFixed(1)} ex`;
-  return `${cost.toFixed(2)} ex`;
-}
-
 function MethodCard({
   method,
   rank,
+  divinePriceExalted,
 }: {
   method: CraftMethod;
   rank: number;
+  divinePriceExalted: number;
 }) {
   return (
     <div className="panel p-4">
@@ -45,7 +40,7 @@ function MethodCard({
           <div className="text-xs text-forge-gold/50">est. cost</div>
           <div className="text-sm font-semibold text-rarity-currency">
             {method.costApproximate ? "~" : ""}
-            {costLabel(method.estCostExalted)}
+            {formatCost(method.estCostExalted, divinePriceExalted)}
             {method.excludesMarketPrice ? (
               <span className="text-forge-gold/50"> + base price</span>
             ) : null}
@@ -96,7 +91,7 @@ function MethodCard({
                     ? ` · ~${s.expectedAttempts} tr${s.expectedAttempts === 1 ? "y" : "ies"}`
                     : ""}
                   {s.costExalted !== undefined
-                    ? ` · ${costLabel(s.costExalted)}`
+                    ? ` · ${formatCost(s.costExalted, divinePriceExalted)}`
                     : ""}
                 </span>
               </div>
@@ -185,7 +180,12 @@ export function PlanView({ plan }: { plan: CraftPlan }) {
             Crafting methods (cheapest first)
           </h3>
           {plan.methods.map((m, i) => (
-            <MethodCard key={m.id} method={m} rank={i} />
+            <MethodCard
+              key={m.id}
+              method={m}
+              rank={i}
+              divinePriceExalted={plan.divinePriceExalted ?? 0}
+            />
           ))}
         </div>
       )}

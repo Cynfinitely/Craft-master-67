@@ -1,22 +1,17 @@
 import Link from "next/link";
 import type { BaseRecommendation } from "@/lib/solver/types";
-
-function costLabel(cost: number | null): string {
-  if (cost == null) return "n/a";
-  if (cost >= 1000) return `${(cost / 1000).toFixed(1)}k ex`;
-  if (cost >= 10) return `${Math.round(cost)} ex`;
-  if (cost >= 1) return `${cost.toFixed(1)} ex`;
-  return `${cost.toFixed(2)} ex`;
-}
+import { formatCost } from "@/lib/pricing/format";
 
 export function Recommendations({
   recs,
   itemLevel,
   groups,
+  divinePriceExalted = 0,
 }: {
   recs: BaseRecommendation[];
   itemLevel: number;
   groups: string[];
+  divinePriceExalted?: number;
 }) {
   if (recs.length === 0) {
     return (
@@ -51,7 +46,7 @@ export function Recommendations({
                 <p className="mt-0.5 text-xs text-forge-gold/60">
                   Cheapest:{" "}
                   <span className="text-rarity-currency">
-                    {costLabel(r.cheapestCostExalted)}
+                    {formatCost(r.cheapestCostExalted, divinePriceExalted)}
                   </span>{" "}
                   via {r.cheapestMethod}
                 </p>

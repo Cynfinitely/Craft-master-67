@@ -11,6 +11,7 @@ import {
   recommendBases,
   solveFromBase,
 } from "@/lib/solver";
+import { getPrices } from "@/lib/pricing/poe2scout";
 import { CraftControls } from "@/components/craft/CraftControls";
 import {
   GroupSelector,
@@ -252,6 +253,14 @@ async function RecommendMode({
     ? await recommendBases(itemClass, itemLevel, selectedGroups)
     : [];
 
+  let divinePriceExalted = 0;
+  try {
+    const prices = await getPrices();
+    divinePriceExalted = prices.divinePrice;
+  } catch {
+    /* omit divine column when prices unavailable */
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -264,6 +273,7 @@ async function RecommendMode({
         recs={recs}
         itemLevel={itemLevel}
         groups={selectedGroups}
+        divinePriceExalted={divinePriceExalted}
       />
     </div>
   );

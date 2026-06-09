@@ -2,7 +2,7 @@ import "server-only";
 import { getEligibleMods, getModPool, searchBases } from "@/lib/data/queries";
 import { groupByModGroup, modLabel, tierValue } from "@/lib/data/format";
 import { notableTags } from "@/lib/data/tags";
-import { getPriceByApiId } from "@/lib/pricing/poe2scout";
+import { getPriceByApiId, getPrices } from "@/lib/pricing/poe2scout";
 import {
   resolveDeterminism,
   type EssenceGuarantee,
@@ -56,6 +56,8 @@ const FALLBACK_PRICE: Record<string, number> = {
   "perfect-exalted-orb": 30,
   chaos: 0.5,
   annul: 2,
+  "omen-of-sinistral-annulment": 5,
+  "omen-of-dextral-annulment": 5,
   divine: 200,
   vaal: 1.5,
   "fracturing-orb": 30,
@@ -85,6 +87,25 @@ function round(n: number): number {
 
 function oddsToAttempts(odds: number): number {
   return odds > 0 ? 1 / odds : Infinity;
+}
+
+/**
+ * Expected Annul orbs to remove `count` specific mods when each Annul picks
+ * uniformly at random from the current pool (no omen). Removing one mod from a
+ * pool of k takes k attempts on average; sum over k = count..1.
+ */
+function expectedRandomAnnuls(count: number): number {
+  if (count <= 0) return 0;
+  return (count * (count + 1)) / 2;
+}
+
+/**
+ * Expected Annul orbs to remove one specific mod among `poolSize` mods of the
+ * same affix type when using a Sinistral/Dextral Annulment omen (random within
+ * that side only).
+ */
+function expectedSideAnnuls(poolSize: number): number {
+  return poolSize > 0 ? poolSize : 0;
 }
 
 /* ----------------------------- tier-aware odds ----------------------------- */
@@ -237,10 +258,28 @@ function fillByExalt(
       t.generationType === "prefix"
         ? "Omen of Sinistral Exaltation"
         : "Omen of Dextral Exaltation";
+    const annulOmenId =
+      t.generationType === "prefix"
+        ? "omen-of-sinistral-annulment"
+        : "omen-of-dextral-annulment";
+    const annulOmenName =
+      t.generationType === "prefix"
+        ? "Omen of Sinistral Annulment"
+        : "Omen of Dextral Annulment";
     const orbPrice = inputs.price(orb.apiId);
     const omen = inputs.price(omenId);
+    const annulOmen = inputs.price(annulOmenId);
+    const placedSameType =
+      t.generationType === "prefix" ? placedPre.size : placedSuf.size;
+    // After a miss the wrong mod occupies one slot on this side; Annul (even
+    // with a side omen) removes a random mod on that side — not guaranteed to
+    // be the unwanted one.
+    const annulsPerMiss = expectedSideAnnuls(placedSameType + 1);
+    const perAttemptCost = orbPrice + omen;
+    const failures = Number.isFinite(attempts) ? Math.max(0, attempts - 1) : 0;
+    const cleanupPerMiss = annulsPerMiss * (annul + annulOmen);
     const stepCost = Number.isFinite(attempts)
-      ? attempts * (orbPrice + omen) + (attempts - 1) * annul
+      ? attempts * perAttemptCost + failures * cleanupPerMiss
       : 0;
     cost += stepCost;
     const tierBit = t.tierLevel
@@ -252,7 +291,7 @@ function fillByExalt(
     steps.push({
       n: n++,
       title: `Add "${t.label}"${tierBit} (${t.generationType})`,
-      detail: `Use ${orb.name} with an ${omenName} to force the new modifier onto a ${t.generationType} slot${biasBit}. If you hit the wrong mod, Annul and retry.`,
+      detail: `Use ${orb.name} with an ${omenName} to force the new modifier onto a ${t.generationType} slot${biasBit}. On a miss, pair an ${annulOmenName} with Annul — it still removes a random ${t.generationType} (≈${annulsPerMiss} Annul${annulsPerMiss === 1 ? "" : "s"} per cleanup on average when ${placedSameType + 1} ${t.generationType}${placedSameType + 1 === 1 ? "" : "es"} are present); a bad Annul can strip a finished mod and force you to restart.`,
       currency: orb.name,
       odds: o,
       expectedAttempts: Number.isFinite(attempts)
@@ -539,7 +578,12 @@ function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod {
   };
 }
 
-function methodAlchemyChaos(inputs: SolveInputs): CraftMethod {
+function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
+  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
+  // Chaos removes one random mod and adds one random mod — any unprotected mod
+  // can be wiped on the next Chaos, so this path only models a single target.
+  if (allTargets.length !== 1) return null;
+
   const steps: CraftStep[] = [];
   let n = 1;
   let cost = 0;
@@ -555,43 +599,37 @@ function methodAlchemyChaos(inputs: SolveInputs): CraftMethod {
   });
   cost += alch;
 
-  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
-  // Chaos in PoE2 removes one random mod and adds one random mod. Estimate the
-  // expected chaos spam to land each target as 1/freshOdds (very rough).
-  let odds = 1;
-  for (const t of allTargets) {
-    const o = t.oddsFresh;
-    odds *= o;
-    const attempts = oddsToAttempts(o);
-    const stepCost = Number.isFinite(attempts) ? attempts * chaos : 0;
-    cost += stepCost;
-    steps.push({
-      n: n++,
-      title: `Chaos toward "${t.label}"`,
-      detail:
-        "Use Chaos Orbs (ideally with annul/exalt cleanup) to cycle unwanted mods into the one you want. Low determinism.",
-      currency: "Chaos Orb",
-      odds: o,
-      expectedAttempts: Number.isFinite(attempts)
-        ? Math.max(1, Math.ceil(attempts))
-        : undefined,
-      costExalted: Number.isFinite(stepCost) ? round(stepCost) : undefined,
-    });
-  }
+  const t = allTargets[0];
+  const o = t.oddsFresh;
+  const attempts = oddsToAttempts(o);
+  const stepCost = Number.isFinite(attempts) ? attempts * chaos : 0;
+  cost += stepCost;
+  steps.push({
+    n: n++,
+    title: `Chaos toward "${t.label}"`,
+    detail:
+      "Chaos removes one random mod and adds one random mod. It can land a single target, but every subsequent Chaos can overwrite it — use Fracture, Essence, or Exalt+Omen when you need more than one mod.",
+    currency: "Chaos Orb",
+    odds: o,
+    expectedAttempts: Number.isFinite(attempts)
+      ? Math.max(1, Math.ceil(attempts))
+      : undefined,
+    costExalted: Number.isFinite(stepCost) ? round(stepCost) : undefined,
+  });
 
   return {
     id: "alchemy-chaos",
     name: "Alchemy + Chaos",
-    summary: "Alch to Rare then Chaos-cycle toward the targets.",
+    summary: `Alch to Rare then Chaos-cycle for a single mod ("${t.label}").`,
     steps,
     feasible: true,
-    overallOdds: odds,
+    overallOdds: o,
     estCostExalted: round(cost),
     costApproximate: true,
-    pros: ["Cheap to start.", "Good when you just need a few common mods."],
+    pros: ["Cheap to start.", "Good when you only need one common mod."],
     cons: [
       "Low control — Chaos swaps are random.",
-      "Cost balloons for multi-mod or rare targets.",
+      "Not viable for multi-mod goals — each Chaos can erase a finished mod.",
     ],
   };
 }
@@ -739,16 +777,19 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
   cost += fractureCost;
 
   const annul = inputs.price("annul");
-  const chaos = inputs.price("chaos");
+  const fillerCount = 3;
+  const expectedAnnuls = expectedRandomAnnuls(fillerCount);
   steps.push({
     n: n++,
-    title: "Annul the fillers, then Chaos-spam for the rest",
+    title: "Annul filler mods, then Exalt+Omen for the rest",
     detail: useAbyssMark
-      ? "With the key mod fractured (safe), Annul off the filler mods and Chaos-spam the open slots. Finally, reveal the desecrated mod at the Well of Souls (choice of 3) for a strong non-craftable modifier."
-      : "With the key mod fractured (safe), Annul off the filler mods and Chaos-spam the open slots for the remaining mods.",
-    currency: "Chaos Orb",
+      ? `With "${key.label}" fractured (safe from Annul/Chaos), clear the ${fillerCount} filler mods — Annul removes a random non-fractured mod unless you use Sinistral/Dextral Annulment omens (still random within that side). Expect ~${expectedAnnuls} Annuls to clear ${fillerCount} fillers. Then Exalt+Omen the remaining targets. Finally, reveal the desecrated mod at the Well of Souls (choice of 3).`
+      : `With "${key.label}" fractured (safe from Annul/Chaos), clear the ${fillerCount} filler mods — Annul removes a random non-fractured mod unless you use Sinistral/Dextral Annulment omens (still random within that side). Expect ~${expectedAnnuls} Annuls to clear ${fillerCount} fillers, then Exalt+Omen the remaining targets.`,
+    currency: "Orb of Annulment",
+    expectedAttempts: Math.ceil(expectedAnnuls),
+    costExalted: round(expectedAnnuls * annul),
   });
-  cost += annul + chaos * 4;
+  cost += expectedAnnuls * annul;
 
   // Remaining targets via Exalt+Omen, key already locked.
   const prePlaced = {
@@ -774,7 +815,7 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
 
   return {
     id: "fracture-chaos",
-    name: useAbyssMark ? "Abyss-Mark Fracture (1/3)" : "Fracture + Chaos/Exalt",
+    name: useAbyssMark ? "Abyss-Mark Fracture (1/3)" : "Fracture + Exalt",
     summary: useAbyssMark
       ? `Add an unrevealed desecrated mod so fracturing "${key.label}" is 1/3 instead of 1/4, lock it, then finish freely.`
       : `Lock "${key.label}" with a Fracturing Orb, then finish the rest safely.`,
@@ -1229,7 +1270,15 @@ export async function solveFromBase(
   itemLevel: number,
   desiredGroups: string[],
 ): Promise<CraftPlan | null> {
-  const priceMap = await getPriceByApiId();
+  let priceMap: Map<string, number>;
+  let divinePriceExalted = FALLBACK_PRICE.divine;
+  try {
+    const prices = await getPrices();
+    priceMap = new Map(prices.items.map((i) => [i.apiId, i.priceExalted]));
+    divinePriceExalted = prices.divinePrice || FALLBACK_PRICE.divine;
+  } catch {
+    priceMap = await getPriceByApiId();
+  }
   const built = await buildInputs(baseId, itemLevel, desiredGroups, priceMap);
   if (!built) return null;
   const { inputs, warnings, feasible } = built;
@@ -1249,6 +1298,7 @@ export async function solveFromBase(
     feasible,
     steps: cheapest?.steps ?? [],
     overallOdds: cheapest?.overallOdds ?? 0,
+    divinePriceExalted,
   };
 }
 
