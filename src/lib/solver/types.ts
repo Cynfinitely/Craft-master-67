@@ -20,6 +20,10 @@ export interface DesiredMod {
   tierLevel?: number;
   /** Display value of the targeted tier. */
   tierValue?: string;
+  /** Top stat value of the targeted tier (for essence reach checks). */
+  tierStatMax?: number;
+  /** True when this mod only comes from desecration (Well of Souls). */
+  desecrated?: boolean;
 }
 
 export interface CraftStep {
@@ -34,6 +38,13 @@ export interface CraftStep {
   expectedAttempts?: number;
   /** Estimated cost contributed by this step, in Exalted Orbs. */
   costExalted?: number;
+  /**
+   * Chance this step destroys earlier progress (e.g. an Annul/Chaos strips a
+   * finished mod), forcing a restart. 0..1.
+   */
+  brickOdds?: number;
+  /** Step number a brick on this step reverts the craft to (default 1). */
+  restartFromStep?: number;
 }
 
 /** A distinct strategy for reaching the desired mods on a base. */
@@ -52,6 +63,12 @@ export interface CraftMethod {
   costApproximate: boolean;
   /** True when the estimate omits an unknown market price (e.g. buying a base). */
   excludesMarketPrice?: boolean;
+  /** Probability a single full pass of the sequence succeeds (0..1). */
+  successChancePerAttempt?: number;
+  /** Probability the craft bricks (strips finished progress) on a pass, 0..1. */
+  brickRisk?: number;
+  /** Expected number of full attempts/items consumed to succeed once. */
+  expectedItemsConsumed?: number;
   pros: string[];
   cons: string[];
 }

@@ -9,7 +9,15 @@ export function cleanModText(text: string | null | undefined): string {
   if (!text) return "";
   return text.replace(/\[([^\]]+)\]/g, (_m, inner: string) => {
     const pipe = inner.indexOf("|");
-    return pipe >= 0 ? inner.slice(0, pipe) : inner;
+    if (pipe < 0) return inner;
+    const before = inner.slice(0, pipe);
+    const after = inner.slice(pipe + 1);
+    // repoe uses [Display Text|Keyword] (e.g. [Physical Damage|Physical]) and also
+    // [InternalTag|Display Text] (e.g. [ItemRarity|Rarity of Items]). Prefer the
+    // segment that looks like a phrase (contains a space); otherwise take after.
+    if (before.includes(" ")) return before;
+    if (after) return after;
+    return before;
   });
 }
 

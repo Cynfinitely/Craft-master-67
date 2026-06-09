@@ -35,6 +35,31 @@ function MethodCard({
             {method.name}
           </h3>
           <p className="mt-0.5 text-sm text-forge-gold/60">{method.summary}</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {method.successChancePerAttempt !== undefined &&
+            method.successChancePerAttempt < 1 ? (
+              <span className="rounded border border-forge-border bg-forge-panel2/60 px-1.5 py-0.5 text-[10px] text-forge-gold/70">
+                {oddsLabel(method.successChancePerAttempt)} success / attempt
+              </span>
+            ) : null}
+            {method.brickRisk !== undefined && method.brickRisk > 0 ? (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] ${
+                  method.brickRisk >= 0.5
+                    ? "bg-forge-rust/25 text-forge-rust"
+                    : "bg-amber-900/30 text-amber-300"
+                }`}
+              >
+                {oddsLabel(method.brickRisk)} brick risk
+              </span>
+            ) : null}
+            {method.expectedItemsConsumed !== undefined &&
+            method.expectedItemsConsumed > 1.05 ? (
+              <span className="rounded border border-forge-border bg-forge-panel2/60 px-1.5 py-0.5 text-[10px] text-forge-gold/70">
+                ~{method.expectedItemsConsumed.toFixed(1)} items consumed
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="text-right">
           <div className="text-xs text-forge-gold/50">est. cost</div>
@@ -95,6 +120,11 @@ function MethodCard({
                     : ""}
                 </span>
               </div>
+              {s.brickOdds !== undefined && s.brickOdds > 0 ? (
+                <span className="mt-1 inline-block rounded bg-forge-rust/20 px-1.5 py-0.5 text-[10px] font-medium text-forge-rust">
+                  bricks here ~{oddsLabel(s.brickOdds)}
+                </span>
+              ) : null}
               <p className="mt-0.5 text-xs text-forge-gold/60">{s.detail}</p>
               {s.currency ? (
                 <Link

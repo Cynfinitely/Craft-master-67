@@ -4,10 +4,13 @@ import { groupByModGroup, modLabel, tierValue } from "@/lib/data/format";
 import { notableTags } from "@/lib/data/tags";
 import { getPriceByApiId, getPrices } from "@/lib/pricing/poe2scout";
 import {
+  essenceReachesTarget,
   resolveDeterminism,
   type EssenceGuarantee,
 } from "./determinism";
 import { resolveAlloys, type AlloyGuarantee } from "./alloys";
+import { withRisk } from "./risk";
+import { catalystStep, corruptionStep, crystallisationStep } from "./finishers";
 import { isRuneforgeable, runeforgingNote } from "@/lib/data/runeforging";
 import type { EligibleMod } from "@/lib/data/types";
 import type {
@@ -55,9 +58,22 @@ const FALLBACK_PRICE: Record<string, number> = {
   "greater-exalted-orb": 6,
   "perfect-exalted-orb": 30,
   chaos: 0.5,
+  "greater-chaos-orb": 4,
+  "perfect-chaos-orb": 20,
+  "greater-orb-of-transmutation": 0.5,
+  "perfect-orb-of-transmutation": 3,
+  "greater-orb-of-augmentation": 0.5,
+  "perfect-orb-of-augmentation": 3,
+  "greater-regal-orb": 4,
+  "perfect-regal-orb": 20,
   annul: 2,
   "omen-of-sinistral-annulment": 5,
   "omen-of-dextral-annulment": 5,
+  "omen-of-whittling": 25,
+  "omen-of-light": 15,
+  "omen-of-abyssal-echoes": 20,
+  "omen-of-sinistral-crystallisation": 6,
+  "omen-of-dextral-crystallisation": 6,
   divine: 200,
   vaal: 1.5,
   "fracturing-orb": 30,
@@ -71,6 +87,10 @@ const FALLBACK_PRICE: Record<string, number> = {
   "omen-of-sinistral-necromancy": 10,
   "omen-of-dextral-necromancy": 10,
   "omen-of-greater-exaltation": 8,
+  "tuls-catalyst": 1,
+  "xophs-catalyst": 1,
+  "eshs-catalyst": 1,
+  "uul-netols-catalyst": 1,
 };
 
 function makePricer(priceMap: Map<string, number>) {
@@ -133,6 +153,36 @@ function pickExaltOrb(tierLevel: number | undefined): ExaltOrb {
   return best;
 }
 
+// Tiered base-currency ladders (Normal / Greater / Perfect). Greater biases the
+// added/rerolled mod to modifier level >= 35, Perfect >= 50, just like exalts.
+type LadderOrb = { apiId: string; name: string; minLevel: number };
+const TRANSMUTE_ORBS: LadderOrb[] = [
+  { apiId: "transmutation", name: "Orb of Transmutation", minLevel: 0 },
+  { apiId: "greater-orb-of-transmutation", name: "Greater Orb of Transmutation", minLevel: 35 },
+  { apiId: "perfect-orb-of-transmutation", name: "Perfect Orb of Transmutation", minLevel: 50 },
+];
+const REGAL_ORBS: LadderOrb[] = [
+  { apiId: "regal", name: "Regal Orb", minLevel: 0 },
+  { apiId: "greater-regal-orb", name: "Greater Regal Orb", minLevel: 35 },
+  { apiId: "perfect-regal-orb", name: "Perfect Regal Orb", minLevel: 50 },
+];
+const CHAOS_ORBS: LadderOrb[] = [
+  { apiId: "chaos", name: "Chaos Orb", minLevel: 0 },
+  { apiId: "greater-chaos-orb", name: "Greater Chaos Orb", minLevel: 35 },
+  { apiId: "perfect-chaos-orb", name: "Perfect Chaos Orb", minLevel: 50 },
+];
+
+/** Cheapest ladder orb whose minimum level still includes the target tier. */
+function pickLadderOrb(
+  ladder: LadderOrb[],
+  tierLevel: number | undefined,
+): LadderOrb {
+  if (tierLevel == null) return ladder[0];
+  let best = ladder[0];
+  for (const o of ladder) if (o.minLevel <= tierLevel) best = o;
+  return best;
+}
+
 type TierGroups = Map<string, EligibleMod[]>;
 
 function toTierGroups(mods: EligibleMod[]): TierGroups {
@@ -187,16 +237,127 @@ interface SolveInputs {
 // Alloys aren't on poe2scout yet; use a conservative flat fallback price.
 const ALLOY_FALLBACK_PRICE = 3;
 
-/** Cheapest essence (by unit price) able to guarantee a given group, if any. */
-function cheapestEssence(
+/**
+ * Best essence for a target: cheapest whose guaranteed tier/value reaches the
+ * user's minimum. Returns null when a specific tier is requested but no essence
+ * can hit it (e.g. Hysteria's fixed 30% ms can't reach T1 35%).
+ */
+function bestEssenceForTarget(
   inputs: SolveInputs,
-  group: string,
+  target: DesiredMod,
 ): EssenceGuarantee | null {
-  const options = inputs.determinism.get(group);
+  const options = inputs.determinism.get(target.group);
   if (!options || options.length === 0) return null;
-  return [...options].sort(
+  const byPrice = [...options].sort(
     (a, b) => inputs.price(a.essenceApiId) - inputs.price(b.essenceApiId),
-  )[0];
+  );
+  const reaches = byPrice.filter((e) => essenceReachesTarget(e, target));
+  if (target.tierLevel != null) return reaches[0] ?? null;
+  // No specific tier: prefer the highest guarantee, then price.
+  return [...options].sort((a, b) => {
+    const al = a.guaranteedLevel ?? 0;
+    const bl = b.guaranteedLevel ?? 0;
+    if (al !== bl) return bl - al;
+    return inputs.price(a.essenceApiId) - inputs.price(b.essenceApiId);
+  })[0];
+}
+
+function essenceGuaranteeable(inputs: SolveInputs, target: DesiredMod): boolean {
+  return bestEssenceForTarget(inputs, target) != null;
+}
+
+/** Mods whose values can still be improved with a Divine (excludes fixed essences). */
+function variableTargetCount(
+  targets: DesiredMod[],
+  fixedGroups: Set<string> = new Set(),
+): number {
+  return targets.filter((t) => !fixedGroups.has(t.group)).length;
+}
+
+function essenceStepDetail(
+  essence: EssenceGuarantee,
+  targetLabel: string,
+): string {
+  const tierBit = essence.guaranteedValue
+    ? ` at ${essence.guaranteedValue}`
+    : "";
+  const fixedBit = essence.isFixedValue
+    ? " The granted value is fixed — a Divine Orb cannot reroll it."
+    : "";
+  return `Applying an Essence upgrades the Magic item to Rare while guaranteeing "${targetLabel}"${tierBit}.${fixedBit}`;
+}
+
+/** Odds a single Transmute lands a given mod on a fresh Magic item. */
+function magicHitOdds(inputs: SolveInputs, target: DesiredMod): number {
+  const tiers =
+    target.generationType === "prefix"
+      ? (inputs.preGroups.get(target.group) ?? [])
+      : (inputs.sufGroups.get(target.group) ?? []);
+  const num = groupWeightAtLevel(tiers, target.tierLevel ?? 0);
+  const den = inputs.totalPre + inputs.totalSuf;
+  return den > 0 ? Math.min(1, num / den) : 0;
+}
+
+type BoneInfo = { bone: string; boneApi: string };
+
+/** Abyss + directional desecrate-unveil for one target. */
+function appendDesecrateSteps(
+  inputs: SolveInputs,
+  target: DesiredMod,
+  boneInfo: BoneInfo,
+  startN: number,
+  steps: CraftStep[],
+  opts?: { useEchoes?: boolean; includeAbyss?: boolean },
+): { n: number; cost: number; odds: number } {
+  let n = startN;
+  let cost = 0;
+  let odds = 1;
+  const useEchoes = opts?.useEchoes ?? false;
+  const includeAbyss = opts?.includeAbyss ?? true;
+
+  if (includeAbyss) {
+    const abyssEss = inputs.price("essence-of-the-abyss");
+    steps.push({
+      n: n++,
+      title: "Essence of the Abyss → Mark of the Abyssal Lord",
+      detail:
+        "Removes a random non-fractured mod and adds the Mark of the Abyssal Lord. Fracture your seed mod first so the Mark replaces the other finished mod, not your key prefix.",
+      currency: "Essence of the Abyss",
+      costExalted: round(abyssEss),
+    });
+    cost += abyssEss;
+  }
+
+  const necroApi =
+    target.generationType === "prefix"
+      ? "omen-of-sinistral-necromancy"
+      : "omen-of-dextral-necromancy";
+  const necroName =
+    target.generationType === "prefix"
+      ? "Omen of Sinistral Necromancy"
+      : "Omen of Dextral Necromancy";
+  const ancientApi = `ancient-${boneInfo.boneApi}`;
+  const pickOdds = useEchoes ? 1 / 2 : 1 / 3;
+  const pickAttempts = Math.ceil(1 / pickOdds);
+  const perDesec =
+    inputs.price(ancientApi) +
+    inputs.price(necroApi) +
+    (useEchoes ? inputs.price("omen-of-abyssal-echoes") : 0);
+  const desecCost = pickAttempts * perDesec;
+  cost += desecCost;
+  odds *= target.oddsFresh > 0 ? Math.min(1, 1 - Math.pow(1 - target.oddsFresh, useEchoes ? 5 : 3)) : pickOdds;
+  steps.push({
+    n: n++,
+    title: `Desecrate-unveil "${target.label}" (${target.generationType})`,
+    detail: `Apply an Ancient ${boneInfo.bone} with ${necroName} to add a hidden desecrated ${target.generationType}${
+      useEchoes ? " and an Omen of Abyssal Echoes for more reveal options" : ""
+    }, reveal at the Well of Souls, and pick "${target.label}". Re-roll with an Omen of Light if needed.`,
+    currency: `Ancient ${boneInfo.bone}`,
+    odds: pickOdds,
+    expectedAttempts: pickAttempts,
+    costExalted: round(desecCost),
+  });
+  return { n, cost, odds };
 }
 
 /**
@@ -238,12 +399,16 @@ function fillByExalt(
   startN: number,
   steps: CraftStep[],
   prePlaced?: { pre: Set<string>; suf: Set<string> },
+  /** Groups that are fracture-/guarantee-locked and can't be Annulled away. */
+  protect?: { pre: Set<string>; suf: Set<string> },
 ): { n: number; odds: number; cost: number } {
   let n = startN;
   let odds = 1;
   let cost = 0;
   const placedPre = new Set(prePlaced?.pre ?? []);
   const placedSuf = new Set(prePlaced?.suf ?? []);
+  const protectPre = protect?.pre ?? new Set<string>();
+  const protectSuf = protect?.suf ?? new Set<string>();
   const annul = inputs.price("annul");
 
   for (const t of targets) {
@@ -269,8 +434,14 @@ function fillByExalt(
     const orbPrice = inputs.price(orb.apiId);
     const omen = inputs.price(omenId);
     const annulOmen = inputs.price(annulOmenId);
-    const placedSameType =
-      t.generationType === "prefix" ? placedPre.size : placedSuf.size;
+    const placedSet = t.generationType === "prefix" ? placedPre : placedSuf;
+    const protectSet =
+      t.generationType === "prefix" ? protectPre : protectSuf;
+    const placedSameType = placedSet.size;
+    // Finished same-side mods that an Annul could actually strip (fractured /
+    // locked mods are safe and excluded).
+    let unprotectedSameType = 0;
+    for (const g of placedSet) if (!protectSet.has(g)) unprotectedSameType++;
     // After a miss the wrong mod occupies one slot on this side; Annul (even
     // with a side omen) removes a random mod on that side — not guaranteed to
     // be the unwanted one.
@@ -282,6 +453,14 @@ function fillByExalt(
       ? attempts * perAttemptCost + failures * cleanupPerMiss
       : 0;
     cost += stepCost;
+    // Brick risk: when you Annul the wrong mod off this side, the Annul is
+    // random within the side, so with `unprotectedSameType` strippable finished
+    // mods present P(a good one goes first) = u/(u+1). Locking mods (fracture)
+    // or leaving slots open (double-slam) avoids this.
+    const brickOdds =
+      unprotectedSameType > 0 && Number.isFinite(failures) && failures > 0
+        ? unprotectedSameType / (unprotectedSameType + 1)
+        : undefined;
     const tierBit = t.tierLevel
       ? ` at tier ${t.tierValue ?? `lvl ${t.tierLevel}`}`
       : "";
@@ -298,6 +477,7 @@ function fillByExalt(
         ? Math.max(1, Math.ceil(attempts))
         : undefined,
       costExalted: Number.isFinite(stepCost) ? round(stepCost) : undefined,
+      brickOdds,
     });
     if (t.generationType === "prefix") placedPre.add(t.group);
     else placedSuf.add(t.group);
@@ -336,18 +516,59 @@ function divineStep(
   };
 }
 
+/**
+ * Greater/Perfect Chaos "replace a bad affix" step. Chaos removes one random
+ * mod and adds one; with `goodMods` of `totalMods` worth protecting, each orb
+ * has `goodMods/totalMods` chance to strip a good mod (the recipe's "2/3 to
+ * brick"). Success = remove the one bad mod AND add the target.
+ */
+function chaosReplaceStep(
+  inputs: SolveInputs,
+  target: DesiredMod,
+  goodMods: number,
+  totalMods: number,
+  startN: number,
+): { step: CraftStep; cost: number } {
+  const chaosOrb = pickLadderOrb(CHAOS_ORBS, target.tierLevel);
+  const unit = inputs.price(chaosOrb.apiId) || inputs.price("chaos");
+  const pRemoveBad = totalMods > 0 ? 1 / totalMods : 0;
+  const pSuccess = pRemoveBad * target.oddsFresh;
+  const attempts = pSuccess > 0 ? 1 / pSuccess : Infinity;
+  const brickOdds = totalMods > 0 ? goodMods / totalMods : 0;
+  const cost = Number.isFinite(attempts) ? attempts * unit : 0;
+  return {
+    step: {
+      n: startN,
+      title: `${chaosOrb.name} to swap a bad affix for "${target.label}"`,
+      detail: `${chaosOrb.name} removes one random mod and adds one. With ${goodMods} good mod${
+        goodMods === 1 ? "" : "s"
+      } of ${totalMods} on the item, each orb has ~${Math.round(
+        brickOdds * 100,
+      )}% to strip a good mod instead of the bad one — protect finished mods by Fracturing first.`,
+      currency: chaosOrb.name,
+      odds: pSuccess,
+      expectedAttempts: Number.isFinite(attempts)
+        ? Math.max(1, Math.ceil(attempts))
+        : undefined,
+      costExalted: Number.isFinite(cost) ? round(cost) : undefined,
+      brickOdds,
+    },
+    cost: Number.isFinite(cost) ? cost : 0,
+  };
+}
+
 /* ----------------------------- method builders ----------------------------- */
 
 function methodEssenceLed(inputs: SolveInputs): CraftMethod | null {
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
-  // Find guaranteeable targets; lead with the hardest (lowest fresh odds).
+  // Find targets an essence can actually guarantee at the requested tier.
   const guaranteeable = allTargets
-    .filter((t) => inputs.determinism.has(t.group))
+    .filter((t) => essenceGuaranteeable(inputs, t))
     .sort((a, b) => a.oddsFresh - b.oddsFresh);
   if (guaranteeable.length === 0) return null;
 
   const lead = guaranteeable[0];
-  const essence = cheapestEssence(inputs, lead.group)!;
+  const essence = bestEssenceForTarget(inputs, lead)!;
 
   const steps: CraftStep[] = [];
   let n = 1;
@@ -369,11 +590,13 @@ function methodEssenceLed(inputs: SolveInputs): CraftMethod | null {
   cost += transmute;
 
   const essCost = inputs.price(essence.essenceApiId);
+  const tierBit = essence.guaranteedValue
+    ? ` (guarantees ${essence.guaranteedValue})`
+    : "";
   steps.push({
     n: n++,
-    title: `Use ${essence.essenceName} to guarantee "${lead.label}"`,
-    detail:
-      "Applying an Essence upgrades the Magic item to Rare while guaranteeing the chosen modifier. This locks in your hardest mod up front.",
+    title: `Use ${essence.essenceName} to guarantee "${lead.label}"${tierBit}`,
+    detail: essenceStepDetail(essence, lead.label),
     currency: essence.essenceName,
     odds: 1,
     costExalted: round(essCost),
@@ -401,7 +624,10 @@ function methodEssenceLed(inputs: SolveInputs): CraftMethod | null {
     cost += inputs.price("omen-of-greater-exaltation");
   }
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const fixedGroups = essence.isFixedValue
+    ? new Set([lead.group])
+    : new Set<string>();
+  const div = divineStep(inputs, variableTargetCount(allTargets, fixedGroups), n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -527,7 +753,161 @@ function methodAlloy(inputs: SolveInputs): CraftMethod | null {
   };
 }
 
-function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod {
+/**
+ * Flagship community recipe (bow/helmet): guarantee the hardest mod with a
+ * Greater/Perfect Essence, desecrate-unveil a second strong mod on a chosen
+ * side (directional Necromancy + bone, optionally Abyssal Echoes for more
+ * reveal options), then fill the remaining OPEN slots with a Greater/Perfect
+ * Exalt + Omen of Greater Exaltation double-slam. Open-slot adds avoid the
+ * Annul-cleanup brick risk of the plain Exalt ladder.
+ */
+function methodEssenceDesecExalt(inputs: SolveInputs): CraftMethod | null {
+  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
+    (a, b) => a.oddsFresh - b.oddsFresh,
+  );
+  if (allTargets.length < 2) return null;
+  const boneInfo = BONE_BY_CLASS.find((b) => b.test(inputs.itemClass));
+  if (!boneInfo) return null;
+
+  // Lead: hardest target an essence can guarantee at the requested tier.
+  const lead = allTargets.find((t) => essenceGuaranteeable(inputs, t));
+  if (!lead) return null;
+  const essence = bestEssenceForTarget(inputs, lead)!;
+
+  const afterLead = allTargets.filter((t) => t.group !== lead.group);
+  const desecTarget = afterLead[0];
+  const rest = afterLead.slice(1);
+
+  const steps: CraftStep[] = [];
+  let n = 1;
+  let cost = 0;
+
+  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, lead.tierLevel);
+  const transmute = inputs.price(transOrb.apiId);
+  steps.push({
+    n: n++,
+    title: `${transOrb.name} on an item level ${inputs.itemLevel} ${inputs.baseName}`,
+    detail:
+      "Start from a clean Normal base and Transmute to Magic so an Essence can upgrade it to Rare.",
+    currency: transOrb.name,
+    costExalted: round(transmute),
+  });
+  cost += transmute;
+
+  const essCost = inputs.price(essence.essenceApiId);
+  const tierBit = essence.guaranteedValue
+    ? ` (guarantees ${essence.guaranteedValue})`
+    : "";
+  steps.push({
+    n: n++,
+    title: `Use ${essence.essenceName} to guarantee "${lead.label}"${tierBit}`,
+    detail: essenceStepDetail(essence, lead.label),
+    currency: essence.essenceName,
+    odds: 1,
+    costExalted: round(essCost),
+  });
+  cost += essCost;
+
+  // Desecrate-unveil the second mod on its own side.
+  const useEchoes = allTargets.length >= 3;
+  const necroApi =
+    desecTarget.generationType === "prefix"
+      ? "omen-of-sinistral-necromancy"
+      : "omen-of-dextral-necromancy";
+  const necroName =
+    desecTarget.generationType === "prefix"
+      ? "Omen of Sinistral Necromancy"
+      : "Omen of Dextral Necromancy";
+  const ancientApi = `ancient-${boneInfo.boneApi}`;
+  const k = useEchoes ? 5 : 3;
+  const do0 = desecTarget.oddsFresh;
+  const desecOdds = do0 > 0 ? Math.min(1, 1 - Math.pow(1 - do0, k)) : 0;
+  const desecAttempts = oddsToAttempts(desecOdds);
+  const echoesPrice = useEchoes ? inputs.price("omen-of-abyssal-echoes") : 0;
+  const perDesec =
+    inputs.price(ancientApi) + inputs.price(necroApi) + echoesPrice;
+  const desecCost = Number.isFinite(desecAttempts)
+    ? desecAttempts * perDesec
+    : 0;
+  cost += desecCost;
+  steps.push({
+    n: n++,
+    title: `Desecrate-unveil "${desecTarget.label}" (${desecTarget.generationType})`,
+    detail: `Apply an Ancient ${boneInfo.bone} with ${necroName} to add a hidden desecrated ${desecTarget.generationType}${
+      useEchoes
+        ? ", and an Omen of Abyssal Echoes to reveal more options"
+        : ""
+    }, then reveal at the Well of Souls and pick "${desecTarget.label}" from the ${k} choices. Re-desecrate if it isn't offered.`,
+    currency: `Ancient ${boneInfo.bone}`,
+    odds: desecOdds,
+    expectedAttempts: Number.isFinite(desecAttempts)
+      ? Math.max(1, Math.ceil(desecAttempts))
+      : undefined,
+    costExalted: round(desecCost),
+  });
+
+  // Fill the remaining open slots with Exalt + Greater Exaltation double-slam.
+  const prePlaced = {
+    pre: new Set(
+      [lead, desecTarget]
+        .filter((t) => t.generationType === "prefix")
+        .map((t) => t.group),
+    ),
+    suf: new Set(
+      [lead, desecTarget]
+        .filter((t) => t.generationType === "suffix")
+        .map((t) => t.group),
+    ),
+  };
+  // The essence + desecrated mods are placed before the last slots, and the
+  // last two go into OPEN slots via a double-slam, so they aren't risked by
+  // Annul cleanup — treat them as protected for brick modeling.
+  const fill = fillByExalt(inputs, rest, n, steps, prePlaced, prePlaced);
+  n = fill.n;
+  cost += fill.cost;
+  if (rest.length >= 2) {
+    steps.push({
+      n: n++,
+      title: "Use Omen of Greater Exaltation for the last two",
+      detail:
+        "With two open slots left, an Omen of Greater Exaltation makes one Exalt add both at once (each high-tier biased), avoiding any Annul cleanup.",
+      currency: "Omen of Greater Exaltation",
+    });
+    cost += inputs.price("omen-of-greater-exaltation");
+  }
+
+  const fixedGroups = essence.isFixedValue
+    ? new Set([lead.group])
+    : new Set<string>();
+  const div = divineStep(inputs, variableTargetCount(allTargets, fixedGroups), n);
+  if (div) {
+    steps.push(div.step);
+    n++;
+    cost += div.cost;
+  }
+
+  return {
+    id: "essence-desec-exalt",
+    name: "Essence + Desecrate + Double-Exalt",
+    summary: `Guarantee "${lead.label}" with ${essence.essenceName}, desecrate-unveil "${desecTarget.label}", then double-Exalt the rest.`,
+    steps,
+    feasible: true,
+    overallOdds: desecOdds * (rest.length ? fill.odds : 1),
+    estCostExalted: round(cost),
+    costApproximate: true,
+    pros: [
+      "Locks the hardest mod deterministically (right tier via Greater/Perfect essence).",
+      "Desecrate gives a choice of options for the second mod.",
+      "Open-slot double-slam avoids Annul-cleanup brick risk.",
+    ],
+    cons: [
+      "Needs Abyss bones + omens.",
+      "Desecrated reveal is still a choice among random options.",
+    ],
+  };
+}
+
+function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod | null {
   const steps: CraftStep[] = [];
   let n = 1;
   let cost = 0;
@@ -536,28 +916,37 @@ function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod {
     title: `Start with an item level ${inputs.itemLevel} ${inputs.baseName}`,
     detail: "Begin from a clean white (Normal) base at the highest item level.",
   });
-  const transmute = inputs.price("transmutation");
-  const regal = inputs.price("regal");
-  steps.push({
-    n: n++,
-    title: "Transmutation then Regal to reach Rare",
-    detail:
-      "Orb of Transmutation makes it Magic (1 random mod); a Regal Orb upgrades it to Rare and adds another. These mods are random — you'll direct the rest with Exalts.",
-    currency: "Regal Orb",
-    costExalted: round(transmute + regal),
-  });
-  cost += transmute + regal;
-
   // Treat the two opening mods as random; target everything via Exalt for a
   // conservative, easy-to-reason estimate.
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
     (a, b) => a.oddsFresh - b.oddsFresh,
   );
-  const fill = fillByExalt(inputs, allTargets, n, steps);
+  const maxTier = Math.max(0, ...allTargets.map((t) => t.tierLevel ?? 0));
+  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, maxTier || undefined);
+  const regalOrb = pickLadderOrb(REGAL_ORBS, maxTier || undefined);
+  const transmute = inputs.price(transOrb.apiId);
+  const regal = inputs.price(regalOrb.apiId);
+  steps.push({
+    n: n++,
+    title: `${transOrb.name} then ${regalOrb.name} to reach Rare`,
+    detail: `${transOrb.name} makes it Magic (1 random mod); ${regalOrb.name} upgrades it to Rare and adds another.${
+      regalOrb.minLevel
+        ? ` The Greater/Perfect tiers bias both added mods to modifier level ≥ ${regalOrb.minLevel}.`
+        : ""
+    } These mods are random — you'll direct the rest with Exalts.`,
+    currency: regalOrb.name,
+    costExalted: round(transmute + regal),
+  });
+  cost += transmute + regal;
+
+  // Desecrated-only mods can't be slammed with Exalts — use Desecration / Magic-seed methods.
+  const exaltTargets = allTargets.filter((t) => !t.desecrated);
+  if (exaltTargets.length === 0) return null;
+  const fill = fillByExalt(inputs, exaltTargets, n, steps);
   n = fill.n;
   cost += fill.cost;
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, exaltTargets.length, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -600,16 +989,19 @@ function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
   cost += alch;
 
   const t = allTargets[0];
+  const chaosOrb = pickLadderOrb(CHAOS_ORBS, t.tierLevel);
+  const chaosUnit = inputs.price(chaosOrb.apiId) || chaos;
   const o = t.oddsFresh;
   const attempts = oddsToAttempts(o);
-  const stepCost = Number.isFinite(attempts) ? attempts * chaos : 0;
+  const stepCost = Number.isFinite(attempts) ? attempts * chaosUnit : 0;
   cost += stepCost;
   steps.push({
     n: n++,
-    title: `Chaos toward "${t.label}"`,
-    detail:
-      "Chaos removes one random mod and adds one random mod. It can land a single target, but every subsequent Chaos can overwrite it — use Fracture, Essence, or Exalt+Omen when you need more than one mod.",
-    currency: "Chaos Orb",
+    title: `${chaosOrb.name} toward "${t.label}"`,
+    detail: `${chaosOrb.name} removes one random mod and adds one random mod${
+      chaosOrb.minLevel ? ` (biased to modifier level ≥ ${chaosOrb.minLevel})` : ""
+    }. It can land a single target, but every subsequent Chaos can overwrite it — use Fracture, Essence, or Exalt+Omen when you need more than one mod.`,
+    currency: chaosOrb.name,
     odds: o,
     expectedAttempts: Number.isFinite(attempts)
       ? Math.max(1, Math.ceil(attempts))
@@ -630,6 +1022,222 @@ function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
     cons: [
       "Low control — Chaos swaps are random.",
       "Not viable for multi-mod goals — each Chaos can erase a finished mod.",
+    ],
+  };
+}
+
+// Abyssal bone per item class (Rise of the Abyssal desecration crafting).
+const BONE_BY_CLASS: { test: (ic: string) => boolean; bone: string; boneApi: string }[] =
+  [
+    {
+      test: (ic) => ic === "Ring" || ic === "Amulet" || ic === "Belt",
+      bone: "Collarbone",
+      boneApi: "collarbone",
+    },
+    {
+      test: (ic) =>
+        ic === "Quiver" ||
+        /Mace|Sword|Axe|Dagger|Claw|Bow|Crossbow|Wand|Sceptre|Staff|Warstaff|Spear|Flail/.test(
+          ic,
+        ),
+      bone: "Jawbone",
+      boneApi: "jawbone",
+    },
+    {
+      test: (ic) =>
+        ic === "Body Armour" ||
+        ic === "Helmet" ||
+        ic === "Gloves" ||
+        ic === "Boots" ||
+        ic === "Shield" ||
+        ic === "Buckler" ||
+        ic === "Focus",
+      bone: "Rib",
+      boneApi: "rib",
+    },
+  ];
+
+function methodMagicSeedEssence(inputs: SolveInputs): CraftMethod | null {
+  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
+    (a, b) => a.oddsFresh - b.oddsFresh,
+  );
+  if (allTargets.length < 2) return null;
+
+  const boneInfo = BONE_BY_CLASS.find((b) => b.test(inputs.itemClass));
+
+  // Hardest mod that must be rolled on Magic (not essence-guaranteeable, not desecrated-only).
+  const rollTargets = allTargets.filter(
+    (t) => !t.desecrated && !essenceGuaranteeable(inputs, t),
+  );
+  const essenceTargets = allTargets.filter(
+    (t) => !t.desecrated && essenceGuaranteeable(inputs, t),
+  );
+  if (rollTargets.length === 0 || essenceTargets.length === 0) return null;
+
+  const seed = rollTargets[0];
+  const essenceTarget =
+    essenceTargets.find((t) => t.generationType !== seed.generationType) ??
+    essenceTargets.sort((a, b) => a.oddsFresh - b.oddsFresh)[0];
+  const essence = bestEssenceForTarget(inputs, essenceTarget)!;
+
+  const desecTargets = allTargets.filter(
+    (t) =>
+      t.desecrated &&
+      t.group !== seed.group &&
+      t.group !== essenceTarget.group,
+  );
+  const normalRest = allTargets.filter(
+    (t) =>
+      !t.desecrated &&
+      t.group !== seed.group &&
+      t.group !== essenceTarget.group,
+  );
+  if (desecTargets.length > 0 && !boneInfo) return null;
+
+  const steps: CraftStep[] = [];
+  let n = 1;
+  let cost = 0;
+  let overallOdds = 1;
+
+  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, seed.tierLevel);
+  const magicOdds = magicHitOdds(inputs, seed);
+  const magicAttempts = oddsToAttempts(magicOdds);
+  const transUnit = inputs.price(transOrb.apiId);
+  const magicCost = Number.isFinite(magicAttempts)
+    ? magicAttempts * transUnit
+    : 0;
+  cost += magicCost;
+  overallOdds *= magicOdds;
+  steps.push({
+    n: n++,
+    title: `${transOrb.name} until Magic with "${seed.label}"`,
+    detail: `Transmute a white ${inputs.baseName} until Magic with "${seed.label}" (~${Math.round(
+      magicOdds * 1000,
+    ) / 10}% per orb, expect ~${Number.isFinite(magicAttempts) ? Math.ceil(magicAttempts) : "?"} tries). Or buy a Magic item that already has this mod — often cheaper for rare prefixes like T1 movement speed.`,
+    currency: transOrb.name,
+    odds: magicOdds,
+    expectedAttempts: Number.isFinite(magicAttempts)
+      ? Math.max(1, Math.ceil(magicAttempts))
+      : undefined,
+    costExalted: Number.isFinite(magicCost) ? round(magicCost) : undefined,
+  });
+
+  const essCost = inputs.price(essence.essenceApiId);
+  const tierBit = essence.guaranteedValue
+    ? ` (guarantees ${essence.guaranteedValue})`
+    : "";
+  steps.push({
+    n: n++,
+    title: `Use ${essence.essenceName} on the Magic item${tierBit}`,
+    detail: `${essence.essenceName} upgrades Magic → Rare while keeping "${seed.label}" and adding "${essenceTarget.label}" deterministically — two of your targets done before any Exalt slams.`,
+    currency: essence.essenceName,
+    odds: 1,
+    costExalted: round(essCost),
+  });
+  cost += essCost;
+
+  const prePlaced = {
+    pre: new Set<string>(),
+    suf: new Set<string>(),
+  };
+  const protect = {
+    pre: new Set<string>(),
+    suf: new Set<string>(),
+  };
+  if (seed.generationType === "prefix") prePlaced.pre.add(seed.group);
+  else prePlaced.suf.add(seed.group);
+  if (essenceTarget.generationType === "prefix") prePlaced.pre.add(essenceTarget.group);
+  else prePlaced.suf.add(essenceTarget.group);
+
+  // Before Abyss desecration, fracture the seed so Abyss can't strip it (only
+  // the essence mod is removable). With 2 mods this is 1/2 per orb.
+  let reslamEssence = false;
+  if (desecTargets.length > 0) {
+    const fracture = inputs.price("fracturing-orb");
+    const fractureOdds = 1 / 2;
+    const fractureAttempts = Math.ceil(1 / fractureOdds);
+    const fractureCost = fractureAttempts * fracture;
+    cost += fractureCost;
+    overallOdds *= fractureOdds;
+    steps.push({
+      n: n++,
+      title: `Fracture "${seed.label}" (~50% per orb)`,
+      detail: `With "${seed.label}" + "${essenceTarget.label}" on the item, a Fracturing Orb has a 1-in-2 chance to lock your seed mod. Once fractured, Essence of the Abyss can only remove the essence-added mod — not your movement speed.`,
+      currency: "Fracturing Orb",
+      odds: fractureOdds,
+      expectedAttempts: fractureAttempts,
+      costExalted: round(fractureCost),
+    });
+    if (seed.generationType === "prefix") protect.pre.add(seed.group);
+    else protect.suf.add(seed.group);
+    reslamEssence = true;
+  }
+
+  for (const dt of desecTargets) {
+    const desec = appendDesecrateSteps(
+      inputs,
+      dt,
+      boneInfo!,
+      n,
+      steps,
+      { useEchoes: allTargets.length >= 3, includeAbyss: true },
+    );
+    n = desec.n;
+    cost += desec.cost;
+    overallOdds *= desec.odds;
+    if (dt.generationType === "prefix") prePlaced.pre.add(dt.group);
+    else prePlaced.suf.add(dt.group);
+  }
+
+  const exaltTargets = [
+    ...normalRest,
+    ...(reslamEssence ? [essenceTarget] : []),
+  ];
+  const fill = fillByExalt(
+    inputs,
+    exaltTargets,
+    n,
+    steps,
+    prePlaced,
+    protect,
+  );
+  n = fill.n;
+  cost += fill.cost;
+  overallOdds *= fill.odds;
+
+  const fixedGroups = essence.isFixedValue
+    ? new Set([essenceTarget.group])
+    : new Set<string>();
+  const div = divineStep(
+    inputs,
+    variableTargetCount(allTargets, fixedGroups),
+    n,
+  );
+  if (div) {
+    steps.push(div.step);
+    n++;
+    cost += div.cost;
+  }
+
+  return {
+    id: "magic-seed-essence",
+    name: "Magic seed + Essence finish",
+    summary: `Roll Magic "${seed.label}", ${essence.essenceName} for "${essenceTarget.label}", then ${desecTargets.length ? "desecrate + " : ""}fill the rest.`,
+    steps,
+    feasible: true,
+    overallOdds,
+    estCostExalted: round(cost),
+    costApproximate: true,
+    pros: [
+      "Front-loads the hardest RNG on a cheap Magic base.",
+      "Essence deterministically adds a second target before Exalt/Desecrate.",
+      desecTargets.length
+        ? "Fracturing the seed before Abyss keeps your key mod safe."
+        : "Avoids blind Exalt slams for essence-guaranteeable mods.",
+    ],
+    cons: [
+      "Magic rolling can take many Transmutes for ultra-rare mods.",
+      desecTargets.length ? "Fracturing before desecration still has ~50% miss odds." : "Needs a suitable essence for one target.",
     ],
   };
 }
@@ -699,6 +1307,131 @@ function methodBuyMagicBase(inputs: SolveInputs): CraftMethod | null {
     cons: [
       "Relies on a suitable Magic item being for sale.",
       "Listing price not included — true cost is higher.",
+    ],
+  };
+}
+
+/**
+ * Fractured-base deterministic recipe (amulet/quiver style): start from a base
+ * with the key mod already fractured, Whittle-annul down to isolate it, then
+ * finish the open slots deterministically — Essence + Crystallisation for
+ * guaranteeable mods, directional Exalts for the rest, then catalyst/Vaal.
+ */
+function methodFracturedBase(inputs: SolveInputs): CraftMethod | null {
+  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
+    (a, b) => a.oddsFresh - b.oddsFresh,
+  );
+  if (allTargets.length < 2) return null;
+
+  const key = allTargets[0];
+  const rest = allTargets.slice(1);
+  const steps: CraftStep[] = [];
+  let n = 1;
+  let cost = 0;
+
+  const fracture = inputs.price("fracturing-orb");
+  steps.push({
+    n: n++,
+    title: `Buy or fracture a ${inputs.baseName} with "${key.label}" fractured`,
+    detail:
+      "Acquire a base whose key mod is already fractured (locked, can't be removed). Buying a ready fractured base is often cheaper than rolling + fracturing yourself; the market price isn't in our data.",
+    currency: "Fracturing Orb",
+    costExalted: round(fracture),
+  });
+  cost += fracture;
+
+  const annul = inputs.price("annul");
+  const whittle = inputs.price("omen-of-whittling");
+  const junk = 3;
+  const whittleCost = junk * (annul + whittle);
+  steps.push({
+    n: n++,
+    title: "Whittle-annul down to the fractured mod",
+    detail: `Pair Orb of Annulment with an Omen of Whittling so each Annul removes the LOWEST modifier level on the item — near-deterministically stripping junk while the fractured "${key.label}" is safe. Clear down to the fractured mod + open slots (~${junk} Annuls).`,
+    currency: "Omen of Whittling",
+    expectedAttempts: junk,
+    costExalted: round(whittleCost),
+  });
+  cost += whittleCost;
+
+  const prePlaced = {
+    pre: new Set(key.generationType === "prefix" ? [key.group] : []),
+    suf: new Set(key.generationType === "suffix" ? [key.group] : []),
+  };
+  // The fractured key can't be Annulled away.
+  const protect = {
+    pre: new Set(key.generationType === "prefix" ? [key.group] : []),
+    suf: new Set(key.generationType === "suffix" ? [key.group] : []),
+  };
+
+  // Deterministic adds first (Essence + directional Crystallisation), then the
+  // remaining targets via directional Exalt.
+  const essTargets = rest.filter((t) => essenceGuaranteeable(inputs, t));
+  const exaltTargets = rest.filter((t) => !essenceGuaranteeable(inputs, t));
+  const fixedGroups = new Set<string>();
+  for (const t of essTargets) {
+    const ess = bestEssenceForTarget(inputs, t)!;
+    if (ess.isFixedValue) fixedGroups.add(t.group);
+    const essCost = inputs.price(ess.essenceApiId);
+    const cs = crystallisationStep(t.generationType, ess.essenceName, n, inputs.price);
+    steps.push(cs.step);
+    n++;
+    cost += cs.cost + essCost;
+    // Crystallisation adds to an open side deterministically; treat as safe.
+    if (t.generationType === "prefix") {
+      prePlaced.pre.add(t.group);
+      protect.pre.add(t.group);
+    } else {
+      prePlaced.suf.add(t.group);
+      protect.suf.add(t.group);
+    }
+  }
+
+  const fill = fillByExalt(inputs, exaltTargets, n, steps, prePlaced, protect);
+  n = fill.n;
+  cost += fill.cost;
+
+  const cat = catalystStep(inputs.itemClass, allTargets, n, inputs.price);
+  if (cat) {
+    steps.push(cat.step);
+    n++;
+    cost += cat.cost;
+  }
+
+  const corr = corruptionStep(n, inputs.price);
+  steps.push(corr.step);
+  n++;
+  cost += corr.cost;
+
+  const div = divineStep(
+    inputs,
+    variableTargetCount(allTargets, fixedGroups),
+    n,
+  );
+  if (div) {
+    steps.push(div.step);
+    n++;
+    cost += div.cost;
+  }
+
+  return {
+    id: "fractured-base",
+    name: "Fractured base (deterministic)",
+    summary: `Start from a fractured "${key.label}", Whittle down, then finish slots with Essence+Crystallisation and Exalts.`,
+    steps,
+    feasible: true,
+    overallOdds: exaltTargets.length ? fill.odds : 1,
+    estCostExalted: round(cost),
+    costApproximate: true,
+    excludesMarketPrice: true,
+    pros: [
+      "Key mod is fractured — safe from every later Annul/Chaos.",
+      "Whittling makes the annul-down near-deterministic.",
+      "Essence + Crystallisation adds mods to a chosen side with no brick.",
+    ],
+    cons: [
+      "Needs a suitable fractured base (buy or roll one first).",
+      "Fracturing Orbs and directional omens are expensive.",
     ],
   };
 }
@@ -791,7 +1524,7 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
   });
   cost += expectedAnnuls * annul;
 
-  // Remaining targets via Exalt+Omen, key already locked.
+  // Remaining targets via Exalt+Omen, key already fracture-locked (protected).
   const prePlaced = {
     pre: new Set(key.generationType === "prefix" ? [key.group] : []),
     suf: new Set(key.generationType === "suffix" ? [key.group] : []),
@@ -801,6 +1534,7 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
     rest.filter((t) => t.group !== key.group),
     n,
     steps,
+    prePlaced,
     prePlaced,
   );
   n = fill.n;
@@ -840,37 +1574,6 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
 }
 
 /* ----------------------------- desecration ----------------------------- */
-
-// Abyssal bone per item class (Rise of the Abyssal desecration crafting).
-const BONE_BY_CLASS: { test: (ic: string) => boolean; bone: string; boneApi: string }[] =
-  [
-    {
-      test: (ic) => ic === "Ring" || ic === "Amulet" || ic === "Belt",
-      bone: "Collarbone",
-      boneApi: "collarbone",
-    },
-    {
-      test: (ic) =>
-        ic === "Quiver" ||
-        /Mace|Sword|Axe|Dagger|Claw|Bow|Crossbow|Wand|Sceptre|Staff|Warstaff|Spear|Flail/.test(
-          ic,
-        ),
-      bone: "Jawbone",
-      boneApi: "jawbone",
-    },
-    {
-      test: (ic) =>
-        ic === "Body Armour" ||
-        ic === "Helmet" ||
-        ic === "Gloves" ||
-        ic === "Boots" ||
-        ic === "Shield" ||
-        ic === "Buckler" ||
-        ic === "Focus",
-      bone: "Rib",
-      boneApi: "rib",
-    },
-  ];
 
 function methodDesecration(inputs: SolveInputs): CraftMethod | null {
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
@@ -920,17 +1623,27 @@ function methodDesecration(inputs: SolveInputs): CraftMethod | null {
   const ancientApi = `ancient-${boneInfo.boneApi}`;
   const bonePrice = inputs.price(ancientApi);
   const necroPrice = inputs.price(necroApi);
+  // Omen of Abyssal Echoes reveals more options (better than 1-of-3); Omen of
+  // Light lets you re-roll the revealed choices if none is good.
+  const useEchoes = rest.length >= 1;
+  const echoesPrice = useEchoes ? inputs.price("omen-of-abyssal-echoes") : 0;
+  const pickOdds = useEchoes ? 1 / 2 : 1 / 3;
+  const pickAttempts = Math.ceil(1 / pickOdds);
+  const desecUnit = bonePrice + necroPrice + echoesPrice;
   steps.push({
     n: n++,
     title: `Desecrate with an Ancient ${boneInfo.bone} (+ ${necroName})`,
-    detail: `Apply the Ancient ${boneInfo.bone} to add a hidden desecrated ${lead.generationType} (the Necromancy omen forces the ${lead.generationType}; Ancient guarantees modifier level ≥ 40), then reveal it at the Well of Souls and choose 1 of 3 options — aim for "${lead.label}".`,
+    detail: `Apply the Ancient ${boneInfo.bone} to add a hidden desecrated ${lead.generationType} (the Necromancy omen forces the ${lead.generationType}; Ancient guarantees modifier level ≥ 40)${
+      useEchoes
+        ? ", and add an Omen of Abyssal Echoes to reveal more options"
+        : ""
+    }, then reveal at the Well of Souls and pick "${lead.label}". If none of the revealed options is good, an Omen of Light re-rolls the choices.`,
     currency: `Ancient ${boneInfo.bone}`,
-    // Choosing 1 of 3 revealed mods: treat as a strong, semi-deterministic pick.
-    odds: 1 / 3,
-    expectedAttempts: 3,
-    costExalted: round(bonePrice + necroPrice),
+    odds: pickOdds,
+    expectedAttempts: pickAttempts,
+    costExalted: round(desecUnit * pickAttempts),
   });
-  cost += bonePrice + necroPrice;
+  cost += desecUnit * pickAttempts;
 
   const prePlaced = {
     pre: new Set(lead.generationType === "prefix" ? [lead.group] : []),
@@ -1134,24 +1847,26 @@ async function buildInputs(
   const desiredSuffixes: DesiredMod[] = [];
 
   for (const raw of desiredGroups) {
-    // Entries may target a specific tier as "Group@<minLevel>".
-    const [g, levelStr] = raw.split("@");
-    const tierLevel = levelStr ? Number.parseInt(levelStr, 10) : undefined;
+    // Entries may target a specific tier as "Group@<minLevel>" or "Group@<minLevel>~d".
+    const [g, levelPart] = raw.split("@");
+    const desecrated = levelPart?.endsWith("~d") ?? false;
+    const tierLevel = levelPart
+      ? Number.parseInt(levelPart.replace(/~d$/, ""), 10)
+      : undefined;
 
     if (preMap.has(g)) {
       const info = preMap.get(g)!;
       const tiers = preGroups.get(g) ?? [];
       const num = groupWeightAtLevel(tiers, tierLevel ?? 0);
-      const tierValueStr =
+      const tierMod =
         tierLevel != null
-          ? tierValue(
-              tiers.find((t) => t.requiredLevel === tierLevel) ??
-                [...tiers]
-                  .filter((t) => t.requiredLevel >= tierLevel)
-                  .sort((a, b) => a.requiredLevel - b.requiredLevel)[0] ??
-                tiers[0],
-            )
+          ? tiers.find((t) => t.requiredLevel === tierLevel) ??
+            [...tiers]
+              .filter((t) => t.requiredLevel >= tierLevel)
+              .sort((a, b) => a.requiredLevel - b.requiredLevel)[0] ??
+            tiers[0]
           : undefined;
+      const tierValueStr = tierMod ? tierValue(tierMod) : undefined;
       desiredPrefixes.push({
         group: g,
         label: info.label,
@@ -1160,21 +1875,22 @@ async function buildInputs(
         oddsFresh: totalPre ? num / totalPre : 0,
         tierLevel,
         tierValue: tierValueStr,
+        tierStatMax: tierMod?.stats[0]?.max,
+        desecrated,
       });
     } else if (sufMap.has(g)) {
       const info = sufMap.get(g)!;
       const tiers = sufGroups.get(g) ?? [];
       const num = groupWeightAtLevel(tiers, tierLevel ?? 0);
-      const tierValueStr =
+      const tierMod =
         tierLevel != null
-          ? tierValue(
-              tiers.find((t) => t.requiredLevel === tierLevel) ??
-                [...tiers]
-                  .filter((t) => t.requiredLevel >= tierLevel)
-                  .sort((a, b) => a.requiredLevel - b.requiredLevel)[0] ??
-                tiers[0],
-            )
+          ? tiers.find((t) => t.requiredLevel === tierLevel) ??
+            [...tiers]
+              .filter((t) => t.requiredLevel >= tierLevel)
+              .sort((a, b) => a.requiredLevel - b.requiredLevel)[0] ??
+            tiers[0]
           : undefined;
+      const tierValueStr = tierMod ? tierValue(tierMod) : undefined;
       desiredSuffixes.push({
         group: g,
         label: info.label,
@@ -1183,6 +1899,8 @@ async function buildInputs(
         oddsFresh: totalSuf ? num / totalSuf : 0,
         tierLevel,
         tierValue: tierValueStr,
+        tierStatMax: tierMod?.stats[0]?.max,
+        desecrated,
       });
     } else {
       warnings.push(
@@ -1218,6 +1936,21 @@ async function buildInputs(
     ...pool.suffixes,
   ]);
 
+  for (const t of [...desiredPrefixes, ...desiredSuffixes]) {
+    if (t.tierLevel == null) continue;
+    const options = determinism.get(t.group);
+    if (!options?.length) continue;
+    if (options.some((e) => essenceReachesTarget(e, t))) continue;
+    const best = [...options].sort(
+      (a, b) => (b.guaranteedLevel ?? 0) - (a.guaranteedLevel ?? 0),
+    )[0];
+    const bestVal = best.guaranteedValue ?? best.modLabel;
+    const targetVal = t.tierValue ?? `modifier level ${t.tierLevel}`;
+    warnings.push(
+      `No essence guarantees ${targetVal} on "${t.label}" — the best available is ${best.essenceName} (${bestVal}${best.isFixedValue ? ", fixed value" : ""}). Use Exalt/Chaos instead.`,
+    );
+  }
+
   const inputs: SolveInputs = {
     baseId,
     baseName: pool.base.name,
@@ -1233,22 +1966,29 @@ async function buildInputs(
     alloys,
     price: makePricer(priceMap),
   };
+
   return { inputs, warnings, feasible };
 }
 
 function buildMethods(inputs: SolveInputs): CraftMethod[] {
   const methods: (CraftMethod | null)[] = [
+    methodMagicSeedEssence(inputs),
     methodEssenceLed(inputs),
+    methodEssenceDesecExalt(inputs),
     methodAlloy(inputs),
     methodTransmuteRegalExalt(inputs),
     methodAlchemyChaos(inputs),
     methodBuyMagicBase(inputs),
+    methodFracturedBase(inputs),
     methodFractureChaos(inputs),
     methodDesecration(inputs),
     methodMassSlam(inputs),
     methodRemnant(inputs),
   ];
-  const feasible = methods.filter((m): m is CraftMethod => m !== null);
+  const feasible = methods
+    .filter((m): m is CraftMethod => m !== null)
+    // Fold luck/brick risk into cost and annotate success/brick fields.
+    .map((m) => withRisk(m));
   // Rank by estimated cost ascending. Methods whose estimate omits an unknown
   // market price (buying a base) sort last so they don't claim "cheapest".
   feasible.sort((a, b) => {

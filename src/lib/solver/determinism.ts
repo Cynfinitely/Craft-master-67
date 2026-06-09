@@ -19,6 +19,14 @@ export interface EssenceGuarantee {
   /** Human label of the guaranteed mod. */
   modLabel: string;
   generationType: "prefix" | "suffix";
+  /** Required modifier level of the tier this essence guarantees, if resolved. */
+  guaranteedLevel?: number;
+  /** Display value of the guaranteed tier (e.g. "+(30-39) to maximum Life"). */
+  guaranteedValue?: string;
+  /** Top rolled value the essence guarantees (for comparing against a target tier). */
+  guaranteedStatMax?: number;
+  /** True when the essence grants a single fixed value (no roll range) — can't Divine it. */
+  isFixedValue?: boolean;
 }
 
 /* ----------------------------- text normalization ----------------------------- */
@@ -111,6 +119,8 @@ export function labelAppliesToClass(label: string, itemClass: string): boolean {
 interface EssenceLine {
   /** Normalized stat the essence guarantees for the matched class. */
   normalized: string;
+  /** Raw stat text (with the rolled range), used to resolve the granted tier. */
+  raw: string;
 }
 
 function parseEssenceLines(essence: Material, itemClass: string): EssenceLine[] {
@@ -123,9 +133,37 @@ function parseEssenceLines(essence: Material, itemClass: string): EssenceLine[] 
     const label = raw.slice(0, idx);
     if (!labelAppliesToClass(label, itemClass)) continue;
     const stat = raw.slice(idx + 1);
-    out.push({ normalized: normalizeStat(stat) });
+    out.push({ normalized: normalizeStat(stat), raw: stat });
   }
   return out;
+}
+
+function magnitudes(text: string): number[] {
+  return (text.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+}
+
+function isFixedStat(raw: string): boolean {
+  // Ranges like "(30-32)%" or "(64-97) to (97-145)" roll; a lone "30%" does not.
+  return !/\(\s*\d+(\.\d+)?\s*-\s*\d+(\.\d+)?\s*\)/.test(raw);
+}
+
+/** Finds the tier of `tiers` whose top stat value best matches `raw`. */
+function matchTier(tiers: EligibleMod[], raw: string): EligibleMod | null {
+  const nums = magnitudes(raw);
+  if (!nums.length || !tiers.length) return null;
+  const target = nums[nums.length - 1]; // the max of the essence's granted range
+  let best: EligibleMod | null = null;
+  let bestDiff = Infinity;
+  for (const t of tiers) {
+    const ref = t.stats[0]?.max;
+    if (ref == null) continue;
+    const diff = Math.abs(ref - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = t;
+    }
+  }
+  return best;
 }
 
 /* ----------------------------- resolver ----------------------------- */
@@ -139,18 +177,32 @@ export function resolveDeterminism(
   itemClass: string,
   mods: EligibleMod[],
 ): Map<string, EssenceGuarantee[]> {
-  // Map normalized mod text -> { group, label, generationType } (first tier wins).
+  // Map normalized mod text -> group info + all tiers (first match wins).
   const byNorm = new Map<
     string,
-    { group: string; label: string; generationType: "prefix" | "suffix" }
+    {
+      group: string;
+      label: string;
+      generationType: "prefix" | "suffix";
+      tiers: EligibleMod[];
+    }
   >();
+  const tiersByGroup = new Map<string, EligibleMod[]>();
+  for (const m of mods) {
+    const g = m.groups[0] ?? m.id;
+    const arr = tiersByGroup.get(g) ?? [];
+    arr.push(m);
+    tiersByGroup.set(g, arr);
+  }
   for (const m of mods) {
     const norm = normalizeStat(m.text);
     if (!norm || byNorm.has(norm)) continue;
+    const group = m.groups[0] ?? m.id;
     byNorm.set(norm, {
-      group: m.groups[0] ?? m.id,
+      group,
       label: cleanModText(m.text) || m.name || m.id,
       generationType: m.generationType === "suffix" ? "suffix" : "prefix",
+      tiers: tiersByGroup.get(group) ?? [m],
     });
   }
 
@@ -159,6 +211,8 @@ export function resolveDeterminism(
     for (const line of parseEssenceLines(ess, itemClass)) {
       const hit = byNorm.get(line.normalized);
       if (!hit) continue;
+      const grantedTier = matchTier(hit.tiers, line.raw);
+      const fixed = isFixedStat(line.raw);
       const entry: EssenceGuarantee = {
         essenceApiId: ess.apiId,
         essenceName: ess.name,
@@ -166,6 +220,14 @@ export function resolveDeterminism(
         group: hit.group,
         modLabel: hit.label,
         generationType: hit.generationType,
+        guaranteedLevel: grantedTier?.requiredLevel,
+        guaranteedValue: grantedTier
+          ? cleanModText(grantedTier.text) || undefined
+          : cleanModText(line.raw) || undefined,
+        guaranteedStatMax:
+          grantedTier?.stats[0]?.max ??
+          (magnitudes(line.raw).at(-1) ?? undefined),
+        isFixedValue: fixed,
       };
       const arr = result.get(hit.group) ?? [];
       // Avoid duplicate essence entries for the same group.
@@ -176,6 +238,25 @@ export function resolveDeterminism(
     }
   }
   return result;
+}
+
+/** True when an essence guarantee meets the user's targeted minimum tier/value. */
+export function essenceReachesTarget(
+  g: EssenceGuarantee,
+  target: { tierLevel?: number; tierStatMax?: number },
+): boolean {
+  if (target.tierLevel == null) return true;
+  if (g.guaranteedLevel == null || g.guaranteedLevel < target.tierLevel) {
+    return false;
+  }
+  if (
+    target.tierStatMax != null &&
+    g.guaranteedStatMax != null &&
+    g.guaranteedStatMax < target.tierStatMax
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Convenience: the set of mod groups guaranteeable by some essence. */

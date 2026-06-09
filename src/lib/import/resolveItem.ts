@@ -154,7 +154,9 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
     });
   }
 
-  const desiredGroups = matched.map((m) => `${m.group}@${m.tierLevel}`);
+  const desiredGroups = matched.map(
+    (m) => `${m.group}@${m.tierLevel}${m.desecrated ? "~d" : ""}`,
+  );
 
   if (parsed.runeLines.length) {
     warnings.push(
