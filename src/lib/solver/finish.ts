@@ -1,13 +1,16 @@
 import "server-only";
-import { getModPool } from "@/lib/data/queries";
+import { getEligibleMods, getModPool } from "@/lib/data/queries";
 import { groupByModGroup, modLabel } from "@/lib/data/format";
+import type { EligibleMod } from "@/lib/data/types";
 import { getCurrentLeagueName, getPrices } from "@/lib/pricing/poe2scout";
 import { buildModStatMap } from "@/lib/trade/modMap";
 import { withTimeout } from "@/lib/trade/client";
 import { estimateSaleValue, type SaleEstimate } from "@/lib/market/analytics";
+import { comboKeyFromGroups, probeCombo } from "@/lib/market/probes";
 import { makePricer } from "./index";
 import { boneForClass, getDesecratedSimPool } from "./registry";
 import { MAX_DESECRATED_MODS } from "./rules";
+import { slamOddsNote, slamTierProfile, slamValueFloor } from "./tierMath";
 import {
   buildSimPool,
   simulateFinish,
@@ -29,6 +32,8 @@ export interface FinishCurrentMod {
   side: "prefix" | "suffix";
   /** Modifier level of the rolled tier (0 when unknown). */
   level?: number;
+  /** Rolled magnitude of the mod's stat (from a trade listing), if known. */
+  rolledValue?: number;
   fractured?: boolean;
   desecrated?: boolean;
 }
@@ -60,11 +65,24 @@ export interface FinishPlan {
   estimatedSale: SaleEstimate | null;
   /**
    * EV of buying+finishing ONE item:
-   * successRate x sale − (buy price + finish cost). Failures are valued at 0.
+   * success x sale + (1−success) x failResale − (buy + finish cost).
+   * A failed finish isn't worthless — the item keeps its bought mods (plus
+   * one junk roll), so failures are valued at 50% of the buy price.
    */
   evExalted: number | null;
   buyPriceExalted: number | null;
   divinePriceExalted: number;
+}
+
+/** Value floor of the tier rolled at `level` (its stat's minimum roll). */
+function tierValueFloor(mods: EligibleMod[], level: number): number | null {
+  let best: EligibleMod | null = null;
+  for (const m of mods) {
+    if (m.requiredLevel > level || m.stats.length === 0) continue;
+    if (!best || m.requiredLevel > best.requiredLevel) best = m;
+  }
+  if (!best) return null;
+  return Math.max(1, Math.floor(best.stats[0].min));
 }
 
 function parseGroupEntry(raw: string): {
@@ -91,6 +109,18 @@ export async function planFinish(opts: {
   buyPriceExalted?: number | null;
   /** Pre-computed sale estimate (the snipe scanner passes its probe price). */
   saleOverride?: SaleEstimate | null;
+  /**
+   * When local stores have no price for the finished combo, run ONE live
+   * trade probe (~2 cached API calls). The snipe scanner disables this and
+   * budgets its own probes instead.
+   */
+  allowLiveProbe?: boolean;
+  /**
+   * Annul-cleanup loops on a junk-filled side (default true). The snipe
+   * scanner disables this: on a cheap base you slam once and sell the
+   * result either way — grinding omen-priced annuls is never the play.
+   */
+  cleanup?: boolean;
   trials?: number;
 }): Promise<FinishPlan | null> {
   const pool = await getModPool(opts.baseId, opts.itemLevel);
@@ -227,18 +257,26 @@ export async function planFinish(opts: {
     simPool,
     startMods,
     targets,
-    { desecrate: desecrateSpec },
+    { desecrate: desecrateSpec, cleanup: opts.cleanup },
     { trials: opts.trials ?? 3000, price },
   );
   const successRate = sim.fullHitRate;
   const finishCost = sim.avgCurrencyCostExalted;
 
   /* ---- sale estimate ---- */
+  const modsOfGroup = (group: string): EligibleMod[] =>
+    preGroups.get(group)?.mods ?? sufGroups.get(group)?.mods ?? [];
+
   let sale: SaleEstimate | null = opts.saleOverride ?? null;
   if (!sale && league) {
     try {
+      // Include desecrated-domain mods: a desecrate finish is unpriceable
+      // without trade-stat ids for the desecrated target.
+      const desecMods = await getEligibleMods(pool.base.tags, opts.itemLevel, {
+        domains: ["desecrated"],
+      });
       const statMap = await withTimeout(
-        buildModStatMap([...pool.prefixes, ...pool.suffixes]),
+        buildModStatMap([...pool.prefixes, ...pool.suffixes, ...desecMods]),
         10000,
       );
       if (statMap) {
@@ -262,6 +300,56 @@ export async function planFinish(opts: {
           statIdsPerGroup: statMap.groupToStats,
           minLevelPerGroup,
         });
+
+        // Live fallback: one tier-aware trade probe for the finished combo.
+        // Value floors pin comparables to what the finish actually yields —
+        // current rolls at their tier minimum, slams at the EXPECTED tier.
+        if (!sale && opts.allowLiveProbe !== false) {
+          const statMins = new Map<string, number>();
+          const setMin = (group: string, value: number | null) => {
+            const ids = statMap.groupToStats.get(group);
+            if (ids?.length === 1 && value != null) {
+              statMins.set(ids[0], value);
+            }
+          };
+          for (const m of startMods) {
+            if (m.level > 0) setMin(m.group, tierValueFloor(modsOfGroup(m.group), m.level));
+          }
+          for (const t of targets) {
+            if (desecratedWanted.some((d) => d.group === t.group)) continue;
+            const profile = slamTierProfile(modsOfGroup(t.group));
+            if (profile) setMin(t.group, slamValueFloor(profile));
+          }
+          const keyed = comboKeyFromGroups(
+            allGroups,
+            statMap.groupToStats,
+            statMins,
+          );
+          if (keyed) {
+            const probe = await withTimeout(
+              probeCombo({
+                league,
+                itemClass: pool.base.itemClass,
+                groups: allGroups,
+                labels: allGroups.map(labelOf),
+                statIds: keyed.statIds,
+                statMins,
+              }),
+              15000,
+            );
+            if (
+              probe &&
+              probe.medianAskExalted != null &&
+              probe.listingCount > 0
+            ) {
+              sale = {
+                priceExalted: probe.medianAskExalted,
+                sampleCount: probe.listingCount,
+                source: "probe",
+              };
+            }
+          }
+        }
       }
     } catch {
       /* sale estimate optional */
@@ -269,7 +357,7 @@ export async function planFinish(opts: {
   }
   if (!sale) {
     warnings.push(
-      "No market data for the finished mod combo — EV can't be computed. Probe this combo on the Market page first.",
+      "No market data for the finished mod combo (local stores and a live trade probe both came up empty) — EV can't be computed. The finished item may be too rare to price; try fewer/looser target mods.",
     );
   }
 
@@ -304,24 +392,36 @@ export async function planFinish(opts: {
       t.side === "prefix"
         ? "Omen of Sinistral Exaltation"
         : "Omen of Dextral Exaltation";
+    const profile = slamTierProfile(modsOfGroup(t.group));
+    const tierLine = profile
+      ? ` ${slamOddsNote(labelOf(t.group), profile)}`
+      : "";
+    const missLine =
+      opts.cleanup === false
+        ? "On a miss, sell the item as-is and buy the next listing — annul grinding costs more than a fresh base."
+        : `On a miss, clean up with Annul + ${
+            t.side === "prefix"
+              ? "Omen of Sinistral Annulment"
+              : "Omen of Dextral Annulment"
+          } — the Annul is random within the side and can strip a finished mod.`;
     steps.push({
       n: n++,
       title: `Slam "${labelOf(t.group)}" with Exalted Orbs`,
-      detail: `Add ${omenName} only while the other side still has wanted open slots (plain slams are cheaper once junk there is harmless). On a miss, clean up with Annul + ${
-        t.side === "prefix"
-          ? "Omen of Sinistral Annulment"
-          : "Omen of Dextral Annulment"
-      } — the Annul is random within the side and can strip a finished mod.`,
+      detail: `Add ${omenName} only while the other side still has wanted open slots (plain slams are cheaper once junk there is harmless). ${missLine}${tierLine}`,
       currency: "Exalted Orb",
     });
   }
 
   const buy = opts.buyPriceExalted ?? null;
+  const failResale = buy != null ? buy * 0.5 : 0;
   const ev =
     sale != null
       ? Math.round(
-          successRate * sale.priceExalted - ((buy ?? 0) + finishCost),
-        )
+          (successRate * sale.priceExalted +
+            (1 - successRate) * failResale -
+            ((buy ?? 0) + finishCost)) *
+            10,
+        ) / 10
       : null;
 
   return {

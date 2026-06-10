@@ -2,7 +2,7 @@ import "server-only";
 import { getEligibleMods, searchBases } from "@/lib/data/queries";
 import { groupByModGroup, modLabel } from "@/lib/data/format";
 import type { EligibleMod } from "@/lib/data/types";
-import { searchAndFetch, type TradeListing } from "@/lib/trade/client";
+import { searchAndFetch, withTimeout, type TradeListing } from "@/lib/trade/client";
 import { getCachedPriceMap, tradePriceToExalted } from "@/lib/trade/currency";
 import { buildModStatMap, type ModStatMap } from "@/lib/trade/modMap";
 import {
@@ -12,9 +12,19 @@ import {
 } from "@/lib/trade/query";
 import { planFinish, type FinishCurrentMod, type FinishPlan } from "@/lib/solver/finish";
 import { getDesecratedSimPool } from "@/lib/solver/registry";
+import {
+  slamOddsNote,
+  slamTierProfile,
+  slamValueFloor,
+} from "@/lib/solver/tierMath";
 import { tradeCategoryForClass } from "./categories";
 import { estimateSaleValue, type SaleEstimate } from "./analytics";
-import { getProbes } from "./probes";
+import {
+  comboKeyFromGroups,
+  getProbeForGroups,
+  getProbes,
+  probeCombo,
+} from "./probes";
 
 /**
  * Snipe scanner: finds underpriced, partially-rolled listings that are
@@ -87,8 +97,9 @@ const RECIPE_TEMPLATES: SnipeTemplate[] = [
     name: "Boots: movement speed + life, open suffix → slam resistance",
     description:
       "Rare boots with movement speed and life but an open suffix sell far " +
-      "below finished triple-res boots. Slam the missing resistance with an " +
-      "Exalted Orb (omen only while prefixes are still open).",
+      "below finished res boots. Slam a resistance with an Exalted Orb " +
+      "(omen only while prefixes are still open). The slam rolls a random " +
+      "tier — EV is priced at the average tier outcome, not a T1 hit.",
     itemClass: "Boots",
     source: "recipe",
     requiredGroups: ["MovementVelocity", "IncreasedLife"],
@@ -158,6 +169,8 @@ interface ClassContext {
   statMap: ModStatMap;
   labelByGroup: Map<string, string>;
   sideByGroup: Map<string, "prefix" | "suffix">;
+  /** Normal-pool mods per group (tier math for slam outcomes). */
+  modsByGroup: Map<string, EligibleMod[]>;
 }
 
 async function loadClassContext(
@@ -181,6 +194,8 @@ async function loadClassContext(
     const gen = g.mods[0].generationType;
     if (gen === "prefix" || gen === "suffix") sideByGroup.set(g.group, gen);
   }
+  const modsByGroup = new Map<string, EligibleMod[]>();
+  for (const g of groupByModGroup(classMods)) modsByGroup.set(g.group, g.mods);
 
   return {
     itemClass,
@@ -191,6 +206,7 @@ async function loadClassContext(
     statMap,
     labelByGroup,
     sideByGroup,
+    modsByGroup,
   };
 }
 
@@ -279,6 +295,8 @@ export interface SnipeResult {
   buyExalted: number;
   currentLabels: string[];
   targetLabel: string;
+  /** Honest tier expectation for slam finishes (avg outcome, top-tier odds). */
+  tierNote: string | null;
   successRate: number;
   finishCostExalted: number;
   saleExalted: number | null;
@@ -315,38 +333,167 @@ function listingCurrentMods(
       group,
       side: ctx.sideByGroup.get(group)!,
       level: stat.level ?? 0,
+      rolledValue: stat.min ?? stat.max ?? undefined,
     });
   }
   return out;
 }
 
-/** Picks the finish target with the best local sale signal. */
+/** Live-probe budget per scan: count AND wall-clock bounded (the trade API
+ * rate limiter can stretch a single probe into a multi-minute wait). */
+interface ProbeBudget {
+  left: number;
+  deadline: number;
+}
+
+/** The single trade stat id for a group, when the mapping is unambiguous. */
+function soleStatId(ctx: ClassContext, group: string): string | null {
+  const ids = ctx.statMap.groupToStats.get(group);
+  return ids?.length === 1 ? ids[0] : null;
+}
+
+/**
+ * Sale estimate with live fallback:
+ *  1. local stores (probes / samples / manual sales),
+ *  2. a stored tier-aware probe for this exact combo+floors,
+ *  3. a fresh budgeted trade probe (persisted — free on the next scan).
+ */
+async function saleWithFallback(opts: {
+  league: string;
+  ctx: ClassContext;
+  groups: string[];
+  minLevelPerGroup: Map<string, number>;
+  statMins: Map<string, number>;
+  budget: ProbeBudget;
+  /** Allow spending the live-probe budget for this combo. */
+  allowLive: boolean;
+}): Promise<SaleEstimate | null> {
+  try {
+    const local = await estimateSaleValue({
+      league: opts.league,
+      itemClass: opts.ctx.itemClass,
+      groups: opts.groups,
+      statIdsPerGroup: opts.ctx.statMap.groupToStats,
+      minLevelPerGroup: opts.minLevelPerGroup,
+    });
+    if (local) return local;
+  } catch {
+    /* local stores unavailable */
+  }
+
+  const keyed = comboKeyFromGroups(
+    opts.groups,
+    opts.ctx.statMap.groupToStats,
+    opts.statMins,
+  );
+  if (!keyed) return null;
+
+  try {
+    const stored = await getProbeForGroups({
+      league: opts.league,
+      itemClass: opts.ctx.itemClass,
+      groups: opts.groups,
+      statIdsPerGroup: opts.ctx.statMap.groupToStats,
+      statMins: opts.statMins,
+    });
+    if (stored && stored.medianAskExalted != null && stored.listingCount > 0) {
+      return {
+        priceExalted: stored.medianAskExalted,
+        sampleCount: stored.listingCount,
+        source: "probe",
+      };
+    }
+  } catch {
+    /* probe store unavailable */
+  }
+
+  if (
+    !opts.allowLive ||
+    opts.budget.left <= 0 ||
+    Date.now() > opts.budget.deadline
+  ) {
+    return null;
+  }
+  opts.budget.left--;
+  try {
+    // Per-probe timeout: when the rate limiter is saturated, give up on this
+    // combo instead of stalling the scan — the probe budget covers retries
+    // on the NEXT scan, where everything priced so far is already stored.
+    const probe = await withTimeout(
+      probeCombo({
+        league: opts.league,
+        itemClass: opts.ctx.itemClass,
+        groups: opts.groups,
+        labels: opts.groups.map((g) => opts.ctx.labelByGroup.get(g) ?? g),
+        statIds: keyed.statIds,
+        statMins: opts.statMins,
+        skipVelocity: true,
+      }),
+      20000,
+    );
+    if (probe && probe.medianAskExalted != null && probe.listingCount > 0) {
+      return {
+        priceExalted: probe.medianAskExalted,
+        sampleCount: probe.listingCount,
+        source: "probe",
+      };
+    }
+    // Timed out — the request may still land and persist; don't keep queueing.
+    if (probe === null) opts.budget.deadline = 0;
+  } catch {
+    // Probably rate-limited — stop spending the budget for this scan.
+    opts.budget.left = 0;
+  }
+  return null;
+}
+
+/**
+ * Picks the finish target with the best sale signal. Comparables are pinned
+ * to the listing's ACTUAL rolls (value floors at ~90% of each rolled stat)
+ * and, for slams, to the EXPECTED slam tier — never the top-tier fantasy.
+ */
 async function pickTarget(opts: {
   league: string;
   ctx: ClassContext;
   current: FinishCurrentMod[];
   candidates: string[];
-}): Promise<{ group: string; sale: SaleEstimate | null }> {
+  finishKind: "slam" | "desecrate";
+  budget: ProbeBudget;
+}): Promise<{ group: string; sale: SaleEstimate | null; tierNote: string | null }> {
+  const { ctx } = opts;
   const currentGroups = opts.current.map((m) => m.group);
   // Tier-aware comparables: match listings rolled at the bought item's tiers.
   const minLevelPerGroup = new Map<string, number>();
+  const baseMins = new Map<string, number>();
   for (const m of opts.current) {
     if ((m.level ?? 0) > 0) minLevelPerGroup.set(m.group, m.level!);
-  }
-  let best: { group: string; sale: SaleEstimate | null } | null = null;
-  for (const cand of opts.candidates.slice(0, 5)) {
-    let sale: SaleEstimate | null = null;
-    try {
-      sale = await estimateSaleValue({
-        league: opts.league,
-        itemClass: opts.ctx.itemClass,
-        groups: [...currentGroups, cand],
-        statIdsPerGroup: opts.ctx.statMap.groupToStats,
-        minLevelPerGroup,
-      });
-    } catch {
-      /* local data only */
+    const statId = soleStatId(ctx, m.group);
+    if (statId && m.rolledValue != null && m.rolledValue > 0) {
+      baseMins.set(statId, Math.max(1, Math.floor(m.rolledValue * 0.9)));
     }
+  }
+
+  let best: { group: string; sale: SaleEstimate | null } | null = null;
+  const candidates = opts.candidates.slice(0, 5);
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i];
+    const statMins = new Map(baseMins);
+    if (opts.finishKind === "slam") {
+      const profile = slamTierProfile(ctx.modsByGroup.get(cand) ?? []);
+      const statId = soleStatId(ctx, cand);
+      if (profile && statId) statMins.set(statId, slamValueFloor(profile));
+    }
+    const sale = await saleWithFallback({
+      league: opts.league,
+      ctx,
+      groups: [...currentGroups, cand],
+      minLevelPerGroup,
+      statMins,
+      budget: opts.budget,
+      // Spread the budget across listings: live-probe only the first two
+      // candidates per listing; the rest still get local-store pricing.
+      allowLive: i < 2,
+    });
     if (!best) best = { group: cand, sale };
     else if (
       sale &&
@@ -355,7 +502,19 @@ async function pickTarget(opts: {
       best = { group: cand, sale };
     }
   }
-  return best ?? { group: opts.candidates[0], sale: null };
+  const picked = best ?? { group: opts.candidates[0], sale: null };
+
+  let tierNote: string | null = null;
+  if (opts.finishKind === "slam") {
+    const profile = slamTierProfile(ctx.modsByGroup.get(picked.group) ?? []);
+    if (profile) {
+      tierNote = slamOddsNote(
+        ctx.labelByGroup.get(picked.group) ?? picked.group,
+        profile,
+      );
+    }
+  }
+  return { ...picked, tierNote };
 }
 
 /**
@@ -431,6 +590,10 @@ export async function scanSnipeTemplate(opts: {
 
   const results: SnipeResult[] = [];
   let skipped = 0;
+  // Live-probe budget for the whole scan. Probes persist, so each scan adds
+  // coverage and later scans read earlier discoveries back for free. The
+  // wall-clock deadline keeps a rate-limited API from stalling the scan.
+  const budget: ProbeBudget = { left: 12, deadline: Date.now() + 90 * 1000 };
 
   for (const listing of res.listings) {
     if (!listing.price) {
@@ -473,6 +636,8 @@ export async function scanSnipeTemplate(opts: {
       ctx,
       current,
       candidates,
+      finishKind: template.finish.kind,
+      budget,
     });
 
     let plan: FinishPlan | null = null;
@@ -484,6 +649,11 @@ export async function scanSnipeTemplate(opts: {
         desiredGroups: [target.group],
         buyPriceExalted: buyEx,
         saleOverride: target.sale,
+        // The scanner owns the probe budget — don't probe per listing.
+        allowLiveProbe: false,
+        // Snipe economics: slam into the open slot(s) once; on a miss, sell
+        // the item as-is. Never model omen-priced annul grinds on cheap bases.
+        cleanup: false,
         trials: 1500,
       });
     } catch {
@@ -504,6 +674,7 @@ export async function scanSnipeTemplate(opts: {
       buyExalted: Math.round(buyEx * 100) / 100,
       currentLabels: currentGroups.map((g) => ctx.labelByGroup.get(g) ?? g),
       targetLabel: ctx.labelByGroup.get(target.group) ?? target.group,
+      tierNote: target.tierNote,
       successRate: plan.successRate,
       finishCostExalted: plan.finishCostExalted,
       saleExalted: plan.estimatedSale?.priceExalted ?? null,
@@ -514,6 +685,16 @@ export async function scanSnipeTemplate(opts: {
       warnings: plan.warnings,
       steps: plan.steps.map((s) => ({ title: s.title, detail: s.detail })),
     });
+  }
+
+  const unpriced = results.filter((r) => r.saleExalted == null).length;
+  if (
+    unpriced > 0 &&
+    (budget.left <= 0 || Date.now() > budget.deadline)
+  ) {
+    warnings.push(
+      `${unpriced} listing(s) had no sale price yet — the live-probe budget ran out. Scan again in a minute: probes persist, so coverage builds up.`,
+    );
   }
 
   results.sort((a, b) => {

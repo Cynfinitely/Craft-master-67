@@ -17,6 +17,7 @@ interface SnipeResult {
   buyExalted: number;
   currentLabels: string[];
   targetLabel: string;
+  tierNote: string | null;
   successRate: number;
   finishCostExalted: number;
   saleExalted: number | null;
@@ -217,8 +218,13 @@ export function SnipePanel({
                       {Math.round(r.successRate * 1000) / 10}% success ·{" "}
                       {r.saleExalted != null
                         ? `sells ~${ex(r.saleExalted)} (${r.saleSamples} ${r.saleSource})`
-                        : "no sale data — probe this combo first"}
+                        : "no sale data — the finished combo had no priced listings"}
                     </p>
+                    {r.tierNote ? (
+                      <p className="mt-0.5 text-[11px] text-sky-300/70">
+                        {r.tierNote}
+                      </p>
+                    ) : null}
                     {r.steps[0] ? (
                       <p
                         className="mt-0.5 text-[11px] text-forge-gold/45"
@@ -254,9 +260,11 @@ export function SnipePanel({
             ))
           )}
           <p className="text-xs text-forge-gold/40">
-            EV = success% × predicted sale − (buy + expected finish cost).
-            Listings move fast — verify price and open slots on the trade site
-            before buying.
+            EV = success% × predicted sale + miss% × half the buy price (a
+            missed finish still resells) − (buy + expected finish cost). Sale
+            prices are pinned to the expected tier outcome, not best-case
+            rolls. Listings move fast — verify price and open slots on the
+            trade site before buying.
           </p>
         </div>
       ) : null}

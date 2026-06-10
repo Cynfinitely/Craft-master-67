@@ -406,7 +406,9 @@ function omenExaltFill(
   item: ItemState,
   targets: SimTarget[],
   tally: CurrencyTally,
+  opts: { cleanup?: boolean } = {},
 ): void {
+  const cleanup = opts.cleanup !== false;
   let actions = 0;
   // Targets that can actually roll from the normal pool — desecrated-only
   // groups can't be Exalt-slammed; a miss on their reveal is final.
@@ -439,7 +441,11 @@ function omenExaltFill(
 
     const t = remaining[0];
     if (sideCount(item, t.side) >= MAX_PER_SIDE) {
-      // Side full — clear junk with Annul + side omen. If every mod on the
+      // Side full. Without cleanup (snipe economics: slam once, sell the
+      // result either way), the trial simply ends here as a miss — an
+      // Annul+omen grind on a cheap base costs more than a fresh buy.
+      if (!cleanup) return;
+      // Clear junk with Annul + side omen. If every mod on the
       // side is needed (or fractured), the base is a dead end.
       const strippable = item.mods.some(
         (m) => m.side === t.side && !m.fractured && !isNeededMod(m, targets),
@@ -721,6 +727,12 @@ export interface SimStartMod {
 /** Finishing plan: optional desecration first, then directional slams. */
 export interface FinishSpec {
   desecrate?: SimDesecrateSpec;
+  /**
+   * Annul-cleanup loops when a side fills with junk (default true). Disable
+   * for snipe economics: a missed slam on a cheap base means "sell as-is and
+   * buy the next one", not an omen-priced annul grind.
+   */
+  cleanup?: boolean;
 }
 
 /**
@@ -750,7 +762,7 @@ export function simulateFinish(
       mods: startMods.map((m) => ({ ...m })),
     };
     if (spec.desecrate) applyDesecration(item, spec.desecrate, tally);
-    omenExaltFill(pool, item, targets, tally);
+    omenExaltFill(pool, item, targets, tally, { cleanup: spec.cleanup });
 
     const keyHits = countTargetHits(item, keys);
     const fillerHits = countTargetHits(item, fillers);

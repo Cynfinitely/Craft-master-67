@@ -13,6 +13,10 @@ import {
   splitCraftedBudget,
   validateTargets05,
 } from "../src/lib/solver/rules";
+import {
+  slamTierProfile,
+  slamValueFloor,
+} from "../src/lib/solver/tierMath";
 import type { DesiredMod } from "../src/lib/solver/types";
 import type { EligibleMod } from "../src/lib/data/types";
 
@@ -269,6 +273,58 @@ test("0.5 rule: crafted budget keeps exactly one guarantee (essence+alloy is ill
   assert.deepEqual(overflow, ["alloy"]);
   const none = splitCraftedBudget([]);
   assert.equal(none.crafted, null);
+});
+
+/* ----------------------------- slam tier math ----------------------------- */
+
+const tieredMod = (
+  groupName: string,
+  level: number,
+  weight: number,
+  value: [min: number, max: number],
+): EligibleMod =>
+  ({
+    ...mod(groupName, level, weight, "suffix"),
+    stats: [{ id: `${groupName}-stat`, min: value[0], max: value[1] }],
+  }) as EligibleMod;
+
+test("slam tier profile: spawn weights pull the expected outcome to low tiers", () => {
+  // Classic resistance ladder: low tiers are heavy, T1 is rare.
+  const ladder = [
+    tieredMod("FireRes", 1, 1000, [6, 11]),
+    tieredMod("FireRes", 24, 800, [12, 17]),
+    tieredMod("FireRes", 48, 400, [24, 29]),
+    tieredMod("FireRes", 72, 100, [36, 41]),
+    tieredMod("FireRes", 84, 25, [42, 45]),
+  ];
+  const p = slamTierProfile(ladder)!;
+  // Weighted average sits in the low-mid of the ladder, far from T1.
+  assert.ok(p.expectedValue < 20, `expected low avg value, got ${p.expectedValue}`);
+  assert.equal(p.topValue, 43.5);
+  // Top-2 tiers carry 125 of 2325 total weight ≈ 5.4% — the user is right
+  // that a slam "deciding" T1 res is a fantasy.
+  assert.ok(
+    Math.abs(p.pTopTwo - 125 / 2325) < 1e-9,
+    `expected ~5.4% top-2 odds, got ${p.pTopTwo}`,
+  );
+  // The comparable floor prices the AVERAGE outcome, not the top tier.
+  assert.ok(slamValueFloor(p) < p.topValue / 2);
+});
+
+test("slam tier profile: single tier means any hit is a full hit", () => {
+  const p = slamTierProfile([tieredMod("Spirit", 60, 500, [30, 40])])!;
+  assert.equal(p.pTopTwo, 1);
+  assert.equal(p.expectedValue, 35);
+});
+
+test("slam tier profile: zero-weight and empty pools are rejected", () => {
+  assert.equal(slamTierProfile([]), null);
+  assert.equal(
+    slamTierProfile([
+      { ...tieredMod("Dead", 10, 0, [1, 2]) },
+    ]),
+    null,
+  );
 });
 
 /* ----------------------- finisher: belt recipe golden ----------------------- */

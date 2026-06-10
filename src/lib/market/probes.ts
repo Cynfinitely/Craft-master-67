@@ -139,10 +139,13 @@ const META_TEMPLATES: string[][] = [
   ],
 ];
 
-/** Canonical probe key: every group's stat ids, deduped and sorted. */
+/** Canonical probe key: every group's stat ids, deduped and sorted. When a
+ * min VALUE floor applies to a stat (tier-aware probes), it's part of the
+ * key — "70% total res" and "30% total res" are different markets. */
 export function comboKeyFromGroups(
   groups: string[],
   statIdsPerGroup: Map<string, string[]>,
+  statMins?: Map<string, number>,
 ): { key: string; statIds: string[] } | null {
   const ids = new Set<string>();
   for (const g of groups) {
@@ -151,7 +154,13 @@ export function comboKeyFromGroups(
     for (const id of mapped) ids.add(id);
   }
   const sorted = [...ids].sort();
-  return { key: sorted.join("+"), statIds: sorted };
+  const key = sorted
+    .map((id) => {
+      const min = statMins?.get(id);
+      return min != null && min > 0 ? `${id}>=${Math.round(min)}` : id;
+    })
+    .join("+");
+  return { key, statIds: sorted };
 }
 
 function probeId(league: string, itemClass: string, key: string): string {
@@ -167,7 +176,7 @@ function median(sorted: number[]): number | null {
 function buildProbeQuery(
   category: string | null,
   statIds: string[],
-  opts: { recentOnly?: boolean } = {},
+  opts: { recentOnly?: boolean; statMins?: Map<string, number> } = {},
 ): Record<string, unknown> {
   return {
     query: {
@@ -175,7 +184,12 @@ function buildProbeQuery(
       stats: [
         {
           type: "and",
-          filters: statIds.map((id) => ({ id, disabled: false })),
+          filters: statIds.map((id) => {
+            const min = opts.statMins?.get(id);
+            return min != null && min > 0
+              ? { id, value: { min: Math.round(min) }, disabled: false }
+              : { id, disabled: false };
+          }),
         },
       ],
       filters: {
@@ -208,6 +222,10 @@ export async function probeCombo(opts: {
   groups: string[];
   labels: string[];
   statIds: string[];
+  /** Min VALUE per stat id — prices the tier bracket, not just presence. */
+  statMins?: Map<string, number>;
+  /** Skip the 1-day velocity search (halves API cost for bulk scans). */
+  skipVelocity?: boolean;
   ttlMs?: number;
 }): Promise<ComboProbe | null> {
   const category = tradeCategoryForClass(opts.itemClass);
@@ -217,7 +235,7 @@ export async function probeCombo(opts: {
 
   const res = await searchAndFetch(
     opts.league,
-    buildProbeQuery(category, opts.statIds),
+    buildProbeQuery(category, opts.statIds, { statMins: opts.statMins }),
     { maxListings: 10, ttlMs },
   );
 
@@ -231,18 +249,29 @@ export async function probeCombo(opts: {
 
   // Velocity probe: how many matching listings appeared in the last day.
   let recentCount: number | null = null;
-  try {
-    const recent = await tradeSearch(
-      opts.league,
-      buildProbeQuery(category, opts.statIds, { recentOnly: true }),
-      { ttlMs },
-    );
-    recentCount = recent.total;
-  } catch {
-    /* velocity is optional */
+  if (!opts.skipVelocity) {
+    try {
+      const recent = await tradeSearch(
+        opts.league,
+        buildProbeQuery(category, opts.statIds, {
+          recentOnly: true,
+          statMins: opts.statMins,
+        }),
+        { ttlMs },
+      );
+      recentCount = recent.total;
+    } catch {
+      /* velocity is optional */
+    }
   }
 
-  const key = [...opts.statIds].sort().join("+");
+  const key = [...opts.statIds]
+    .sort()
+    .map((id) => {
+      const min = opts.statMins?.get(id);
+      return min != null && min > 0 ? `${id}>=${Math.round(min)}` : id;
+    })
+    .join("+");
   const probe: ComboProbe = {
     id: probeId(opts.league, opts.itemClass, key),
     league: opts.league,
@@ -327,9 +356,15 @@ export async function getProbeForGroups(opts: {
   itemClass: string;
   groups: string[];
   statIdsPerGroup: Map<string, string[]>;
+  /** Match the tier-aware key when value floors were used. */
+  statMins?: Map<string, number>;
   maxAgeMs?: number;
 }): Promise<ComboProbe | null> {
-  const keyed = comboKeyFromGroups(opts.groups, opts.statIdsPerGroup);
+  const keyed = comboKeyFromGroups(
+    opts.groups,
+    opts.statIdsPerGroup,
+    opts.statMins,
+  );
   if (!keyed) return null;
   await ensureAppTables();
   const db = getDb();
