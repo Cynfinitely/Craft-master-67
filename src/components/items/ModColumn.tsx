@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { EligibleMod } from "@/lib/data/types";
 import { groupByModGroup, modLabel, statRange, weightPct } from "@/lib/data/format";
 import { notableTags, tagStyle } from "@/lib/data/tags";
@@ -18,12 +19,17 @@ export function ModColumn({
   mods,
   totalWeight,
   guaranteedGroups,
+  baseId,
+  itemLevel,
 }: {
   title: string;
   accent: "prefix" | "suffix";
   mods: EligibleMod[];
   totalWeight: number;
   guaranteedGroups?: Set<string>;
+  /** When provided, each group links into the planner preselected. */
+  baseId?: string;
+  itemLevel?: number;
 }) {
   const groups = groupByModGroup(mods);
   const accentColor =
@@ -62,11 +68,22 @@ export function ModColumn({
                       </span>
                     ) : null}
                   </span>
-                  <span
-                    className="shrink-0 rounded bg-forge-bg/60 px-1.5 py-0.5 text-xs text-forge-goldbright"
-                    title={`combined spawn weight ${g.weight} of ${totalWeight}`}
-                  >
-                    {weightPct(g.weight, totalWeight)}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span
+                      className="rounded bg-forge-bg/60 px-1.5 py-0.5 text-xs text-forge-goldbright"
+                      title={`combined spawn weight ${g.weight} of ${totalWeight}`}
+                    >
+                      {weightPct(g.weight, totalWeight)}
+                    </span>
+                    {baseId ? (
+                      <Link
+                        href={`/craft?mode=base&base=${encodeURIComponent(baseId)}&ilvl=${itemLevel ?? 82}&groups=${encodeURIComponent(g.group)}`}
+                        className="rounded border border-forge-border px-1.5 py-0.5 text-[10px] text-forge-gold/60 transition-colors hover:border-forge-gold/50 hover:text-forge-goldbright"
+                        title="Open the crafting planner with this modifier preselected"
+                      >
+                        craft →
+                      </Link>
+                    ) : null}
                   </span>
                 </div>
                 {tags.length > 0 ? (

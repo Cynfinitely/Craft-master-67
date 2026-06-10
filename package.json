@@ -2,7 +2,7 @@
   "name": "poe2-crafting-helper",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first Path of Exile 2 crafting helper: browse bases & modifiers, reference crafting materials, plan crafting paths, and price-check via poe.ninja.",
+  "description": "Local-first Path of Exile 2 crafting helper: browse bases & modifiers, reference crafting materials, plan crafting paths, price-check via poe2scout, and learn what sells via the PoE2 trade API.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,7 +11,10 @@
     "data:refresh": "tsx scripts/refresh-data.ts",
     "data:materials": "tsx scripts/refresh-materials.ts",
     "data:seed": "tsx scripts/seed-db.ts",
-    "data:setup": "tsx scripts/refresh-data.ts && tsx scripts/refresh-materials.ts && tsx scripts/seed-db.ts"
+    "data:setup": "tsx scripts/refresh-data.ts && tsx scripts/refresh-materials.ts && tsx scripts/seed-db.ts",
+    "trade:stats": "tsx scripts/sync-trade-stats.ts",
+    "market:sample": "tsx scripts/sample-market.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

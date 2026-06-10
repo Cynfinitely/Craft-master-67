@@ -38,19 +38,21 @@ function formatPrice(p: number | null): string | null {
 }
 
 /**
- * Minimum modifier level a tiered currency guarantees (PoE2 "Rise of the
- * Abyssal"): Greater = 35 / Perfect = 50 for Exalt/Chaos/Regal; Greater = 55 /
- * Perfect = 70 for Transmute/Augment; Perfect essences = 50; Ancient bones = 40.
+ * Minimum modifier level a tiered currency guarantees (poe2wiki):
+ * Transmutation Greater 55 / Perfect 70; Augmentation Greater 44 / Perfect
+ * 70; Exalt/Chaos/Regal Greater 35 / Perfect 50; Perfect essences 50;
+ * Ancient bones 40.
  */
 function minModLevel(name: string): number | null {
   const greater = /\bgreater\b/i.test(name);
   const perfect = /\bperfect\b/i.test(name);
-  const transAug = /transmutation|augmentation/i.test(name);
+  const trans = /transmutation/i.test(name);
+  const aug = /augmentation/i.test(name);
   if (/\bancient\b/i.test(name) && /jawbone|rib|collarbone|cranium/i.test(name))
     return 40;
   if (perfect && /essence/i.test(name)) return 50;
-  if (greater) return transAug ? 55 : 35;
-  if (perfect) return transAug ? 70 : 50;
+  if (greater) return trans ? 55 : aug ? 44 : 35;
+  if (perfect) return trans || aug ? 70 : 50;
   return null;
 }
 

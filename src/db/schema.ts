@@ -2,6 +2,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
@@ -133,7 +134,7 @@ export const favorites = sqliteTable("favorites", {
 });
 
 /**
- * Short-lived cache of poe.ninja responses (it updates hourly).
+ * Short-lived cache of poe2scout price responses (it updates hourly).
  */
 export const priceCache = sqliteTable("price_cache", {
   key: text("key").primaryKey(),
@@ -141,7 +142,114 @@ export const priceCache = sqliteTable("price_cache", {
   fetchedAt: integer("fetched_at").notNull(),
 });
 
+/* ----------------------------- trade / market ----------------------------- */
+
+/**
+ * Generic cache for PoE2 trade API responses (searches, listings, stat
+ * catalog). Keys are endpoint-specific; TTL is decided by the reader.
+ */
+export const tradeCache = sqliteTable("trade_cache", {
+  key: text("key").primaryKey(),
+  payload: text("payload").notNull(), // json
+  fetchedAt: integer("fetched_at").notNull(),
+});
+
+/**
+ * Searchable stat catalog from the trade API (`/api/trade2/data/stats`):
+ * stat hash ids (e.g. "explicit.stat_3299347043") with display text and type.
+ */
+export const tradeStats = sqliteTable(
+  "trade_stats",
+  {
+    id: text("id").primaryKey(),
+    text: text("text").notNull(),
+    type: text("type").notNull(), // explicit | implicit | pseudo | rune | ...
+  },
+  (t) => ({
+    typeIdx: index("trade_stats_type_idx").on(t.type),
+  }),
+);
+
+/**
+ * Sampled trade listings of finished (rare) items, used to learn which
+ * explicit-mod combinations sell for how much. `stats` holds the listing's
+ * explicit mods as JSON: [{ hash, name, tier, level, values }].
+ */
+export const marketSamples = sqliteTable(
+  "market_samples",
+  {
+    listingId: text("listing_id").primaryKey(),
+    league: text("league").notNull(),
+    itemClass: text("item_class"),
+    baseType: text("base_type").notNull(),
+    name: text("name"),
+    ilvl: integer("ilvl"),
+    rarity: text("rarity"),
+    priceAmount: real("price_amount"),
+    priceCurrency: text("price_currency"),
+    priceExalted: real("price_exalted"),
+    indexedAt: text("indexed_at"),
+    fetchedAt: integer("fetched_at").notNull(),
+    stats: text("stats").notNull(), // json ListingStat[]
+    source: text("source").notNull().default("trade"),
+  },
+  (t) => ({
+    classIdx: index("market_samples_class_idx").on(t.league, t.itemClass),
+    baseIdx: index("market_samples_base_idx").on(t.league, t.baseType),
+  }),
+);
+
+/**
+ * Manually-entered sale records (fallback when the trade API is unreachable,
+ * or to record actual sales). `groups` is a JSON array of mod-group ids.
+ */
+export const manualSales = sqliteTable("manual_sales", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  league: text("league").notNull(),
+  itemClass: text("item_class"),
+  baseType: text("base_type").notNull(),
+  ilvl: integer("ilvl"),
+  priceExalted: real("price_exalted").notNull(),
+  groups: text("groups").notNull(), // json string[]
+  note: text("note"),
+  createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * Targeted combo probes: one stat-filtered trade search per explicit-mod
+ * combination, recording exact supply and ask prices. Far more precise than
+ * inferring combo value from random samples. `comboKey` is the sorted trade
+ * stat ids joined with "+"; `groups` is the matching repoe mod groups (JSON).
+ */
+export const comboProbes = sqliteTable(
+  "combo_probes",
+  {
+    id: text("id").primaryKey(), // `${league}|${itemClass}|${comboKey}`
+    league: text("league").notNull(),
+    itemClass: text("item_class").notNull(),
+    comboKey: text("combo_key").notNull(),
+    groups: text("groups").notNull(), // json string[]
+    labels: text("labels").notNull(), // json string[] (display names)
+    /** Total online listings matching the combo (supply). */
+    listingCount: integer("listing_count").notNull(),
+    /** Cheapest ask among fetched listings, in Exalted. */
+    minAskExalted: real("min_ask_exalted"),
+    /** Median ask of the cheapest fetched listings, in Exalted. */
+    medianAskExalted: real("median_ask_exalted"),
+    /** Listings indexed within the last day (demand/velocity proxy). */
+    recentCount: integer("recent_count"),
+    tradeUrl: text("trade_url"),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (t) => ({
+    classIdx: index("combo_probes_class_idx").on(t.league, t.itemClass),
+    fetchedIdx: index("combo_probes_fetched_idx").on(t.fetchedAt),
+  }),
+);
+
 export type BaseRow = typeof bases.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;
 export type SavedPlanRow = typeof savedPlans.$inferSelect;
+export type MarketSampleRow = typeof marketSamples.$inferSelect;
+export type ManualSaleRow = typeof manualSales.$inferSelect;

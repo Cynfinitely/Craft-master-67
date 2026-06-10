@@ -249,18 +249,28 @@ export async function getModTexts(
   return new Map(rows.map((r) => [r.id, r.text]));
 }
 
+// Game data is immutable for the lifetime of the process (a reseed requires a
+// restart), so mod pools can be memoized. recommendBases / the opportunity
+// ranker / the simulator hit the same pools repeatedly.
+const MOD_POOL_CACHE_MAX = 600;
+const modPoolCache = new Map<string, ModPool | null>();
+
 export async function getModPool(
   baseId: string,
   itemLevel: number,
 ): Promise<ModPool | null> {
+  const cacheKey = `${baseId}:${itemLevel}`;
+  const cached = modPoolCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const base = await getBase(baseId);
-  if (!base) return null;
+  if (!base) return null; // not cached: the base might appear after a reseed
 
   const all = await getEligibleMods(base.tags, itemLevel);
   const prefixes = all.filter((m) => m.generationType === "prefix");
   const suffixes = all.filter((m) => m.generationType === "suffix");
 
-  return {
+  const pool: ModPool = {
     base,
     itemLevel,
     prefixes,
@@ -268,4 +278,11 @@ export async function getModPool(
     prefixTotalWeight: prefixes.reduce((s, m) => s + m.weight, 0),
     suffixTotalWeight: suffixes.reduce((s, m) => s + m.weight, 0),
   };
+  if (modPoolCache.size >= MOD_POOL_CACHE_MAX) {
+    // Drop the oldest entry (Map preserves insertion order).
+    const first = modPoolCache.keys().next().value;
+    if (first !== undefined) modPoolCache.delete(first);
+  }
+  modPoolCache.set(cacheKey, pool);
+  return pool;
 }

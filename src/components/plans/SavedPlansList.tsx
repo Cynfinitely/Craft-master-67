@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { SavedPlanSummary } from "@/lib/user/queries";
+import { formatCost } from "@/lib/pricing/format";
+
+export interface PlanDrift {
+  savedCostExalted: number;
+  nowCostExalted: number;
+  divinePriceExalted: number;
+}
 
 function craftHref(p: SavedPlanSummary): string {
   const groups = [...p.plan.desiredPrefixes, ...p.plan.desiredSuffixes]
@@ -17,7 +24,13 @@ function craftHref(p: SavedPlanSummary): string {
   return `/craft?${params.toString()}`;
 }
 
-export function SavedPlansList({ initial }: { initial: SavedPlanSummary[] }) {
+export function SavedPlansList({
+  initial,
+  drift = {},
+}: {
+  initial: SavedPlanSummary[];
+  drift?: Record<number, PlanDrift>;
+}) {
   const [plans, setPlans] = useState(initial);
 
   const remove = async (id: number) => {
@@ -45,6 +58,41 @@ export function SavedPlansList({ initial }: { initial: SavedPlanSummary[] }) {
                 {p.plan.baseName} · {p.plan.desiredPrefixes.length}p /{" "}
                 {p.plan.desiredSuffixes.length}s · iLvl {p.plan.itemLevel}
               </p>
+              {drift[p.id] ? (
+                <p className="mt-0.5 text-xs">
+                  <span className="text-forge-gold/55">
+                    materials now ~
+                    {formatCost(
+                      drift[p.id].nowCostExalted,
+                      drift[p.id].divinePriceExalted,
+                    )}
+                  </span>{" "}
+                  <span
+                    className={
+                      drift[p.id].nowCostExalted -
+                        drift[p.id].savedCostExalted >
+                      0
+                        ? "text-forge-rust"
+                        : "text-emerald-300"
+                    }
+                  >
+                    (
+                    {drift[p.id].nowCostExalted -
+                      drift[p.id].savedCostExalted >=
+                    0
+                      ? "+"
+                      : ""}
+                    {formatCost(
+                      Math.round(
+                        drift[p.id].nowCostExalted -
+                          drift[p.id].savedCostExalted,
+                      ),
+                      drift[p.id].divinePriceExalted,
+                    )}{" "}
+                    since saved)
+                  </span>
+                </p>
+              ) : null}
             </div>
             <div className="flex shrink-0 gap-2">
               <Link href={craftHref(p)} className="btn btn-primary">

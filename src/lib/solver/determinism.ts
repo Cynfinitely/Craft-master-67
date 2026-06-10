@@ -1,7 +1,9 @@
 import "server-only";
-import { cleanModText } from "@/lib/data/format";
+import { cleanModText, normalizeStat } from "@/lib/data/format";
 import { getEssences, type Material, type MaterialTier } from "@/lib/materials/source";
 import type { EligibleMod } from "@/lib/data/types";
+
+export { normalizeStat };
 
 /**
  * Bridges materials and the mod pool: works out which mod groups an essence can
@@ -27,25 +29,6 @@ export interface EssenceGuarantee {
   guaranteedStatMax?: number;
   /** True when the essence grants a single fixed value (no roll range) — can't Divine it. */
   isFixedValue?: boolean;
-}
-
-/* ----------------------------- text normalization ----------------------------- */
-
-/**
- * Collapses a stat line to a comparable shape: lowercased, wiki-links removed,
- * every numeric value or range replaced with "#", and "# to #" (added-damage
- * style) folded to a single "#".
- */
-export function normalizeStat(text: string | null | undefined): string {
-  if (!text) return "";
-  let s = cleanModText(text).toLowerCase();
-  s = s.replace(/\+/g, " ");
-  s = s.replace(/\([^)]*\)/g, "#"); // (10-15) -> #
-  s = s.replace(/\d+(\.\d+)?/g, "#"); // bare numbers -> #
-  s = s.replace(/#\s*to\s*#/g, "#"); // "adds # to # damage" -> "adds # damage"
-  s = s.replace(/#+/g, "#");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
 }
 
 /* ----------------------------- class label matching ----------------------------- */

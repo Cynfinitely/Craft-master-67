@@ -1,0 +1,84 @@
+"use client";
+
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+export function OpportunityControls({
+  classes,
+  bases,
+  league,
+}: {
+  classes: { category: string; classes: string[] }[];
+  /** Bases of the selected class (empty until a class is chosen). */
+  bases: { id: string; name: string }[];
+  league: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  const itemClass = params.get("class") ?? "";
+  const baseId = params.get("base") ?? "";
+  const ilvl = params.get("ilvl") ?? "82";
+
+  const push = (updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null || v === "") next.delete(k);
+      else next.set(k, v);
+    }
+    router.push(`${pathname}?${next.toString()}`);
+  };
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <select
+        className="input"
+        value={itemClass}
+        onChange={(e) => push({ class: e.target.value || null, base: null })}
+      >
+        <option value="">Choose an item class…</option>
+        {classes.map((cat) => (
+          <optgroup key={cat.category} label={cat.category}>
+            {cat.classes.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {itemClass ? (
+        <select
+          className="input"
+          value={baseId}
+          onChange={(e) => push({ base: e.target.value || null })}
+          title="Pin the search to one base, or let the planner pick the best base per combo"
+        >
+          <option value="">Any base (auto-pick best)</option>
+          {bases.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <div className="flex shrink-0 items-center gap-1.5">
+        <label className="text-xs text-forge-gold/60">iLvl</label>
+        <input
+          type="number"
+          min={1}
+          max={100}
+          className="input w-16 text-center"
+          defaultValue={ilvl}
+          key={ilvl}
+          onBlur={(e) => push({ ilvl: e.target.value || "82" })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter")
+              push({ ilvl: (e.target as HTMLInputElement).value || "82" });
+          }}
+        />
+      </div>
+      <span className="text-xs text-forge-gold/50">league: {league}</span>
+    </div>
+  );
+}

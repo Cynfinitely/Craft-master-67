@@ -75,6 +75,19 @@ function MethodCard({
               single-pass {oddsLabel(method.overallOdds)}
             </div>
           ) : null}
+          {method.expectedProfitExalted != null ? (
+            <div
+              className={`mt-0.5 text-[11px] font-semibold ${
+                method.expectedProfitExalted >= 0
+                  ? "text-emerald-300"
+                  : "text-forge-rust"
+              }`}
+            >
+              {method.expectedProfitExalted >= 0 ? "+" : ""}
+              {formatCost(method.expectedProfitExalted, divinePriceExalted)}{" "}
+              profit
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -126,14 +139,26 @@ function MethodCard({
                 </span>
               ) : null}
               <p className="mt-0.5 text-xs text-forge-gold/60">{s.detail}</p>
-              {s.currency ? (
-                <Link
-                  href={`/price?focus=${encodeURIComponent(s.currency)}`}
-                  className="mt-1 inline-block tag-chip hover:border-forge-gold/60"
-                >
-                  {s.currency}
-                </Link>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {s.currency ? (
+                  <Link
+                    href={`/price?focus=${encodeURIComponent(s.currency)}`}
+                    className="mt-1 inline-block tag-chip hover:border-forge-gold/60"
+                  >
+                    {s.currency}
+                  </Link>
+                ) : null}
+                {s.link ? (
+                  <a
+                    href={s.link.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-block tag-chip text-rarity-currency hover:border-forge-gold/60"
+                  >
+                    {s.link.label} ↗
+                  </a>
+                ) : null}
+              </div>
             </div>
           </li>
         ))}
@@ -170,6 +195,26 @@ export function PlanView({ plan }: { plan: CraftPlan }) {
               {plan.methods.length} method
               {plan.methods.length === 1 ? "" : "s"}
             </p>
+            {plan.estimatedSale ? (
+              <p className="mt-0.5 text-sm">
+                <span className="font-semibold text-rarity-currency">
+                  sells ~
+                  {formatCost(
+                    plan.estimatedSale.priceExalted,
+                    plan.divinePriceExalted,
+                  )}
+                </span>{" "}
+                <span className="text-xs text-forge-gold/50">
+                  {plan.estimatedSale.source === "probe"
+                    ? `(exact combo probe — ${plan.estimatedSale.sampleCount} listed on trade)`
+                    : `(median of ${plan.estimatedSale.sampleCount} ${
+                        plan.estimatedSale.source === "manual"
+                          ? "manual sale"
+                          : "market"
+                      } samples)`}
+                </span>
+              </p>
+            ) : null}
           </div>
           <SavePlanButton plan={plan} />
         </div>

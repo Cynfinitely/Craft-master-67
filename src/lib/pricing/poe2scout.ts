@@ -190,9 +190,62 @@ async function writeCache(key: string, data: PriceData): Promise<void> {
   }
 }
 
+async function fetchFreshPrices(league: string): Promise<PriceData> {
+  const leagues = await getLeagues();
+  const divinePrice = leagues.find((l) => l.value === league)?.divinePrice ?? 0;
+
+  const perCategory = await Promise.all(
+    CATEGORIES.map((c) =>
+      fetchCategory(league, c).catch((err) => {
+        console.warn(`poe2scout: skipping category ${c}: ${err}`);
+        return [] as PricedItem[];
+      }),
+    ),
+  );
+  const items = perCategory.flat();
+
+  // Exalted Orb is the base unit.
+  if (!items.some((i) => i.name === "Exalted Orb")) {
+    items.unshift({
+      apiId: "exalted",
+      name: "Exalted Orb",
+      category: "currency",
+      iconUrl: null,
+      priceExalted: 1,
+      description: "The base currency unit for pricing.",
+    });
+  }
+  items.sort((a, b) => b.priceExalted - a.priceExalted);
+
+  const data: PriceData = {
+    league,
+    divinePrice,
+    items,
+    fetchedAt: Date.now(),
+    stale: false,
+  };
+  await writeCache(`prices:${league}`, data);
+  return data;
+}
+
+// One in-flight refresh per league, shared by blocking and background callers.
+const inflight = new Map<string, Promise<PriceData>>();
+
+function refreshPrices(league: string): Promise<PriceData> {
+  let p = inflight.get(league);
+  if (!p) {
+    p = fetchFreshPrices(league).finally(() => inflight.delete(league));
+    inflight.set(league, p);
+  }
+  return p;
+}
+
 /**
- * Returns priced currency/material data for a league, cached for an hour.
- * On a network failure, falls back to the last cached snapshot (marked stale).
+ * Returns priced currency/material data for a league, cached for an hour with
+ * stale-while-revalidate: an expired cache entry is served immediately while
+ * a background refresh updates it for the next reader. Only a cold cache
+ * blocks on the network; on failure the last snapshot is returned (marked
+ * stale).
  */
 export async function getPrices(leagueName?: string): Promise<PriceData> {
   const league = leagueName ?? (await getCurrentLeagueName());
@@ -203,47 +256,17 @@ export async function getPrices(leagueName?: string): Promise<PriceData> {
     return { ...cached, stale: false };
   }
 
-  try {
-    const leagues = await getLeagues();
-    const divinePrice =
-      leagues.find((l) => l.value === league)?.divinePrice ?? 0;
-
-    const perCategory = await Promise.all(
-      CATEGORIES.map((c) =>
-        fetchCategory(league, c).catch((err) => {
-          console.warn(`poe2scout: skipping category ${c}: ${err}`);
-          return [] as PricedItem[];
-        }),
-      ),
+  if (cached) {
+    // Serve stale instantly; refresh in the background (errors are logged
+    // and the stale snapshot simply stays in place).
+    refreshPrices(league).catch((err) =>
+      console.warn(`poe2scout: background refresh failed: ${err}`),
     );
-    const items = perCategory.flat();
-
-    // Exalted Orb is the base unit.
-    if (!items.some((i) => i.name === "Exalted Orb")) {
-      items.unshift({
-        apiId: "exalted",
-        name: "Exalted Orb",
-        category: "currency",
-        iconUrl: null,
-        priceExalted: 1,
-        description: "The base currency unit for pricing.",
-      });
-    }
-    items.sort((a, b) => b.priceExalted - a.priceExalted);
-
-    const data: PriceData = {
-      league,
-      divinePrice,
-      items,
-      fetchedAt: Date.now(),
-      stale: false,
-    };
-    await writeCache(cacheKey, data);
-    return data;
-  } catch (err) {
-    if (cached) return { ...cached, stale: true };
-    throw err;
+    return { ...cached, stale: true };
   }
+
+  // Cold cache: block on the first fetch.
+  return refreshPrices(league);
 }
 
 /**

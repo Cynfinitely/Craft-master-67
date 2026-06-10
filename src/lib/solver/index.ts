@@ -2,13 +2,22 @@ import "server-only";
 import { getEligibleMods, getModPool, searchBases } from "@/lib/data/queries";
 import { groupByModGroup, modLabel, tierValue } from "@/lib/data/format";
 import { notableTags } from "@/lib/data/tags";
-import { getPriceByApiId, getPrices } from "@/lib/pricing/poe2scout";
+import {
+  getCurrentLeagueName,
+  getPriceByApiId,
+  getPrices,
+} from "@/lib/pricing/poe2scout";
+import { getBasePrice, type BasePriceQuote } from "@/lib/trade/basePrice";
+import { buildModStatMap, type ModStatMap } from "@/lib/trade/modMap";
+import { withTimeout } from "@/lib/trade/client";
+import { estimateSaleValue } from "@/lib/market/analytics";
 import {
   essenceReachesTarget,
   resolveDeterminism,
   type EssenceGuarantee,
 } from "./determinism";
 import { resolveAlloys, type AlloyGuarantee } from "./alloys";
+import { FLUX_FALLBACK_PRICE, resolveFlux } from "./flux";
 import { withRisk } from "./risk";
 import { catalystStep, corruptionStep, crystallisationStep } from "./finishers";
 import { isRuneforgeable, runeforgingNote } from "@/lib/data/runeforging";
@@ -49,7 +58,7 @@ function buildGroupMap(mods: EligibleMod[]): Map<string, GroupInfo> {
 // Fallback unit prices in Exalted Orbs, used when the live price for an apiId
 // is unavailable. Deliberately conservative; clearly-approximate methods are
 // flagged so the UI can label them.
-const FALLBACK_PRICE: Record<string, number> = {
+export const FALLBACK_PRICE: Record<string, number> = {
   transmutation: 0.02,
   augmentation: 0.05,
   regal: 0.3,
@@ -91,9 +100,10 @@ const FALLBACK_PRICE: Record<string, number> = {
   "xophs-catalyst": 1,
   "eshs-catalyst": 1,
   "uul-netols-catalyst": 1,
+  ...FLUX_FALLBACK_PRICE,
 };
 
-function makePricer(priceMap: Map<string, number>) {
+export function makePricer(priceMap: Map<string, number>) {
   return (apiId: string): number =>
     priceMap.get(apiId) ?? FALLBACK_PRICE[apiId] ?? 0;
 }
@@ -143,23 +153,20 @@ const EXALT_ORBS: ExaltOrb[] = [
   { apiId: "perfect-exalted-orb", name: "Perfect Exalted Orb", minLevel: 50 },
 ];
 
-/** Cheapest exalt orb whose minimum level still includes the target tier. */
-function pickExaltOrb(tierLevel: number | undefined): ExaltOrb {
-  if (tierLevel == null) return EXALT_ORBS[0];
-  // Use the highest orb min-level that does not exceed the target tier so the
-  // target tier remains rollable while excluding as many lower tiers as we can.
-  let best = EXALT_ORBS[0];
-  for (const o of EXALT_ORBS) if (o.minLevel <= tierLevel) best = o;
-  return best;
-}
-
-// Tiered base-currency ladders (Normal / Greater / Perfect). Greater biases the
-// added/rerolled mod to modifier level >= 35, Perfect >= 50, just like exalts.
+// Tiered base-currency ladders (Normal / Greater / Perfect) with their
+// guaranteed minimum modifier levels (poe2wiki): Transmute 55/70,
+// Augmentation 44/70, Regal 35/50, Chaos 35/50 — same as Exalt for the
+// Rare-item orbs, much higher for the Magic-item orbs.
 type LadderOrb = { apiId: string; name: string; minLevel: number };
 const TRANSMUTE_ORBS: LadderOrb[] = [
   { apiId: "transmutation", name: "Orb of Transmutation", minLevel: 0 },
-  { apiId: "greater-orb-of-transmutation", name: "Greater Orb of Transmutation", minLevel: 35 },
-  { apiId: "perfect-orb-of-transmutation", name: "Perfect Orb of Transmutation", minLevel: 50 },
+  { apiId: "greater-orb-of-transmutation", name: "Greater Orb of Transmutation", minLevel: 55 },
+  { apiId: "perfect-orb-of-transmutation", name: "Perfect Orb of Transmutation", minLevel: 70 },
+];
+const AUGMENT_ORBS: LadderOrb[] = [
+  { apiId: "augmentation", name: "Orb of Augmentation", minLevel: 0 },
+  { apiId: "greater-orb-of-augmentation", name: "Greater Orb of Augmentation", minLevel: 44 },
+  { apiId: "perfect-orb-of-augmentation", name: "Perfect Orb of Augmentation", minLevel: 70 },
 ];
 const REGAL_ORBS: LadderOrb[] = [
   { apiId: "regal", name: "Regal Orb", minLevel: 0 },
@@ -172,15 +179,27 @@ const CHAOS_ORBS: LadderOrb[] = [
   { apiId: "perfect-chaos-orb", name: "Perfect Chaos Orb", minLevel: 50 },
 ];
 
-/** Cheapest ladder orb whose minimum level still includes the target tier. */
-function pickLadderOrb(
+/**
+ * Picks the ladder orb with the lowest expected cost: unit price divided by
+ * the hit odds at that orb's minimum modifier level. Higher-tier orbs cost
+ * more per use but shrink the eligible pool (fewer junk tiers), often paying
+ * for themselves on hard targets.
+ */
+function pickOrbByExpectedCost(
   ladder: LadderOrb[],
-  tierLevel: number | undefined,
-): LadderOrb {
-  if (tierLevel == null) return ladder[0];
-  let best = ladder[0];
-  for (const o of ladder) if (o.minLevel <= tierLevel) best = o;
-  return best;
+  price: (apiId: string) => number,
+  oddsAtMin: (minLevel: number) => number,
+): { orb: LadderOrb; odds: number } {
+  let best: { orb: LadderOrb; odds: number; expCost: number } | null = null;
+  for (const orb of ladder) {
+    const odds = oddsAtMin(orb.minLevel);
+    if (odds <= 0) continue;
+    const unit = price(orb.apiId);
+    const expCost = unit > 0 ? unit / odds : Number.MAX_SAFE_INTEGER / 2;
+    if (!best || expCost < best.expCost) best = { orb, odds, expCost };
+  }
+  if (best) return { orb: best.orb, odds: best.odds };
+  return { orb: ladder[0], odds: oddsAtMin(ladder[0].minLevel) };
 }
 
 type TierGroups = Map<string, EligibleMod[]>;
@@ -215,7 +234,59 @@ function typeWeightAtLevel(groups: TierGroups, minLevel: number): number {
   return s;
 }
 
+/**
+ * Weight of the tiers of a group that BOTH roll under an orb's minimum
+ * modifier level restriction AND satisfy the user's target tier. Respects the
+ * fallback rule: when no tier reaches the orb minimum, the group's highest
+ * tier stays rollable (but it must still meet the target tier to count).
+ */
+function targetWeightAtOrbLevel(
+  tiers: EligibleMod[],
+  targetLevel: number,
+  orbMinLevel: number,
+): number {
+  if (tiers.length === 0) return 0;
+  let rollable = tiers.filter((t) => t.requiredLevel >= orbMinLevel);
+  if (rollable.length === 0) {
+    rollable = [
+      tiers.reduce((a, b) => (b.requiredLevel > a.requiredLevel ? b : a)),
+    ];
+  }
+  return rollable
+    .filter((t) => t.requiredLevel >= targetLevel)
+    .reduce((s, t) => s + t.weight, 0);
+}
+
+/** All groups a target accepts: its own plus any Flux-convertible surrogates. */
+function acceptedGroups(t: DesiredMod): string[] {
+  return [t.group, ...(t.fluxGroups ?? [])];
+}
+
+/**
+ * Flux-aware numerator: summed eligible weight across the target group and
+ * its Flux surrogates, under both the orb minimum level and the target tier.
+ */
+function targetNumerator(
+  groups: TierGroups,
+  t: DesiredMod,
+  orbMinLevel: number,
+): number {
+  let num = 0;
+  for (const g of acceptedGroups(t)) {
+    num += targetWeightAtOrbLevel(groups.get(g) ?? [], t.tierLevel ?? 0, orbMinLevel);
+  }
+  return num;
+}
+
 /* ----------------------------- target prep ----------------------------- */
+
+/** Live base-listing quotes from the trade site (best-effort, may be absent). */
+interface BasePriceBundle {
+  /** A clean Normal base at the requested minimum item level. */
+  normal: BasePriceQuote | null;
+  /** A Magic base already carrying the two hardest target mods. */
+  magicHard: BasePriceQuote | null;
+}
 
 interface SolveInputs {
   baseId: string;
@@ -232,6 +303,12 @@ interface SolveInputs {
   determinism: Map<string, EssenceGuarantee[]>;
   alloys: Map<string, AlloyGuarantee[]>;
   price: (apiId: string) => number;
+  basePrices?: BasePriceBundle;
+}
+
+/** The two hardest targets (lowest fresh odds) — used by buy-a-base paths. */
+export function pickHardTargets(targets: DesiredMod[]): DesiredMod[] {
+  return [...targets].sort((a, b) => a.oddsFresh - b.oddsFresh).slice(0, 2);
 }
 
 // Alloys aren't on poe2scout yet; use a conservative flat fallback price.
@@ -246,19 +323,26 @@ function bestEssenceForTarget(
   inputs: SolveInputs,
   target: DesiredMod,
 ): EssenceGuarantee | null {
-  const options = inputs.determinism.get(target.group);
-  if (!options || options.length === 0) return null;
+  // Flux-aware: an essence that guarantees a surrogate resistance group works
+  // too — the Flux converts it to the wanted element at the end.
+  const options = acceptedGroups(target).flatMap(
+    (g) => inputs.determinism.get(g) ?? [],
+  );
+  if (options.length === 0) return null;
   const byPrice = [...options].sort(
     (a, b) => inputs.price(a.essenceApiId) - inputs.price(b.essenceApiId),
   );
   const reaches = byPrice.filter((e) => essenceReachesTarget(e, target));
   if (target.tierLevel != null) return reaches[0] ?? null;
-  // No specific tier: prefer the highest guarantee, then price.
+  // No specific tier requested: any guaranteed roll of the mod sells, so
+  // take the CHEAPEST essence (T2-3 results are perfectly marketable —
+  // don't pay Greater/Perfect premiums nobody asked for). Tie-break by
+  // higher guarantee.
   return [...options].sort((a, b) => {
-    const al = a.guaranteedLevel ?? 0;
-    const bl = b.guaranteedLevel ?? 0;
-    if (al !== bl) return bl - al;
-    return inputs.price(a.essenceApiId) - inputs.price(b.essenceApiId);
+    const ap = inputs.price(a.essenceApiId);
+    const bp = inputs.price(b.essenceApiId);
+    if (ap !== bp) return ap - bp;
+    return (b.guaranteedLevel ?? 0) - (a.guaranteedLevel ?? 0);
   })[0];
 }
 
@@ -287,14 +371,48 @@ function essenceStepDetail(
   return `Applying an Essence upgrades the Magic item to Rare while guaranteeing "${targetLabel}"${tierBit}.${fixedBit}`;
 }
 
-/** Odds a single Transmute lands a given mod on a fresh Magic item. */
-function magicHitOdds(inputs: SolveInputs, target: DesiredMod): number {
-  const tiers =
-    target.generationType === "prefix"
-      ? (inputs.preGroups.get(target.group) ?? [])
-      : (inputs.sufGroups.get(target.group) ?? []);
-  const num = groupWeightAtLevel(tiers, target.tierLevel ?? 0);
-  const den = inputs.totalPre + inputs.totalSuf;
+/**
+ * Odds a single Transmute lands a given mod on a fresh Magic item, under an
+ * orb's minimum modifier level (Greater/Perfect shrink the whole pool).
+ * Flux-aware: surrogate resistance groups count toward the numerator.
+ */
+function magicHitOdds(
+  inputs: SolveInputs,
+  target: DesiredMod,
+  orbMinLevel = 0,
+): number {
+  const groups =
+    target.generationType === "prefix" ? inputs.preGroups : inputs.sufGroups;
+  const num = targetNumerator(groups, target, orbMinLevel);
+  const den =
+    orbMinLevel > 0
+      ? typeWeightAtLevel(inputs.preGroups, orbMinLevel) +
+        typeWeightAtLevel(inputs.sufGroups, orbMinLevel)
+      : inputs.totalPre + inputs.totalSuf;
+  return den > 0 ? Math.min(1, num / den) : 0;
+}
+
+/**
+ * Odds a single Augmentation (at an orb minimum level) lands a target on a
+ * 1-mod Magic item whose existing mod occupies `placedGroup` on `placedSide`.
+ */
+function augHitOdds(
+  inputs: SolveInputs,
+  target: DesiredMod,
+  orbMinLevel: number,
+  placed?: { group: string; side: "prefix" | "suffix" },
+): number {
+  const groups =
+    target.generationType === "prefix" ? inputs.preGroups : inputs.sufGroups;
+  const num = targetNumerator(groups, target, orbMinLevel);
+  let den =
+    typeWeightAtLevel(inputs.preGroups, orbMinLevel) +
+    typeWeightAtLevel(inputs.sufGroups, orbMinLevel);
+  if (placed) {
+    const placedGroups =
+      placed.side === "prefix" ? inputs.preGroups : inputs.sufGroups;
+    den -= groupWeightAtLevel(placedGroups.get(placed.group) ?? [], orbMinLevel);
+  }
   return den > 0 ? Math.min(1, num / den) : 0;
 }
 
@@ -374,17 +492,19 @@ function targetExaltOdds(
 ): { odds: number; orb: ExaltOrb } {
   const groups = t.generationType === "prefix" ? inputs.preGroups : inputs.sufGroups;
   const placed = t.generationType === "prefix" ? placedPre : placedSuf;
-  const orb = pickExaltOrb(t.tierLevel);
-  const tiers = groups.get(t.group) ?? [];
-  // Numerator: weight of the target group's tiers at or above the desired tier.
-  const num = groupWeightAtLevel(tiers, t.tierLevel ?? 0);
-  // Denominator: open pool of this affix type at the orb's minimum level,
-  // minus the groups already occupying slots.
-  let den = typeWeightAtLevel(groups, orb.minLevel);
-  for (const pg of placed) {
-    den -= groupWeightAtLevel(groups.get(pg) ?? [], orb.minLevel);
-  }
-  const odds = den > 0 ? Math.min(1, num / den) : 0;
+  // Odds at a given orb minimum level: flux-aware numerator over the open
+  // pool of this affix type, minus the groups already occupying slots.
+  const oddsAtMin = (minLevel: number): number => {
+    const num = targetNumerator(groups, t, minLevel);
+    let den = typeWeightAtLevel(groups, minLevel);
+    for (const pg of placed) {
+      den -= groupWeightAtLevel(groups.get(pg) ?? [], minLevel);
+    }
+    return den > 0 ? Math.min(1, num / den) : 0;
+  };
+  // Pick the orb tier with the lowest expected cost (price / odds) — a
+  // pricier Greater/Perfect orb often wins by excluding junk tiers.
+  const { orb, odds } = pickOrbByExpectedCost(EXALT_ORBS, inputs.price, oddsAtMin);
   return { odds, orb };
 }
 
@@ -529,10 +649,20 @@ function chaosReplaceStep(
   totalMods: number,
   startN: number,
 ): { step: CraftStep; cost: number } {
-  const chaosOrb = pickLadderOrb(CHAOS_ORBS, target.tierLevel);
-  const unit = inputs.price(chaosOrb.apiId) || inputs.price("chaos");
+  const sideGroups =
+    target.generationType === "prefix" ? inputs.preGroups : inputs.sufGroups;
   const pRemoveBad = totalMods > 0 ? 1 / totalMods : 0;
-  const pSuccess = pRemoveBad * target.oddsFresh;
+  const oddsAtMin = (minLevel: number): number => {
+    const num = targetNumerator(sideGroups, target, minLevel);
+    const den = typeWeightAtLevel(sideGroups, minLevel);
+    return pRemoveBad * (den > 0 ? Math.min(1, num / den) : 0);
+  };
+  const { orb: chaosOrb, odds: pSuccess } = pickOrbByExpectedCost(
+    CHAOS_ORBS,
+    inputs.price,
+    oddsAtMin,
+  );
+  const unit = inputs.price(chaosOrb.apiId) || inputs.price("chaos");
   const attempts = pSuccess > 0 ? 1 / pSuccess : Infinity;
   const brickOdds = totalMods > 0 ? goodMods / totalMods : 0;
   const cost = Number.isFinite(attempts) ? attempts * unit : 0;
@@ -782,7 +912,9 @@ function methodEssenceDesecExalt(inputs: SolveInputs): CraftMethod | null {
   let n = 1;
   let cost = 0;
 
-  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, lead.tierLevel);
+  // Plain Transmute — the essence guarantees the lead mod, so paying for a
+  // Greater/Perfect roll on this throwaway Magic mod is wasted money.
+  const transOrb = TRANSMUTE_ORBS[0];
   const transmute = inputs.price(transOrb.apiId);
   steps.push({
     n: n++,
@@ -917,13 +1049,13 @@ function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod | null {
     detail: "Begin from a clean white (Normal) base at the highest item level.",
   });
   // Treat the two opening mods as random; target everything via Exalt for a
-  // conservative, easy-to-reason estimate.
+  // conservative, easy-to-reason estimate. Since those opening mods are
+  // junk by assumption, plain orbs — Greater/Perfect would buy nothing.
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
     (a, b) => a.oddsFresh - b.oddsFresh,
   );
-  const maxTier = Math.max(0, ...allTargets.map((t) => t.tierLevel ?? 0));
-  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, maxTier || undefined);
-  const regalOrb = pickLadderOrb(REGAL_ORBS, maxTier || undefined);
+  const transOrb = TRANSMUTE_ORBS[0];
+  const regalOrb = REGAL_ORBS[0];
   const transmute = inputs.price(transOrb.apiId);
   const regal = inputs.price(regalOrb.apiId);
   steps.push({
@@ -967,6 +1099,151 @@ function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod | null {
   };
 }
 
+/**
+ * Perfect-seed ladder (0.5 Greater/Perfect Magic orbs): Transmute toward the
+ * hardest target, Augment toward the hardest opposite-side target, Regal to
+ * Rare, then omen-Exalt the rest. Greater (55/44) and Perfect (70/70)
+ * Transmute/Augment restrict the WHOLE roll pool to high modifier levels —
+ * the orb tier for each step is chosen by expected cost, so the method
+ * shines when high tiers are targeted on a high-ilvl base.
+ */
+function methodPerfectSeed(inputs: SolveInputs): CraftMethod | null {
+  const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
+    (a, b) => a.oddsFresh - b.oddsFresh,
+  );
+  if (allTargets.length < 2) return null;
+  if (allTargets.some((t) => t.desecrated)) return null;
+
+  const seed1 = allTargets[0];
+  const seed2 = allTargets.find(
+    (t) => t !== seed1 && t.generationType !== seed1.generationType,
+  );
+
+  const steps: CraftStep[] = [];
+  let n = 1;
+  let cost = 0;
+  let overallOdds = 1;
+
+  // Step 1 — Transmute ladder toward seed1 (retry: re-Transmute fresh bases).
+  const trans = pickOrbByExpectedCost(TRANSMUTE_ORBS, inputs.price, (minLevel) =>
+    magicHitOdds(inputs, seed1, minLevel),
+  );
+  if (trans.odds <= 0) return null;
+  const transAttempts = oddsToAttempts(trans.odds);
+  const transCost = transAttempts * inputs.price(trans.orb.apiId);
+  cost += transCost;
+  overallOdds *= trans.odds;
+  steps.push({
+    n: n++,
+    title: `${trans.orb.name} fresh bases until Magic with "${seed1.label}"`,
+    detail: `Apply a ${trans.orb.name} to a white ${inputs.baseName}${
+      trans.orb.minLevel
+        ? ` — it only rolls modifiers of level ≥ ${trans.orb.minLevel}, cutting the junk tiers out of the pool`
+        : ""
+    }. ~${(trans.odds * 100).toFixed(1)}% per orb to land "${seed1.label}"; re-Transmute a fresh base on a miss (~${
+      Number.isFinite(transAttempts) ? Math.ceil(transAttempts) : "?"
+    } tries).`,
+    currency: trans.orb.name,
+    odds: trans.odds,
+    expectedAttempts: Number.isFinite(transAttempts)
+      ? Math.max(1, Math.ceil(transAttempts))
+      : undefined,
+    costExalted: Number.isFinite(transCost) ? round(transCost) : undefined,
+  });
+
+  // Step 2 — Augment ladder toward seed2 (a miss fills the second Magic slot
+  // with junk: the item is wasted and the craft restarts from step 1).
+  if (seed2) {
+    const aug = pickOrbByExpectedCost(AUGMENT_ORBS, inputs.price, (minLevel) =>
+      augHitOdds(inputs, seed2, minLevel, {
+        group: seed1.group,
+        side: seed1.generationType,
+      }),
+    );
+    if (aug.odds > 0) {
+      const augUnit = inputs.price(aug.orb.apiId);
+      cost += augUnit;
+      overallOdds *= aug.odds;
+      steps.push({
+        n: n++,
+        title: `${aug.orb.name} toward "${seed2.label}"`,
+        detail: `One ${aug.orb.name} adds the second Magic modifier${
+          aug.orb.minLevel ? ` at modifier level ≥ ${aug.orb.minLevel}` : ""
+        } — ~${(aug.odds * 100).toFixed(1)}% to be "${seed2.label}". There is no Scouring Orb in PoE2: a miss fills the slot with junk, so the item is recycled and you restart from the Transmute step.`,
+        currency: aug.orb.name,
+        odds: aug.odds,
+        costExalted: round(augUnit),
+        // A miss can't be retried in place — the pass restarts.
+        brickOdds: 1,
+      });
+    }
+  }
+
+  // Step 3 — Regal to Rare. The added mod is random filler (remaining
+  // targets land via Exalts), so the plain Regal is the right spend.
+  const seeds = seed2 ? [seed1, seed2] : [seed1];
+  const rest = allTargets.filter((t) => !seeds.includes(t));
+  const regalOrb = REGAL_ORBS[0];
+  const regalCost = inputs.price(regalOrb.apiId);
+  cost += regalCost;
+  steps.push({
+    n: n++,
+    title: `${regalOrb.name} to Rare`,
+    detail: `Upgrades the Magic item to Rare, keeping both seeded mods and adding one random modifier${
+      regalOrb.minLevel ? ` at modifier level ≥ ${regalOrb.minLevel}` : ""
+    }.`,
+    currency: regalOrb.name,
+    costExalted: round(regalCost),
+  });
+
+  // Step 4 — remaining targets via Exalt + omens.
+  const prePlaced = {
+    pre: new Set(
+      seeds.filter((t) => t.generationType === "prefix").map((t) => t.group),
+    ),
+    suf: new Set(
+      seeds.filter((t) => t.generationType === "suffix").map((t) => t.group),
+    ),
+  };
+  const fill = fillByExalt(inputs, rest, n, steps, prePlaced);
+  n = fill.n;
+  cost += fill.cost;
+  overallOdds *= fill.odds;
+
+  const div = divineStep(inputs, allTargets.length, n);
+  if (div) {
+    steps.push(div.step);
+    n++;
+    cost += div.cost;
+  }
+
+  const usedPerfect = [trans.orb.minLevel].some((l) => l >= 55);
+  return {
+    id: "perfect-seed",
+    name: "Perfect seed (G/P Transmute + Augment)",
+    summary: seed2
+      ? `Seed "${seed1.label}" + "${seed2.label}" on Magic with high-tier orbs, Regal, then Exalt the rest.`
+      : `Seed "${seed1.label}" on Magic with high-tier orbs, Regal, then Exalt the rest.`,
+    steps,
+    feasible: true,
+    overallOdds,
+    estCostExalted: round(cost),
+    costApproximate: false,
+    pros: [
+      usedPerfect
+        ? "Greater/Perfect Magic orbs roll ONLY high-level modifiers — far better odds per orb for top tiers."
+        : "Cheap Magic-item setup before the expensive Rare steps.",
+      "Both seed mods are settled before any Exalt is spent.",
+    ],
+    cons: [
+      seed2
+        ? "An Augmentation miss wastes the item (no Scouring Orb in PoE2)."
+        : "Only one mod can be seeded — the rest is Exalt RNG.",
+      "Perfect orbs are pricey; only worth it for genuinely high-tier targets.",
+    ],
+  };
+}
+
 function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
   // Chaos removes one random mod and adds one random mod — any unprotected mod
@@ -989,9 +1266,18 @@ function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
   cost += alch;
 
   const t = allTargets[0];
-  const chaosOrb = pickLadderOrb(CHAOS_ORBS, t.tierLevel);
+  const sideGroups =
+    t.generationType === "prefix" ? inputs.preGroups : inputs.sufGroups;
+  const { orb: chaosOrb, odds: o } = pickOrbByExpectedCost(
+    CHAOS_ORBS,
+    inputs.price,
+    (minLevel) => {
+      const num = targetNumerator(sideGroups, t, minLevel);
+      const den = typeWeightAtLevel(sideGroups, minLevel);
+      return den > 0 ? Math.min(1, num / den) : 0;
+    },
+  );
   const chaosUnit = inputs.price(chaosOrb.apiId) || chaos;
-  const o = t.oddsFresh;
   const attempts = oddsToAttempts(o);
   const stepCost = Number.isFinite(attempts) ? attempts * chaosUnit : 0;
   cost += stepCost;
@@ -1099,8 +1385,13 @@ function methodMagicSeedEssence(inputs: SolveInputs): CraftMethod | null {
   let cost = 0;
   let overallOdds = 1;
 
-  const transOrb = pickLadderOrb(TRANSMUTE_ORBS, seed.tierLevel);
-  const magicOdds = magicHitOdds(inputs, seed);
+  // Orb tier chosen by expected cost: Greater/Perfect Transmutes restrict the
+  // pool to high modifier levels, often hitting the seed far more cheaply.
+  const { orb: transOrb, odds: magicOdds } = pickOrbByExpectedCost(
+    TRANSMUTE_ORBS,
+    inputs.price,
+    (minLevel) => magicHitOdds(inputs, seed, minLevel),
+  );
   const magicAttempts = oddsToAttempts(magicOdds);
   const transUnit = inputs.price(transOrb.apiId);
   const magicCost = Number.isFinite(magicAttempts)
@@ -1255,14 +1546,21 @@ function methodBuyMagicBase(inputs: SolveInputs): CraftMethod | null {
   let n = 1;
   let cost = 0;
 
+  const quote = inputs.basePrices?.magicHard ?? null;
   steps.push({
     n: n++,
     title: `Buy a Magic ${inputs.baseName} with ${hard
       .map((t) => `"${t.label}"`)
       .join(" + ")}`,
-    detail:
-      "Trade for a Magic item that already rolls your hardest mods. This sidesteps the rarest RNG. Market price isn't in our data, so this cost is approximate.",
+    detail: quote
+      ? `Trade for a Magic item that already rolls your hardest mods — this sidesteps the rarest RNG. ${quote.sampleCount} priced listing${quote.sampleCount === 1 ? "" : "s"} found; cheapest go for ~${round(quote.priceExalted)} ex.`
+      : "Trade for a Magic item that already rolls your hardest mods. This sidesteps the rarest RNG. No live listing price was available, so this cost is approximate.",
+    costExalted: quote ? round(quote.priceExalted) : undefined,
+    link: quote
+      ? { href: quote.tradeUrl, label: "View listings on trade" }
+      : undefined,
   });
+  if (quote) cost += quote.priceExalted;
 
   const regal = inputs.price("regal");
   steps.push({
@@ -1299,14 +1597,17 @@ function methodBuyMagicBase(inputs: SolveInputs): CraftMethod | null {
     overallOdds: rest.length ? fill.odds : 1,
     estCostExalted: round(cost),
     costApproximate: true,
-    excludesMarketPrice: true,
+    excludesMarketPrice: !quote,
     pros: [
       "Skips the rarest RNG entirely.",
       "Great when a key mod is hard to hit.",
+      ...(quote ? ["Live listing price from the trade site included."] : []),
     ],
     cons: [
       "Relies on a suitable Magic item being for sale.",
-      "Listing price not included — true cost is higher.",
+      ...(quote
+        ? []
+        : ["Listing price not included — true cost is higher."]),
     ],
   };
 }
@@ -1694,16 +1995,16 @@ function methodMassSlam(inputs: SolveInputs): CraftMethod | null {
   // Mass-slam only makes sense for a small open-slot goal.
   if (allTargets.length === 0 || allTargets.length > 2) return null;
 
+  // Per-target expected-cost orb choice (not "most restrictive allowed") —
+  // the slam uses the orb picked for the hardest target.
   let joint = 1;
-  let maxTier = 0;
+  let orb = EXALT_ORBS[0];
   for (const t of allTargets) {
-    const { odds } = targetExaltOdds(inputs, t, EMPTY, EMPTY);
-    joint *= odds;
-    maxTier = Math.max(maxTier, t.tierLevel ?? 0);
+    const r = targetExaltOdds(inputs, t, EMPTY, EMPTY);
+    joint *= r.odds;
+    if (r.orb.minLevel > orb.minLevel) orb = r.orb;
   }
   if (joint <= 0) return null;
-
-  const orb = pickExaltOrb(maxTier || undefined);
   const orbPrice = inputs.price(orb.apiId);
   const double = allTargets.length === 2;
   const omenPrice = double ? inputs.price("omen-of-greater-exaltation") : 0;
@@ -1714,11 +2015,18 @@ function methodMassSlam(inputs: SolveInputs): CraftMethod | null {
   const steps: CraftStep[] = [];
   let n = 1;
 
+  const quote = inputs.basePrices?.normal ?? null;
+  const basesCost = quote ? N * quote.priceExalted : 0;
   steps.push({
     n: n++,
     title: `Acquire ~${N} cheap ${inputs.baseName} bases`,
-    detail:
-      "Buy or roll a stack of cheap white/magic bases with the relevant slot(s) open. Expected bases ≈ 1 / per-base odds; most will fail, so buy in bulk.",
+    detail: quote
+      ? `Buy a stack of white bases with the relevant slot(s) open — cheapest listings go for ~${round(quote.priceExalted)} ex each (~${round(basesCost)} ex for ${N}). Expected bases ≈ 1 / per-base odds; most will fail, so buy in bulk.`
+      : "Buy or roll a stack of cheap white/magic bases with the relevant slot(s) open. Expected bases ≈ 1 / per-base odds; most will fail, so buy in bulk.",
+    costExalted: quote ? round(basesCost) : undefined,
+    link: quote
+      ? { href: quote.tradeUrl, label: "Buy bases on trade" }
+      : undefined,
   });
 
   if (double) {
@@ -1757,9 +2065,9 @@ function methodMassSlam(inputs: SolveInputs): CraftMethod | null {
     steps,
     feasible: true,
     overallOdds: joint,
-    estCostExalted: round(totalCurrency),
+    estCostExalted: round(totalCurrency + basesCost),
     costApproximate: true,
-    excludesMarketPrice: true,
+    excludesMarketPrice: !quote,
     pros: [
       "Simple and parallel — no fragile multi-step sequence per item.",
       double
@@ -1831,7 +2139,12 @@ async function buildInputs(
   itemLevel: number,
   desiredGroups: string[],
   priceMap: Map<string, number>,
-): Promise<{ inputs: SolveInputs; warnings: string[]; feasible: boolean } | null> {
+): Promise<{
+  inputs: SolveInputs;
+  warnings: string[];
+  feasible: boolean;
+  poolMods: EligibleMod[];
+} | null> {
   const pool = await getModPool(baseId, itemLevel);
   if (!pool) return null;
 
@@ -1909,6 +2222,32 @@ async function buildInputs(
     }
   }
 
+  // Flux conversion (0.5): when the targets include exactly one resistance
+  // type, ANY elemental resistance roll is acceptable — a cheap Flux converts
+  // it at the end (same tier, value rerolls). Annotate the target and fold
+  // the surrogate groups' weight into its odds.
+  const fluxPlan = resolveFlux(
+    [...desiredPrefixes, ...desiredSuffixes].map((t) => t.group),
+  );
+  if (fluxPlan) {
+    const t = [...desiredPrefixes, ...desiredSuffixes].find(
+      (x) => x.group === fluxPlan.targetGroup,
+    );
+    if (t) {
+      const groups = t.generationType === "prefix" ? preGroups : sufGroups;
+      const total = t.generationType === "prefix" ? totalPre : totalSuf;
+      const surrogates = fluxPlan.surrogateGroups.filter((g) => groups.has(g));
+      if (surrogates.length > 0) {
+        t.fluxGroups = surrogates;
+        t.fluxApiId = fluxPlan.fluxApiId;
+        t.fluxName = fluxPlan.fluxName;
+        const num = targetNumerator(groups, t, 0);
+        t.weight = num;
+        t.oddsFresh = total ? Math.min(1, num / total) : 0;
+      }
+    }
+  }
+
   let feasible = true;
   if (desiredPrefixes.length > MAX_AFFIXES_PER_TYPE) {
     warnings.push(
@@ -1967,7 +2306,159 @@ async function buildInputs(
     price: makePricer(priceMap),
   };
 
-  return { inputs, warnings, feasible };
+  return {
+    inputs,
+    warnings,
+    feasible,
+    poolMods: [...pool.prefixes, ...pool.suffixes],
+  };
+}
+
+/**
+ * Best-effort live base quotes from the trade site: a clean white base, and a
+ * Magic base already carrying the two hardest target mods. Bounded by
+ * timeouts and never throws — when trade is unreachable the solver simply
+ * keeps its old "price not included" behavior.
+ */
+async function fetchBasePrices(
+  inputs: SolveInputs,
+  statMap: ModStatMap | null,
+  priceMap: Map<string, number>,
+  league: string | null,
+): Promise<BasePriceBundle | undefined> {
+  try {
+    if (!league) return undefined;
+
+    const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
+    const hard = pickHardTargets(allTargets);
+
+    // Map the hard targets to trade stat ids (needed for the Magic search).
+    let hardStatIds: string[] = [];
+    if (allTargets.length >= 2 && statMap) {
+      const perTarget = hard.map(
+        (t) => statMap.groupToStats.get(t.group) ?? [],
+      );
+      if (perTarget.every((ids) => ids.length > 0)) {
+        hardStatIds = perTarget.flat();
+      }
+    }
+
+    const [normal, magicHard] = await Promise.all([
+      withTimeout(
+        getBasePrice({
+          league,
+          baseType: inputs.baseName,
+          rarity: "normal",
+          ilvlMin: inputs.itemLevel,
+          priceMap,
+        }),
+        20000,
+      ),
+      hardStatIds.length > 0
+        ? withTimeout(
+            getBasePrice({
+              league,
+              baseType: inputs.baseName,
+              rarity: "magic",
+              ilvlMin: inputs.itemLevel,
+              statIds: hardStatIds,
+              priceMap,
+            }),
+            20000,
+          )
+        : Promise.resolve(null),
+    ]);
+    if (!normal && !magicHard) return undefined;
+    return { normal: normal ?? null, magicHard: magicHard ?? null };
+  } catch {
+    return undefined;
+  }
+}
+
+// Methods that consume one clean white base per pass (its market price is
+// added when a live quote is available, before risk inflation so restarts
+// re-buy the base too).
+const WHITE_BASE_METHODS = new Set([
+  "magic-seed-essence",
+  "essence-led",
+  "essence-desec-exalt",
+  "alloy-led",
+  "transmute-regal-exalt",
+  "perfect-seed",
+  "alchemy-chaos",
+  "fracture-chaos",
+  "desecration",
+]);
+
+/**
+ * When a target relies on Flux conversion, append the conversion step (before
+ * the Divine step when present — Flux rerolls the value within the tier, so
+ * Divine last). Costed at one Flux; it's only consumed when the resistance
+ * landed as a different element.
+ */
+function appendFluxStep(method: CraftMethod, inputs: SolveInputs): CraftMethod {
+  const fluxTarget = [
+    ...inputs.desiredPrefixes,
+    ...inputs.desiredSuffixes,
+  ].find((t) => t.fluxApiId && t.fluxGroups?.length);
+  if (!fluxTarget || method.steps.length === 0) return method;
+  // Advisory-only methods (no cost model) don't get a flux line.
+  if (method.estCostExalted == null) return method;
+
+  const fluxPrice = inputs.price(fluxTarget.fluxApiId!);
+  const fluxStep: CraftStep = {
+    n: 0, // renumbered below
+    title: `${fluxTarget.fluxName} if the resistance landed as another element`,
+    detail: `Any elemental resistance counts while crafting — a ${fluxTarget.fluxName} converts every elemental resistance mod on the item to ${fluxTarget.label} at the SAME tier (the value rerolls within the tier). Skip this step if "${fluxTarget.label}" landed directly.`,
+    currency: fluxTarget.fluxName,
+    costExalted: round(fluxPrice),
+  };
+  const divIdx = method.steps.findIndex((s) =>
+    s.title.startsWith("Divine to perfect"),
+  );
+  const steps =
+    divIdx >= 0
+      ? [
+          ...method.steps.slice(0, divIdx),
+          fluxStep,
+          ...method.steps.slice(divIdx),
+        ]
+      : [...method.steps, fluxStep];
+  return {
+    ...method,
+    steps: steps.map((s, i) => ({ ...s, n: i + 1 })),
+    estCostExalted: round(method.estCostExalted + fluxPrice),
+    pros: [
+      ...method.pros,
+      `Flux conversion: any elemental res counts (~${fluxTarget.fluxGroups!.length + 1}x the spawn weight for "${fluxTarget.label}").`,
+    ],
+  };
+}
+
+function includeWhiteBaseCost(
+  method: CraftMethod,
+  quote: BasePriceQuote | null | undefined,
+): CraftMethod {
+  if (!quote || !WHITE_BASE_METHODS.has(method.id)) return method;
+  const first = method.steps[0];
+  if (!first) return method;
+  const steps = [
+    {
+      ...first,
+      detail: `${first.detail} A white base goes for ~${round(quote.priceExalted)} ex on trade.`,
+      costExalted: round((first.costExalted ?? 0) + quote.priceExalted),
+      link: first.link ?? { href: quote.tradeUrl, label: "Buy a base on trade" },
+    },
+    ...method.steps.slice(1),
+  ];
+  return {
+    ...method,
+    steps,
+    estCostExalted:
+      method.estCostExalted == null
+        ? method.estCostExalted
+        : round(method.estCostExalted + quote.priceExalted),
+  };
 }
 
 function buildMethods(inputs: SolveInputs): CraftMethod[] {
@@ -1977,6 +2468,7 @@ function buildMethods(inputs: SolveInputs): CraftMethod[] {
     methodEssenceDesecExalt(inputs),
     methodAlloy(inputs),
     methodTransmuteRegalExalt(inputs),
+    methodPerfectSeed(inputs),
     methodAlchemyChaos(inputs),
     methodBuyMagicBase(inputs),
     methodFracturedBase(inputs),
@@ -1987,6 +2479,8 @@ function buildMethods(inputs: SolveInputs): CraftMethod[] {
   ];
   const feasible = methods
     .filter((m): m is CraftMethod => m !== null)
+    .map((m) => appendFluxStep(m, inputs))
+    .map((m) => includeWhiteBaseCost(m, inputs.basePrices?.normal))
     // Fold luck/brick risk into cost and annotate success/brick fields.
     .map((m) => withRisk(m));
   // Rank by estimated cost ascending. Methods whose estimate omits an unknown
@@ -2021,9 +2515,41 @@ export async function solveFromBase(
   }
   const built = await buildInputs(baseId, itemLevel, desiredGroups, priceMap);
   if (!built) return null;
-  const { inputs, warnings, feasible } = built;
+  const { inputs, warnings, feasible, poolMods } = built;
 
-  const methods = feasible ? buildMethods(inputs) : [];
+  let estimatedSale: CraftPlan["estimatedSale"] = null;
+  if (feasible) {
+    const league = await withTimeout(getCurrentLeagueName(), 5000);
+    const statMap = league
+      ? await withTimeout(buildModStatMap(poolMods), 10000)
+      : null;
+    inputs.basePrices = await fetchBasePrices(inputs, statMap, priceMap, league);
+
+    // Estimated sale value of the finished item, from market samples.
+    if (league && statMap) {
+      try {
+        estimatedSale = await estimateSaleValue({
+          league,
+          itemClass: inputs.itemClass,
+          groups: [
+            ...inputs.desiredPrefixes,
+            ...inputs.desiredSuffixes,
+          ].map((t) => t.group),
+          statIdsPerGroup: statMap.groupToStats,
+        });
+      } catch {
+        /* sale estimate is optional */
+      }
+    }
+  }
+
+  const methods = (feasible ? buildMethods(inputs) : []).map((m) => ({
+    ...m,
+    expectedProfitExalted:
+      estimatedSale && m.estCostExalted != null
+        ? Math.round(estimatedSale.priceExalted - m.estCostExalted)
+        : null,
+  }));
   const cheapest = methods[0];
 
   return {
@@ -2039,7 +2565,31 @@ export async function solveFromBase(
     steps: cheapest?.steps ?? [],
     overallOdds: cheapest?.overallOdds ?? 0,
     divinePriceExalted,
+    estimatedSale,
   };
+}
+
+/**
+ * Re-prices a saved plan's methods at today's currency prices, without any
+ * trade calls (base purchase quotes are skipped). Returns method id ->
+ * estimated cost; used to show cost drift on the Saved Plans page.
+ */
+export async function repriceMethods(
+  baseId: string,
+  itemLevel: number,
+  desiredGroups: string[],
+): Promise<Map<string, number | null> | null> {
+  let priceMap: Map<string, number>;
+  try {
+    const prices = await getPrices();
+    priceMap = new Map(prices.items.map((i) => [i.apiId, i.priceExalted]));
+  } catch {
+    priceMap = await getPriceByApiId();
+  }
+  const built = await buildInputs(baseId, itemLevel, desiredGroups, priceMap);
+  if (!built || !built.feasible) return null;
+  const methods = buildMethods(built.inputs);
+  return new Map(methods.map((m) => [m.id, m.estCostExalted]));
 }
 
 /**

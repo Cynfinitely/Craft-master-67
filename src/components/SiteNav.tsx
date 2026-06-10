@@ -8,6 +8,8 @@ const LINKS = [
   { href: "/items", label: "Items & Mods" },
   { href: "/materials", label: "Materials" },
   { href: "/craft", label: "Crafting Planner" },
+  { href: "/market", label: "Market" },
+  { href: "/opportunities", label: "Opportunities" },
   { href: "/price", label: "Price Check" },
   { href: "/plans", label: "Saved" },
 ];

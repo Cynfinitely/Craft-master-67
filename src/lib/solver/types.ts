@@ -24,6 +24,15 @@ export interface DesiredMod {
   tierStatMax?: number;
   /** True when this mod only comes from desecration (Well of Souls). */
   desecrated?: boolean;
+  /**
+   * Alternate groups that count as hits because a Flux converts them into
+   * this group at the end of the craft (e.g. any elemental res → Fire res).
+   */
+  fluxGroups?: string[];
+  /** Flux item (apiId) that performs the conversion. */
+  fluxApiId?: string;
+  /** Display name of that Flux. */
+  fluxName?: string;
 }
 
 export interface CraftStep {
@@ -45,6 +54,8 @@ export interface CraftStep {
   brickOdds?: number;
   /** Step number a brick on this step reverts the craft to (default 1). */
   restartFromStep?: number;
+  /** External link relevant to this step (e.g. a pre-filled trade search). */
+  link?: { href: string; label: string };
 }
 
 /** A distinct strategy for reaching the desired mods on a base. */
@@ -63,6 +74,8 @@ export interface CraftMethod {
   costApproximate: boolean;
   /** True when the estimate omits an unknown market price (e.g. buying a base). */
   excludesMarketPrice?: boolean;
+  /** Expected profit vs. the estimated market sale value, in Exalted Orbs. */
+  expectedProfitExalted?: number | null;
   /** Probability a single full pass of the sequence succeeds (0..1). */
   successChancePerAttempt?: number;
   /** Probability the craft bricks (strips finished progress) on a pass, 0..1. */
@@ -90,6 +103,12 @@ export interface CraftPlan {
   overallOdds: number;
   /** Live Divine Orb price in Exalted Orbs (for dual-currency display). */
   divinePriceExalted?: number;
+  /** Estimated market sale value of the finished item (probes/samples). */
+  estimatedSale?: {
+    priceExalted: number;
+    sampleCount: number;
+    source: "probe" | "trade" | "manual" | "mixed";
+  } | null;
 }
 
 export interface GroupChoice {

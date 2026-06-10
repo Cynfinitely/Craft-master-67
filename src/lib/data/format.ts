@@ -21,6 +21,24 @@ export function cleanModText(text: string | null | undefined): string {
   });
 }
 
+/**
+ * Collapses a stat line to a comparable shape: lowercased, wiki-links removed,
+ * every numeric value or range replaced with "#", and "# to #" (added-damage
+ * style) folded to a single "#". Used to match repoe mod text against essence
+ * effects and trade-site stat text.
+ */
+export function normalizeStat(text: string | null | undefined): string {
+  if (!text) return "";
+  let s = cleanModText(text).toLowerCase();
+  s = s.replace(/\+/g, " ");
+  s = s.replace(/\([^)]*\)/g, "#"); // (10-15) -> #
+  s = s.replace(/\d+(\.\d+)?/g, "#"); // bare numbers -> #
+  s = s.replace(/#\s*to\s*#/g, "#"); // "adds # to # damage" -> "adds # damage"
+  s = s.replace(/#+/g, "#");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
 /** A short label for a mod (its display text, falling back to name/type). */
 export function modLabel(mod: EligibleMod): string {
   const t = cleanModText(mod.text);

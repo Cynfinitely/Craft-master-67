@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-type CraftMode = "base" | "recommend" | "paste";
+type CraftMode = "base" | "recommend" | "paste" | "mass";
 
 export function CraftControls({
   classes,
@@ -69,12 +69,13 @@ export function CraftControls({
       <div className="flex gap-1 rounded-md border border-forge-border bg-forge-panel2 p-1">
         {tab("base", "From a base")}
         {tab("recommend", "Recommend a base")}
+        {tab("mass", "Mass craft")}
         {tab("paste", "Paste item")}
       </div>
 
       {mode === "paste" ? null : (
       <div className="flex flex-col gap-2 sm:flex-row">
-        {mode === "base" ? (
+        {mode === "base" || mode === "mass" ? (
           <input
             className="input"
             placeholder="Search base items"
@@ -109,8 +110,17 @@ export function CraftControls({
             min={1}
             max={100}
             className="input w-16 text-center"
-            value={ilvl}
-            onChange={(e) => push({ ilvl: e.target.value || "82" })}
+            defaultValue={ilvl}
+            key={ilvl}
+            onBlur={(e) => {
+              if (e.target.value !== ilvl) push({ ilvl: e.target.value || "82" });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const v = (e.target as HTMLInputElement).value;
+                if (v !== ilvl) push({ ilvl: v || "82" });
+              }
+            }}
           />
         </div>
       </div>

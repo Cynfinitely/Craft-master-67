@@ -19,7 +19,17 @@ const FEATURES = [
   {
     href: "/price",
     title: "Price Check",
-    desc: "Look up live currency values from poe.ninja and estimate the rough cost of a crafting plan.",
+    desc: "Look up live currency values from poe2scout and estimate the rough cost of a crafting plan.",
+  },
+  {
+    href: "/market",
+    title: "Market Intel",
+    desc: "Sample live trade listings to learn which explicit-mod combinations actually sell, and for how much.",
+  },
+  {
+    href: "/opportunities",
+    title: "Craft Opportunities",
+    desc: "Cross live market values with crafting costs to find the most profitable items to craft right now.",
   },
 ];
 

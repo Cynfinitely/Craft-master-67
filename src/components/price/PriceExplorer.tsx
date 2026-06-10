@@ -11,6 +11,36 @@ function fmt(n: number): string {
   return n.toFixed(3);
 }
 
+/** Which planner methods consume a currency (shown as a hint in the table). */
+const METHOD_USES: { test: RegExp; label: string }[] = [
+  { test: /orb of transmutation/i, label: "Magic seed · Perfect seed · ladders" },
+  { test: /orb of augmentation/i, label: "Perfect seed" },
+  { test: /regal orb/i, label: "Transmute→Regal · Perfect seed · Buy Magic base" },
+  { test: /exalted orb/i, label: "Exalt+Omen fills · Mass slam" },
+  { test: /chaos orb/i, label: "Alchemy+Chaos swaps" },
+  { test: /orb of alchemy/i, label: "Alchemy starts · Desecration" },
+  { test: /orb of annulment/i, label: "Exalt-miss cleanup · Whittling" },
+  { test: /fracturing orb/i, label: "Fracture methods" },
+  { test: /divine orb/i, label: "Final value rerolls" },
+  { test: /essence of the abyss/i, label: "Desecration (Mark of the Abyssal Lord)" },
+  { test: /\bessence of\b/i, label: "Essence-led · Magic seed + Essence" },
+  { test: /flux/i, label: "Resistance conversion (any res → target)" },
+  { test: /omen of (sinistral|dextral) exaltation/i, label: "Directional Exalt slams" },
+  { test: /omen of (sinistral|dextral) annulment/i, label: "Directional Annul cleanup" },
+  { test: /omen of greater exaltation/i, label: "Double-slam (two mods, one Exalt)" },
+  { test: /omen of whittling/i, label: "Fractured base annul-down" },
+  { test: /omen of (sinistral|dextral) necromancy/i, label: "Desecrate-unveil" },
+  { test: /omen of abyssal echoes/i, label: "Desecrate (more reveal options)" },
+  { test: /omen of light/i, label: "Desecrate reveal re-roll" },
+  { test: /jawbone|collarbone|\brib\b/i, label: "Desecration bones" },
+  { test: /catalyst/i, label: "Jewellery quality finisher" },
+  { test: /vaal orb/i, label: "Corruption finisher" },
+];
+
+function methodUses(name: string): string | null {
+  return METHOD_USES.find((m) => m.test.test(name))?.label ?? null;
+}
+
 export function PriceExplorer({
   leagues,
   data,
@@ -114,6 +144,14 @@ export function PriceExplorer({
                     >
                       <td className="px-4 py-1.5 text-forge-goldbright/90">
                         {i.name}
+                        {methodUses(i.name) ? (
+                          <span
+                            className="ml-1.5 text-[10px] text-forge-gold/40"
+                            title="Crafting methods that consume this currency"
+                          >
+                            {methodUses(i.name)}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-forge-gold/80">
                         {fmt(i.priceExalted)}

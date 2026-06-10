@@ -151,6 +151,8 @@ export default async function ItemsPage({
                   mods={prefixes}
                   totalWeight={pool.prefixTotalWeight}
                   guaranteedGroups={guaranteed}
+                  baseId={pool.base.id}
+                  itemLevel={pool.itemLevel}
                 />
                 <ModColumn
                   title="Suffixes"
@@ -158,6 +160,8 @@ export default async function ItemsPage({
                   mods={suffixes}
                   totalWeight={pool.suffixTotalWeight}
                   guaranteedGroups={guaranteed}
+                  baseId={pool.base.id}
+                  itemLevel={pool.itemLevel}
                 />
               </div>
             </>
