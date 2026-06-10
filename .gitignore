@@ -32,3 +32,5 @@ next-env.d.ts
 /data/poe2.db-journal
 /data/poe2.db-wal
 /data/poe2.db-shm
+
+/graphify-out
