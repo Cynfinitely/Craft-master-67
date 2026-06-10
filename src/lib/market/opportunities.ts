@@ -7,18 +7,19 @@ import { getBasePrice } from "@/lib/trade/basePrice";
 import { withTimeout } from "@/lib/trade/client";
 import { buildModStatMap, type ModStatMap } from "@/lib/trade/modMap";
 import { makePricer, recommendBases } from "@/lib/solver";
-import { resolveDeterminism } from "@/lib/solver/determinism";
 import { resolveFlux } from "@/lib/solver/flux";
+import { buildSimSpecs } from "@/lib/solver/registry";
 import {
   binomialQuantiles,
   buildSimPool,
   simulateMethod,
   SIM_METHODS,
-  type SimEssenceSpec,
   type SimMethodId,
+  type SimMethodSpec,
   type SimTarget,
 } from "@/lib/solver/simulate";
-import { getComboStats } from "./analytics";
+import { getComboStats, velocityAdjustedSale } from "./analytics";
+import { listManualSales } from "./manual";
 import {
   comboKeyFromGroups,
   getProbes,
@@ -44,6 +45,10 @@ export interface Opportunity {
   labels: string[];
   /* sale side */
   saleExalted: number;
+  /** Sale price after the supply/velocity haircut (drives the profit math). */
+  adjustedSaleExalted: number;
+  /** Rough days to move one item given supply vs daily listing flow. */
+  timeToSellDays: number | null;
   saleSource: "probe" | "sample";
   /** Matching online listings (probe-backed only). */
   supply: number | null;
@@ -98,10 +103,19 @@ const PROBE_VERIFY_BUDGET = 3;
 /** Probe data older than this is refreshed (budget allowing) and trusted less. */
 const PROBE_STALE_MS = 24 * 60 * 60 * 1000;
 const SIM_TRIALS = 1500;
+/**
+ * Methods given a simulation slot per combo. Specs come from the shared
+ * registry, so prerequisite-gated methods (essence / desecration / fracture)
+ * are only simulated when actually runnable on the combo's base.
+ */
 const CANDIDATE_METHODS: SimMethodId[] = [
   "alch-spam",
   "transmute-regal-exalt",
   "perfect-seed",
+  "omen-exalt",
+  "essence-omen-exalt",
+  "fracture-omen-exalt",
+  "desecrate-omen-exalt",
 ];
 /** Ask haircut applied to near-miss resale (partial items sell slow/low). */
 const NEAR_MISS_HAIRCUT = 0.6;
@@ -233,6 +247,44 @@ async function buildCandidates(opts: {
     }
   } catch {
     /* samples optional */
+  }
+
+  // 3) Manual sale records: real, realized prices — the strongest "this
+  // actually sells" signal you can get. Sales whose groups map onto the
+  // class's craftable pool become candidates (median across repeats).
+  try {
+    const sales = await listManualSales(opts.league);
+    const byKey = new Map<string, { groups: string[]; prices: number[] }>();
+    for (const sale of sales) {
+      if (sale.itemClass && sale.itemClass !== opts.itemClass) continue;
+      if (sale.groups.length === 0) continue;
+      if (!sale.groups.every((g) => opts.labelByGroup.has(g))) continue;
+      const key = groupKey(sale.groups);
+      const entry = byKey.get(key) ?? { groups: sale.groups, prices: [] };
+      entry.prices.push(sale.priceExalted);
+      byKey.set(key, entry);
+    }
+    for (const [key, entry] of byKey) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const sorted = [...entry.prices].sort((a, b) => a - b);
+      out.push({
+        key,
+        groups: entry.groups,
+        labels: entry.groups.map((g) => opts.labelByGroup.get(g) ?? g),
+        statIds:
+          comboKeyFromGroups(entry.groups, opts.statMap.groupToStats)
+            ?.statIds ?? null,
+        saleExalted: sorted[Math.floor(sorted.length / 2)],
+        saleSource: "sample",
+        supply: null,
+        velocity: null,
+        sampleCount: entry.prices.length,
+        fetchedAt: null,
+      });
+    }
+  } catch {
+    /* manual sales optional */
   }
 
   out.sort((a, b) => b.saleExalted - a.saleExalted);
@@ -511,35 +563,6 @@ export async function getOpportunities(opts: {
         }
       }
 
-      // Essence that locks the rarest key mod (enables essence-exalt).
-      let essenceSpec: SimEssenceSpec | undefined;
-      try {
-        const determinism = resolveDeterminism(opts.itemClass, [
-          ...pool.prefixes,
-          ...pool.suffixes,
-        ]);
-        for (const t of byRarity) {
-          if (t.role === "filler") continue;
-          const options = determinism.get(t.group) ?? [];
-          if (options.length === 0) continue;
-          const cheapest = [...options].sort(
-            (a, b) =>
-              price(a.essenceApiId) - price(b.essenceApiId) ||
-              (b.guaranteedLevel ?? 0) - (a.guaranteedLevel ?? 0),
-          )[0];
-          essenceSpec = {
-            group: t.group,
-            side: t.side,
-            level: cheapest.guaranteedLevel ?? 0,
-            apiId: cheapest.essenceApiId,
-            name: cheapest.essenceName,
-          };
-          break;
-        }
-      } catch {
-        /* essence lookup optional */
-      }
-
       // Flux conversion widens the acceptable resistance pool.
       const fluxPlan = resolveFlux(cand.groups);
       if (fluxPlan) {
@@ -571,16 +594,15 @@ export async function getOpportunities(opts: {
       }
 
       // Simulate candidate methods; keep the best cost per SELLABLE item
-      // (full hit, or all keys + at most one filler short).
+      // (full hit, or all keys + at most one filler short). Specs come from
+      // the shared method registry (same engine as the mass-craft planner).
       const simPool = buildSimPool(pool.prefixes, pool.suffixes);
-      const methodSpecs: { id: SimMethodId; essence?: SimEssenceSpec }[] =
-        CANDIDATE_METHODS.map((id) => ({ id }));
-      if (essenceSpec) {
-        methodSpecs.push({ id: "essence-exalt", essence: essenceSpec });
-      }
+      const bundle = await buildSimSpecs({ pool, targets, price });
+      const methodSpecs: SimMethodSpec[] = CANDIDATE_METHODS.map((id) =>
+        bundle.specs.get(id),
+      ).filter((s): s is SimMethodSpec => s != null);
       let bestMethod: {
-        id: SimMethodId;
-        essence?: SimEssenceSpec;
+        spec: SimMethodSpec;
         hitRate: number;
         sellableRate: number;
         pNearMiss: number;
@@ -595,12 +617,7 @@ export async function getOpportunities(opts: {
             ? SIM_TRIALS * 4
             : SIM_TRIALS;
       for (const spec of methodSpecs) {
-        const sim = simulateMethod(
-          simPool,
-          targets,
-          { id: spec.id, essence: spec.essence },
-          { trials, price },
-        );
+        const sim = simulateMethod(simPool, targets, spec, { trials, price });
         const F = fillerTargets.length;
         const pFull = sim.fullHitRate;
         // Sellable = all keys + at most one filler missing. For exact
@@ -621,8 +638,7 @@ export async function getOpportunities(opts: {
             bestMethod.costPerBase / bestMethod.sellableRate
         ) {
           bestMethod = {
-            id: spec.id,
-            essence: spec.essence,
+            spec,
             hitRate: pFull,
             sellableRate,
             pNearMiss,
@@ -632,7 +648,9 @@ export async function getOpportunities(opts: {
       }
       if (!bestMethod) continue;
 
-      const methodMeta = SIM_METHODS.find((m) => m.id === bestMethod!.id)!;
+      const methodMeta = SIM_METHODS.find(
+        (m) => m.id === bestMethod!.spec.id,
+      )!;
       const hitRate = bestMethod.hitRate;
       // Batch sized so ~2 sellable items are expected, not 2 perfect ones.
       const basesCount = Math.min(
@@ -661,8 +679,15 @@ export async function getOpportunities(opts: {
       const nearMissTotal =
         basesCount * bestMethod.pNearMiss * subsetValue * NEAR_MISS_HAIRCUT;
 
+      // Asks are upper bounds — haircut revenue by how slow this market is.
+      const velAdj = velocityAdjustedSale(
+        cand.saleExalted,
+        cand.supply,
+        cand.velocity,
+      );
+
       const profitAt = (hits: number) =>
-        Math.round(hits * cand.saleExalted + nearMissTotal - totalCost);
+        Math.round(hits * velAdj.adjustedExalted + nearMissTotal - totalCost);
 
       const confidence = scoreConfidence(cand);
 
@@ -673,6 +698,8 @@ export async function getOpportunities(opts: {
         groups: cand.groups,
         labels: cand.labels,
         saleExalted: cand.saleExalted,
+        adjustedSaleExalted: Math.round(velAdj.adjustedExalted * 100) / 100,
+        timeToSellDays: velAdj.timeToSellDays,
         saleSource: cand.saleSource,
         supply: cand.supply,
         velocity: cand.velocity,
@@ -682,7 +709,7 @@ export async function getOpportunities(opts: {
         sampleCount: cand.sampleCount,
         baseId: best.baseId,
         baseName: best.baseName,
-        methodId: bestMethod.id,
+        methodId: bestMethod.spec.id,
         methodName: methodMeta.name,
         craftModel: useKeysFillers ? "keys-fillers" : "exact",
         keyLabels: useKeysFillers
@@ -690,7 +717,7 @@ export async function getOpportunities(opts: {
               .filter((t) => t.role !== "filler")
               .map((t) => labelByGroup.get(t.group) ?? t.group)
           : [],
-        essenceName: bestMethod.essence?.name ?? null,
+        essenceName: bestMethod.spec.essence?.name ?? null,
         sellableRate: bestMethod.sellableRate,
         hitRate,
         basesCount,
@@ -701,7 +728,7 @@ export async function getOpportunities(opts: {
         profitP50Exalted: profitAt(batch.p50),
         profitP90Exalted: profitAt(batch.p90),
         craftHref: `/craft?mode=base&class=${encodeURIComponent(opts.itemClass)}&ilvl=${itemLevel}&base=${encodeURIComponent(best.baseId)}&groups=${groupsParam}`,
-        massHref: `/craft?mode=mass&class=${encodeURIComponent(opts.itemClass)}&ilvl=${itemLevel}&base=${encodeURIComponent(best.baseId)}&groups=${groupsParam}&method=${bestMethod.id}&n=${basesCount}`,
+        massHref: `/craft?mode=mass&class=${encodeURIComponent(opts.itemClass)}&ilvl=${itemLevel}&base=${encodeURIComponent(best.baseId)}&groups=${groupsParam}&method=${bestMethod.spec.id}&n=${basesCount}`,
       });
     } catch {
       /* skip combos the simulator can't price */

@@ -1,5 +1,6 @@
 import { searchAndFetch } from "./client";
 import { tradePriceToExalted } from "./currency";
+import { buildTradeQuery } from "./query";
 
 /**
  * Live base-item pricing via the trade API: what does a Normal/Magic base
@@ -34,27 +35,13 @@ interface BasePriceOpts {
 }
 
 function buildQuery(opts: BasePriceOpts, status: "online" | "any") {
-  return {
-    query: {
-      status: { option: status },
-      type: opts.baseType,
-      stats: [
-        {
-          type: "and",
-          filters: (opts.statIds ?? []).map((id) => ({ id, disabled: false })),
-        },
-      ],
-      filters: {
-        type_filters: {
-          filters: { rarity: { option: opts.rarity ?? "normal" } },
-        },
-        ...(opts.ilvlMin
-          ? { misc_filters: { filters: { ilvl: { min: opts.ilvlMin } } } }
-          : {}),
-      },
-    },
-    sort: { price: "asc" },
-  } as Record<string, unknown>;
+  return buildTradeQuery({
+    status,
+    type: opts.baseType,
+    rarity: opts.rarity ?? "normal",
+    ilvlMin: opts.ilvlMin,
+    statIds: opts.statIds,
+  });
 }
 
 async function quoteForStatus(

@@ -40,6 +40,8 @@ interface ParsedSample {
   ilvl: number | null;
   priceExalted: number;
   statIds: string[];
+  /** Highest modifier level seen per stat id (tier bracket of the roll). */
+  statLevels: Map<string, number>;
 }
 
 function quantile(sorted: number[], q: number): number {
@@ -63,12 +65,18 @@ function parseSamples(rows: MarketSampleRow[]): ParsedSample[] {
     }
     const ids = [...new Set(stats.map((s) => s.hash))].sort();
     if (ids.length === 0) continue;
+    const statLevels = new Map<string, number>();
+    for (const s of stats) {
+      if (s.level == null) continue;
+      statLevels.set(s.hash, Math.max(statLevels.get(s.hash) ?? 0, s.level));
+    }
     out.push({
       listingId: r.listingId,
       baseType: r.baseType,
       ilvl: r.ilvl,
       priceExalted: r.priceExalted,
       statIds: ids,
+      statLevels,
     });
   }
   return out;
@@ -210,6 +218,47 @@ export interface SaleEstimate {
   source: "probe" | "trade" | "manual" | "mixed";
 }
 
+export interface VelocityAdjustment {
+  /** Sale price after the supply/velocity haircut. */
+  adjustedExalted: number;
+  /** Haircut multiplier applied (1 = none). */
+  haircut: number;
+  /** Rough days to move one item: current supply / daily new listings. */
+  timeToSellDays: number | null;
+}
+
+/**
+ * Haircuts an ask-derived sale price by how slow the market is. Asks are
+ * upper bounds; the deeper the queue ahead of you (supply vs daily flow),
+ * the more you must undercut to actually realize the sale.
+ *
+ * - supply/velocity unknown: mild 10% trust haircut (sample-derived data).
+ * - <= 1 day of inventory: full price.
+ * - Each extra day of inventory shaves ~6%, floored at 55%.
+ */
+export function velocityAdjustedSale(
+  saleExalted: number,
+  supply: number | null,
+  velocity: number | null,
+): VelocityAdjustment {
+  if (supply == null || supply <= 0) {
+    return {
+      adjustedExalted: saleExalted * 0.9,
+      haircut: 0.9,
+      timeToSellDays: supply === 0 ? null : null,
+    };
+  }
+  // No demand signal at all: assume a sluggish 0.5 listings/day.
+  const flow = velocity != null && velocity > 0 ? velocity : 0.5;
+  const days = supply / flow;
+  const haircut = Math.max(0.55, Math.min(1, 1 - 0.06 * (days - 1)));
+  return {
+    adjustedExalted: saleExalted * haircut,
+    haircut,
+    timeToSellDays: Math.round(days * 10) / 10,
+  };
+}
+
 /**
  * Estimates the sale price of an item carrying all the target mods.
  *
@@ -217,7 +266,9 @@ export interface SaleEstimate {
  *  1. A fresh targeted combo probe (exact stat-filtered trade search — the
  *     most precise signal available).
  *  2. Random market samples: a listing matches when every target group has
- *     at least one of its trade stat ids present.
+ *     at least one of its trade stat ids present — and, when a tier floor is
+ *     given, rolled at a tier of that modifier level or better (T1 life and
+ *     T5 life are NOT the same market).
  *  3. Manual sale records (group-id subset match).
  */
 export async function estimateSaleValue(opts: {
@@ -226,6 +277,8 @@ export async function estimateSaleValue(opts: {
   baseType?: string | null;
   groups: string[];
   statIdsPerGroup: Map<string, string[]>;
+  /** Tier floor per group: required modifier level of the rolled tier. */
+  minLevelPerGroup?: Map<string, number>;
   minCount?: number;
 }): Promise<SaleEstimate | null> {
   const minCount = opts.minCount ?? 2;
@@ -255,10 +308,11 @@ export async function estimateSaleValue(opts: {
   let tradeMatches = 0;
   let manualMatches = 0;
 
-  const perGroup = opts.groups.map(
-    (g) => opts.statIdsPerGroup.get(g) ?? [],
-  );
-  const allMapped = perGroup.every((ids) => ids.length > 0);
+  const perGroup = opts.groups.map((g) => ({
+    ids: opts.statIdsPerGroup.get(g) ?? [],
+    minLevel: opts.minLevelPerGroup?.get(g) ?? 0,
+  }));
+  const allMapped = perGroup.every((g) => g.ids.length > 0);
 
   if (allMapped && opts.groups.length > 0) {
     // Prefer class-wide matches; fall back to base-specific when provided.
@@ -269,7 +323,17 @@ export async function estimateSaleValue(opts: {
     });
     for (const s of samples) {
       const idSet = new Set(s.statIds);
-      if (perGroup.every((ids) => ids.some((id) => idSet.has(id)))) {
+      const matches = perGroup.every((g) =>
+        g.ids.some((id) => {
+          if (!idSet.has(id)) return false;
+          if (g.minLevel <= 0) return true;
+          // Tier-aware: the listing's roll must be at the floor tier or
+          // better. Listings without level info pass (lenient — old data).
+          const level = s.statLevels.get(id);
+          return level == null || level >= g.minLevel;
+        }),
+      );
+      if (matches) {
         prices.push(s.priceExalted);
         tradeMatches++;
       }

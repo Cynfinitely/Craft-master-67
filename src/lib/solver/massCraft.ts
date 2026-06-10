@@ -6,16 +6,15 @@ import { getBasePrice, type BasePriceQuote } from "@/lib/trade/basePrice";
 import { buildModStatMap } from "@/lib/trade/modMap";
 import { withTimeout } from "@/lib/trade/client";
 import { estimateSaleValue, type SaleEstimate } from "@/lib/market/analytics";
-import { resolveDeterminism } from "./determinism";
 import { resolveFlux } from "./flux";
 import { makePricer } from "./index";
+import { buildSimSpecs } from "./registry";
 import {
   binomialQuantiles,
   buildSimPool,
   simulateMethod,
   SIM_METHODS,
   type BatchQuantiles,
-  type SimEssenceSpec,
   type SimMethodId,
   type SimTarget,
   type SimulationResult,
@@ -156,59 +155,44 @@ export async function planMassCraft(opts: {
   }
   const price = makePricer(priceMap);
 
-  /* ---- essence (for essence-exalt) ---- */
-  let essenceSpec: SimEssenceSpec | undefined;
-  let essenceView: { name: string; group: string } | null = null;
-  if (opts.methodId === "essence-exalt") {
-    const determinism = resolveDeterminism(pool.base.itemClass, [
-      ...pool.prefixes,
-      ...pool.suffixes,
-    ]);
-    // Lead = the target with the lowest fresh odds that an essence can hit.
-    const totalPre = pool.prefixTotalWeight;
-    const totalSuf = pool.suffixTotalWeight;
-    const candidates = targets
-      .map((t) => {
-        const g = (t.side === "prefix" ? preGroups : sufGroups).get(t.group)!;
-        const total = t.side === "prefix" ? totalPre : totalSuf;
-        return { t, odds: total ? g.weight / total : 0 };
-      })
-      .sort((a, b) => a.odds - b.odds);
-    for (const { t } of candidates) {
-      const options = (determinism.get(t.group) ?? []).filter(
-        (e) => (e.guaranteedLevel ?? 0) >= t.minLevel,
-      );
-      if (options.length === 0) continue;
-      const best = options.sort(
-        (a, b) =>
-          price(a.essenceApiId) - price(b.essenceApiId) ||
-          (b.guaranteedLevel ?? 0) - (a.guaranteedLevel ?? 0),
-      )[0];
-      essenceSpec = {
-        group: t.group,
-        side: t.side,
-        level: best.guaranteedLevel ?? t.minLevel,
-        apiId: best.essenceApiId,
-        name: best.essenceName,
-      };
-      essenceView = { name: best.essenceName, group: t.group };
-      break;
-    }
-    if (!essenceSpec) {
+  /* ---- per-method prerequisites (essence / desecration / fracture) ---- */
+  const bundle = await buildSimSpecs({
+    pool,
+    targets,
+    price,
+    maxChaos: opts.maxChaos,
+  });
+  let spec = bundle.specs.get(opts.methodId);
+  if (!spec) {
+    // Prerequisite missing (no essence / no bone / single target): fall back
+    // to the closest runnable policy instead of refusing.
+    const usesEssence =
+      opts.methodId === "essence-exalt" || opts.methodId === "essence-omen-exalt";
+    if (usesEssence) {
       warnings.push(
-        "No essence can guarantee any selected mod at the requested tier — the essence step is skipped (blind slams only).",
+        "No essence can guarantee any selected mod at the requested tier — the essence step is skipped (directional slams only).",
       );
+      spec = bundle.specs.get("omen-exalt") ?? { id: "omen-exalt" };
+    } else if (opts.methodId === "desecrate-omen-exalt") {
+      warnings.push(
+        "No selected mod can be revealed at the Well of Souls on this class — desecration skipped (directional slams only).",
+      );
+      spec = bundle.specs.get("omen-exalt") ?? { id: "omen-exalt" };
+    } else {
+      spec = { id: opts.methodId, maxChaos: opts.maxChaos };
     }
   }
+  const essenceView =
+    spec.essence != null
+      ? { name: spec.essence.name, group: spec.essence.group }
+      : null;
 
   /* ---- simulate ---- */
   const simPool = buildSimPool(pool.prefixes, pool.suffixes);
-  const sim = simulateMethod(
-    simPool,
-    targets,
-    { id: opts.methodId, maxChaos: opts.maxChaos, essence: essenceSpec },
-    { trials: opts.trials ?? 3000, price },
-  );
+  const sim = simulateMethod(simPool, targets, spec, {
+    trials: opts.trials ?? 3000,
+    price,
+  });
   const batchHits = binomialQuantiles(basesCount, sim.fullHitRate);
 
   /* ---- base purchase price (best-effort) ---- */
@@ -240,11 +224,16 @@ export async function planMassCraft(opts: {
         10000,
       );
       if (statMap) {
+        const minLevelPerGroup = new Map<string, number>();
+        for (const t of targets) {
+          if (t.minLevel > 0) minLevelPerGroup.set(t.group, t.minLevel);
+        }
         sale = await estimateSaleValue({
           league,
           itemClass: pool.base.itemClass,
           groups: targets.map((t) => t.group),
           statIdsPerGroup: statMap.groupToStats,
+          minLevelPerGroup,
         });
       }
     } catch {

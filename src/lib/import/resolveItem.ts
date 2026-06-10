@@ -1,5 +1,5 @@
 import "server-only";
-import { getModPool, searchBases } from "@/lib/data/queries";
+import { getEligibleMods, getModPool, searchBases } from "@/lib/data/queries";
 import { cleanModText } from "@/lib/data/format";
 import type { EligibleMod } from "@/lib/data/types";
 import { parseItem, normalizeStatLine, type ParsedMod } from "./parseItem";
@@ -123,12 +123,29 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
   const prefixes = pool?.prefixes ?? [];
   const suffixes = pool?.suffixes ?? [];
 
+  // Desecrated mods live in their own domain and are absent from the
+  // normal pool; fetch them lazily only if the pasted item has any.
+  const hasDesecrated = parsed.mods.some((m) => m.desecrated);
+  const desecMods = hasDesecrated
+    ? await getEligibleMods(pool?.base.tags ?? [], itemLevel, {
+        domains: ["desecrated"],
+      })
+    : [];
+  const desecPrefixes = desecMods.filter((m) => m.generationType === "prefix");
+  const desecSuffixes = desecMods.filter((m) => m.generationType === "suffix");
+
   const matched: ResolvedMod[] = [];
   const seen = new Set<string>();
   let requiresDesecration = false;
 
   for (const pm of parsed.mods) {
-    const poolForKind = pm.kind === "prefix" ? prefixes : suffixes;
+    const poolForKind = pm.desecrated
+      ? pm.kind === "prefix"
+        ? desecPrefixes
+        : desecSuffixes
+      : pm.kind === "prefix"
+        ? prefixes
+        : suffixes;
     const hit = matchMod(pm, poolForKind);
     if (!hit) {
       warnings.push(

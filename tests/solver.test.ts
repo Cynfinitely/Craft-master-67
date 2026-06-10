@@ -4,9 +4,16 @@ import { resolveFlux } from "../src/lib/solver/flux";
 import {
   buildSimPool,
   eligibleTiers,
+  simulateFinish,
   simulateMethod,
+  type SimDesecrateSpec,
   type SimGroup,
 } from "../src/lib/solver/simulate";
+import {
+  splitCraftedBudget,
+  validateTargets05,
+} from "../src/lib/solver/rules";
+import type { DesiredMod } from "../src/lib/solver/types";
 import type { EligibleMod } from "../src/lib/data/types";
 
 /* ---------------------- restricted pool (min mod level) ---------------------- */
@@ -223,6 +230,152 @@ test("essence-exalt locks the key mod (keyHitRate ≈ 1 for the essence group)",
   assert.ok(
     withEssence.keyHitRate > 0.95,
     `essence should nearly guarantee the key (got ${withEssence.keyHitRate})`,
+  );
+});
+
+/* ----------------------------- 0.5 rules ----------------------------- */
+
+const desired = (group: string, desecrated = false): DesiredMod =>
+  ({
+    group,
+    label: group,
+    generationType: "suffix",
+    weight: 100,
+    oddsFresh: 0.1,
+    desecrated,
+  }) as DesiredMod;
+
+test("0.5 rule: two desecrated targets are rejected as infeasible", () => {
+  const result = validateTargets05([
+    desired("DesecLife", true),
+    desired("DesecRes", true),
+    desired("FireResistance"),
+  ]);
+  assert.equal(result.feasible, false);
+  assert.ok(result.warnings.length > 0);
+});
+
+test("0.5 rule: a single desecrated target is fine", () => {
+  const result = validateTargets05([
+    desired("DesecLife", true),
+    desired("FireResistance"),
+  ]);
+  assert.equal(result.feasible, true);
+});
+
+test("0.5 rule: crafted budget keeps exactly one guarantee (essence+alloy is illegal)", () => {
+  const { crafted, overflow } = splitCraftedBudget(["essence", "alloy"]);
+  assert.equal(crafted, "essence");
+  assert.deepEqual(overflow, ["alloy"]);
+  const none = splitCraftedBudget([]);
+  assert.equal(none.crafted, null);
+});
+
+/* ----------------------- finisher: belt recipe golden ----------------------- */
+
+test("belt recipe: desecrate-finish success rate ≈ 3-of-N reveal odds, cost = bone + omen", () => {
+  // Item bought via the snipe template: life prefix + two res suffixes,
+  // one open suffix. Finish = Ancient Collarbone + Dextral Necromancy,
+  // reveal 3 of 6 equally-weighted desecrated suffix options.
+  const prefixes = [mod("IncreasedLife", 50, 100, "prefix")];
+  const suffixes = [
+    mod("FireResistance", 50, 100, "suffix"),
+    mod("ColdResistance", 50, 100, "suffix"),
+  ];
+  const pool = buildSimPool(prefixes, suffixes);
+
+  const desecGroup = (name: string): SimGroup => group(name, [[50, 100]]);
+  const candidates = [
+    "DesecTarget",
+    "DesecA",
+    "DesecB",
+    "DesecC",
+    "DesecD",
+    "DesecE",
+  ].map(desecGroup);
+  const spec: SimDesecrateSpec = {
+    side: "suffix",
+    targetGroup: "DesecTarget",
+    groups: candidates,
+    useEchoes: false,
+    boneApiId: "ancient-collarbone",
+    necroApiId: "omen-of-dextral-necromancy",
+    skipAbyssMark: true,
+  };
+
+  const price = (apiId: string) =>
+    apiId === "ancient-collarbone" ? 5 : apiId === "omen-of-dextral-necromancy" ? 10 : 0;
+
+  const startMods = [
+    { group: "IncreasedLife", side: "prefix" as const, level: 50 },
+    { group: "FireResistance", side: "suffix" as const, level: 50 },
+    { group: "ColdResistance", side: "suffix" as const, level: 50 },
+  ];
+  const targets = [
+    { group: "IncreasedLife", side: "prefix" as const, minLevel: 0 },
+    { group: "FireResistance", side: "suffix" as const, minLevel: 0 },
+    { group: "ColdResistance", side: "suffix" as const, minLevel: 0 },
+    { group: "DesecTarget", side: "suffix" as const, minLevel: 0 },
+  ];
+
+  const result = simulateFinish(pool, startMods, targets, { desecrate: spec }, {
+    trials: 6000,
+    price,
+  });
+
+  // P(target among 3 of 6 equal-weight options) = 1/2.
+  assert.ok(
+    Math.abs(result.fullHitRate - 0.5) < 0.05,
+    `expected ~50% reveal hit, got ${result.fullHitRate}`,
+  );
+  // Exactly one bone + one omen per attempt — EV cost must be 15ex.
+  assert.ok(
+    Math.abs(result.avgCurrencyCostExalted - 15) < 1e-9,
+    `expected 15ex finish cost, got ${result.avgCurrencyCostExalted}`,
+  );
+});
+
+/* ----------------------- sim vs closed-form parity ----------------------- */
+
+test("finisher slam EV matches the closed-form expectation", () => {
+  // Prefixes full; suffix pool = target + one junk group at equal weight.
+  // Slam 1 hits the target with p=1/2; on a miss the junk group occupies a
+  // slot, and slam 2 can only roll the target (groups never repeat).
+  // E[exalts] = 0.5x1 + 0.5x2 = 1.5, success = 100%, no annuls.
+  const prefixes = [
+    mod("P1", 50, 100, "prefix"),
+    mod("P2", 50, 100, "prefix"),
+    mod("P3", 50, 100, "prefix"),
+  ];
+  const suffixes = [
+    mod("Target", 50, 100, "suffix"),
+    mod("Junk", 50, 100, "suffix"),
+  ];
+  const pool = buildSimPool(prefixes, suffixes);
+  const startMods = [
+    { group: "P1", side: "prefix" as const, level: 50 },
+    { group: "P2", side: "prefix" as const, level: 50 },
+    { group: "P3", side: "prefix" as const, level: 50 },
+  ];
+  const targets = [{ group: "Target", side: "suffix" as const, minLevel: 0 }];
+
+  const result = simulateFinish(pool, startMods, targets, {}, {
+    trials: 8000,
+    price: (apiId) => (apiId === "exalted" ? 1 : 100),
+  });
+
+  assert.equal(result.fullHitRate, 1);
+  const exalts = result.avgCurrency.find((c) => c.apiId === "exalted");
+  assert.ok(exalts, "exalted usage must be tallied");
+  assert.ok(
+    Math.abs(exalts!.avgPerBase - 1.5) < 0.05,
+    `expected ~1.5 exalts per finish, got ${exalts!.avgPerBase}`,
+  );
+  // Prefixes are full: the slam is side-locked for free — no omens, and the
+  // suffix side never overfills, so no annuls either.
+  assert.ok(
+    Math.abs(result.avgCurrencyCostExalted - exalts!.avgPerBase) < 1e-9,
+    "no omen/annul cost should be charged when the slam is already forced",
   );
 });
 

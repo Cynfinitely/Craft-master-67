@@ -149,11 +149,17 @@ export async function getBase(id: string): Promise<BaseDetail | null> {
 export async function getEligibleMods(
   itemTags: string[],
   itemLevel: number,
-  options: { generationTypes?: readonly string[]; includeEssenceOnly?: boolean } = {},
+  options: {
+    generationTypes?: readonly string[];
+    includeEssenceOnly?: boolean;
+    /** Mod domains to include (default: regular item mods only). */
+    domains?: readonly string[];
+  } = {},
 ): Promise<EligibleMod[]> {
   const db = getDb();
   const generationTypes = options.generationTypes ?? DEFAULT_GEN_TYPES;
   const includeEssenceOnly = options.includeEssenceOnly ?? false;
+  const domains = options.domains ?? ["item"];
   const tagSet = new Set(itemTags);
   if (tagSet.size === 0) return [];
 
@@ -204,7 +210,7 @@ export async function getEligibleMods(
       .where(
         and(
           inArray(mods.id, chunk),
-          eq(mods.domain, "item"),
+          inArray(mods.domain, [...domains]),
           inArray(mods.generationType, [...generationTypes]),
         ),
       ),

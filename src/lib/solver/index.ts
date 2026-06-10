@@ -17,6 +17,14 @@ import {
   type EssenceGuarantee,
 } from "./determinism";
 import { resolveAlloys, type AlloyGuarantee } from "./alloys";
+import { leagueAdvice } from "./leagueAdvisor";
+import { applyForgeCosts } from "@/lib/market/runes";
+import { BONE_BY_CLASS } from "./registry";
+import {
+  MAX_DESECRATED_MODS,
+  RULE_05_SUMMARY,
+  validateTargets05,
+} from "./rules";
 import { FLUX_FALLBACK_PRICE, resolveFlux } from "./flux";
 import { withRisk } from "./risk";
 import { catalystStep, corruptionStep, crystallisationStep } from "./finishers";
@@ -78,11 +86,16 @@ export const FALLBACK_PRICE: Record<string, number> = {
   annul: 2,
   "omen-of-sinistral-annulment": 5,
   "omen-of-dextral-annulment": 5,
+  "omen-of-sinistral-exaltation": 10,
+  "omen-of-dextral-exaltation": 10,
   "omen-of-whittling": 25,
   "omen-of-light": 15,
   "omen-of-abyssal-echoes": 20,
   "omen-of-sinistral-crystallisation": 6,
   "omen-of-dextral-crystallisation": 6,
+  "omen-of-the-sovereign": 15,
+  "omen-of-the-liege": 15,
+  "omen-of-the-hunger": 15,
   divine: 200,
   vaal: 1.5,
   "fracturing-orb": 30,
@@ -100,6 +113,21 @@ export const FALLBACK_PRICE: Record<string, number> = {
   "xophs-catalyst": 1,
   "eshs-catalyst": 1,
   "uul-netols-catalyst": 1,
+  // 0.5 Alloys aren't listed on poe2scout — conservative flat fallback so
+  // alloy-led plans never price the guarantee at zero.
+  "runic-alloy": 3,
+  "adaptive-alloy": 3,
+  "expansive-alloy": 3,
+  "protective-alloy": 3,
+  "cyclonic-alloy": 3,
+  "mystic-alloy": 3,
+  "prismatic-alloy": 3,
+  "swift-alloy": 3,
+  "celestial-alloy": 3,
+  "sovereign-alloy": 3,
+  "the-runebinders-alloy": 3,
+  "the-runefathers-alloy": 3,
+  "transcendent-alloy": 3,
   ...FLUX_FALLBACK_PRICE,
 };
 
@@ -286,6 +314,8 @@ interface BasePriceBundle {
   normal: BasePriceQuote | null;
   /** A Magic base already carrying the two hardest target mods. */
   magicHard: BasePriceQuote | null;
+  /** A base whose hardest target mod is already FRACTURED (locked). */
+  fracturedKey: BasePriceQuote | null;
 }
 
 interface SolveInputs {
@@ -348,14 +378,6 @@ function bestEssenceForTarget(
 
 function essenceGuaranteeable(inputs: SolveInputs, target: DesiredMod): boolean {
   return bestEssenceForTarget(inputs, target) != null;
-}
-
-/** Mods whose values can still be improved with a Divine (excludes fixed essences). */
-function variableTargetCount(
-  targets: DesiredMod[],
-  fixedGroups: Set<string> = new Set(),
-): number {
-  return targets.filter((t) => !fixedGroups.has(t.group)).length;
 }
 
 function essenceStepDetail(
@@ -606,27 +628,47 @@ function fillByExalt(
 }
 
 /**
+ * Per-mod chance a Divine reroll lands an acceptable value (the top ~half of
+ * the tier's actual roll range). Tier-aware: a fixed-value mod (no range)
+ * never needs the Divine (q = 1); a 2-value range is a coin flip; wide ranges
+ * approach 1/2. Unknown ranges fall back to 1/2.
+ */
+function divineGoodRollChance(t: DesiredMod): number {
+  const min = t.tierStatMin;
+  const max = t.tierStatMax;
+  if (min == null || max == null) return 0.5;
+  if (max <= min) return 1; // fixed value — nothing to reroll
+  const width = Math.round(max - min) + 1;
+  return Math.ceil(width / 2) / width;
+}
+
+/**
  * The Divine step: Divine Orbs reroll ALL variable values on the item at once,
- * so reaching good values on several mods is geometric. Estimate the number of
- * Divines as 1 / (q^k) where k is the number of variable target mods and q is
- * the per-mod chance of an acceptable roll (top ~half). Capped to stay sane.
+ * so reaching good values on several mods is geometric. Expected Divines =
+ * 1 / prod(q_i) over the variable target mods, where each q_i comes from the
+ * mod's actual roll range (`divineGoodRollChance`). Capped to stay sane.
  */
 function divineStep(
   inputs: SolveInputs,
-  variableMods: number,
+  targets: DesiredMod[],
   startN: number,
+  fixedGroups: Set<string> = new Set(),
 ): { step: CraftStep; cost: number } | null {
-  if (variableMods <= 0) return null;
-  const q = 0.5; // treat "good" as the top ~50% of each mod's range
-  const raw = 1 / Math.pow(q, variableMods);
+  const variable = targets.filter(
+    (t) => !fixedGroups.has(t.group) && divineGoodRollChance(t) < 1,
+  );
+  if (variable.length === 0) return null;
+  const jointQ = variable.reduce((p, t) => p * divineGoodRollChance(t), 1);
+  const raw = jointQ > 0 ? 1 / jointQ : 50;
   const attempts = Math.min(50, Math.max(1, Math.round(raw)));
   const divine = inputs.price("divine");
   const cost = attempts * divine;
+  const variableMods = variable.length;
   return {
     step: {
       n: startN,
       title: "Divine to perfect the values",
-      detail: `A Divine Orb rerolls ALL ${variableMods} variable value${variableMods === 1 ? "" : "s"} at once, so hitting high rolls on every mod is luck-based — expect roughly ${attempts} Divine${attempts === 1 ? "" : "s"} for good values across the board (more for near-perfect). Fracture or annul a finished mod first if you only need to reroll the rest.`,
+      detail: `A Divine Orb rerolls ALL ${variableMods} variable value${variableMods === 1 ? "" : "s"} at once, so hitting high rolls on every mod is luck-based — expect roughly ${attempts} Divine${attempts === 1 ? "" : "s"} for good values across the board (more for near-perfect), based on each mod's actual roll range. Fracture or annul a finished mod first if you only need to reroll the rest. Note: Divines reroll values WITHIN a tier — they never upgrade the tier itself.`,
       currency: "Divine Orb",
       odds: undefined,
       expectedAttempts: attempts,
@@ -757,7 +799,7 @@ function methodEssenceLed(inputs: SolveInputs): CraftMethod | null {
   const fixedGroups = essence.isFixedValue
     ? new Set([lead.group])
     : new Set<string>();
-  const div = divineStep(inputs, variableTargetCount(allTargets, fixedGroups), n);
+  const div = divineStep(inputs, allTargets, n, fixedGroups);
   if (div) {
     steps.push(div.step);
     n++;
@@ -856,7 +898,7 @@ function methodAlloy(inputs: SolveInputs): CraftMethod | null {
     }
   }
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, allTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -879,6 +921,7 @@ function methodAlloy(inputs: SolveInputs): CraftMethod | null {
     cons: [
       "Alloys are league-specific and removed at league end.",
       "Replaces a random mod — apply early, before high-value rolls.",
+      "Uses the single 0.5 crafted-mod slot — no essence can be added on top.",
     ],
   };
 }
@@ -1011,7 +1054,7 @@ function methodEssenceDesecExalt(inputs: SolveInputs): CraftMethod | null {
   const fixedGroups = essence.isFixedValue
     ? new Set([lead.group])
     : new Set<string>();
-  const div = divineStep(inputs, variableTargetCount(allTargets, fixedGroups), n);
+  const div = divineStep(inputs, allTargets, n, fixedGroups);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1078,7 +1121,7 @@ function methodTransmuteRegalExalt(inputs: SolveInputs): CraftMethod | null {
   n = fill.n;
   cost += fill.cost;
 
-  const div = divineStep(inputs, exaltTargets.length, n);
+  const div = divineStep(inputs, exaltTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1210,7 +1253,7 @@ function methodPerfectSeed(inputs: SolveInputs): CraftMethod | null {
   cost += fill.cost;
   overallOdds *= fill.odds;
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, allTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1312,36 +1355,7 @@ function methodAlchemyChaos(inputs: SolveInputs): CraftMethod | null {
   };
 }
 
-// Abyssal bone per item class (Rise of the Abyssal desecration crafting).
-const BONE_BY_CLASS: { test: (ic: string) => boolean; bone: string; boneApi: string }[] =
-  [
-    {
-      test: (ic) => ic === "Ring" || ic === "Amulet" || ic === "Belt",
-      bone: "Collarbone",
-      boneApi: "collarbone",
-    },
-    {
-      test: (ic) =>
-        ic === "Quiver" ||
-        /Mace|Sword|Axe|Dagger|Claw|Bow|Crossbow|Wand|Sceptre|Staff|Warstaff|Spear|Flail/.test(
-          ic,
-        ),
-      bone: "Jawbone",
-      boneApi: "jawbone",
-    },
-    {
-      test: (ic) =>
-        ic === "Body Armour" ||
-        ic === "Helmet" ||
-        ic === "Gloves" ||
-        ic === "Boots" ||
-        ic === "Shield" ||
-        ic === "Buckler" ||
-        ic === "Focus",
-      bone: "Rib",
-      boneApi: "rib",
-    },
-  ];
+/* Abyssal bone mapping moved to ./registry (shared with the simulator). */
 
 function methodMagicSeedEssence(inputs: SolveInputs): CraftMethod | null {
   const allTargets = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].sort(
@@ -1366,12 +1380,15 @@ function methodMagicSeedEssence(inputs: SolveInputs): CraftMethod | null {
     essenceTargets.sort((a, b) => a.oddsFresh - b.oddsFresh)[0];
   const essence = bestEssenceForTarget(inputs, essenceTarget)!;
 
-  const desecTargets = allTargets.filter(
-    (t) =>
-      t.desecrated &&
-      t.group !== seed.group &&
-      t.group !== essenceTarget.group,
-  );
+  // 0.5: an item can carry at most one Desecrated modifier.
+  const desecTargets = allTargets
+    .filter(
+      (t) =>
+        t.desecrated &&
+        t.group !== seed.group &&
+        t.group !== essenceTarget.group,
+    )
+    .slice(0, MAX_DESECRATED_MODS);
   const normalRest = allTargets.filter(
     (t) =>
       !t.desecrated &&
@@ -1499,11 +1516,7 @@ function methodMagicSeedEssence(inputs: SolveInputs): CraftMethod | null {
   const fixedGroups = essence.isFixedValue
     ? new Set([essenceTarget.group])
     : new Set<string>();
-  const div = divineStep(
-    inputs,
-    variableTargetCount(allTargets, fixedGroups),
-    n,
-  );
+  const div = divineStep(inputs, allTargets, n, fixedGroups);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1581,7 +1594,7 @@ function methodBuyMagicBase(inputs: SolveInputs): CraftMethod | null {
   n = fill.n;
   cost += fill.cost;
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, allTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1630,16 +1643,22 @@ function methodFracturedBase(inputs: SolveInputs): CraftMethod | null {
   let n = 1;
   let cost = 0;
 
+  const fracturedQuote = inputs.basePrices?.fracturedKey ?? null;
   const fracture = inputs.price("fracturing-orb");
+  const acquireCost = fracturedQuote?.priceExalted ?? fracture;
   steps.push({
     n: n++,
     title: `Buy or fracture a ${inputs.baseName} with "${key.label}" fractured`,
-    detail:
-      "Acquire a base whose key mod is already fractured (locked, can't be removed). Buying a ready fractured base is often cheaper than rolling + fracturing yourself; the market price isn't in our data.",
-    currency: "Fracturing Orb",
-    costExalted: round(fracture),
+    detail: fracturedQuote
+      ? `Acquire a base whose key mod is already fractured (locked, can't be removed). ${fracturedQuote.sampleCount} priced listing${fracturedQuote.sampleCount === 1 ? "" : "s"} found — cheapest go for ~${round(fracturedQuote.priceExalted)} ex on trade.`
+      : "Acquire a base whose key mod is already fractured (locked, can't be removed). Buying a ready fractured base is often cheaper than rolling + fracturing yourself; no live listing price was available, so only the Fracturing Orb is costed.",
+    currency: fracturedQuote ? undefined : "Fracturing Orb",
+    costExalted: round(acquireCost),
+    link: fracturedQuote
+      ? { href: fracturedQuote.tradeUrl, label: "View fractured bases on trade" }
+      : undefined,
   });
-  cost += fracture;
+  cost += acquireCost;
 
   const annul = inputs.price("annul");
   const whittle = inputs.price("omen-of-whittling");
@@ -1665,10 +1684,13 @@ function methodFracturedBase(inputs: SolveInputs): CraftMethod | null {
     suf: new Set(key.generationType === "suffix" ? [key.group] : []),
   };
 
-  // Deterministic adds first (Essence + directional Crystallisation), then the
-  // remaining targets via directional Exalt.
-  const essTargets = rest.filter((t) => essenceGuaranteeable(inputs, t));
-  const exaltTargets = rest.filter((t) => !essenceGuaranteeable(inputs, t));
+  // Deterministic add first (Essence + directional Crystallisation), then the
+  // remaining targets via directional Exalt. 0.5 caps items at ONE crafted
+  // modifier, so only a single essence may be used — the hardest
+  // essence-guaranteeable target gets the crafted slot, the rest are Exalted.
+  const essAble = rest.filter((t) => essenceGuaranteeable(inputs, t));
+  const essTargets = essAble.slice(0, 1);
+  const exaltTargets = rest.filter((t) => !essTargets.includes(t));
   const fixedGroups = new Set<string>();
   for (const t of essTargets) {
     const ess = bestEssenceForTarget(inputs, t)!;
@@ -1704,11 +1726,7 @@ function methodFracturedBase(inputs: SolveInputs): CraftMethod | null {
   n++;
   cost += corr.cost;
 
-  const div = divineStep(
-    inputs,
-    variableTargetCount(allTargets, fixedGroups),
-    n,
-  );
+  const div = divineStep(inputs, allTargets, n, fixedGroups);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1724,15 +1742,19 @@ function methodFracturedBase(inputs: SolveInputs): CraftMethod | null {
     overallOdds: exaltTargets.length ? fill.odds : 1,
     estCostExalted: round(cost),
     costApproximate: true,
-    excludesMarketPrice: true,
+    excludesMarketPrice: !fracturedQuote,
     pros: [
+      ...(fracturedQuote
+        ? ["Live fractured-base listing price from the trade site included."]
+        : []),
       "Key mod is fractured — safe from every later Annul/Chaos.",
       "Whittling makes the annul-down near-deterministic.",
-      "Essence + Crystallisation adds mods to a chosen side with no brick.",
+      "Essence + Crystallisation adds a mod to a chosen side with no brick.",
     ],
     cons: [
       "Needs a suitable fractured base (buy or roll one first).",
       "Fracturing Orbs and directional omens are expensive.",
+      RULE_05_SUMMARY,
     ],
   };
 }
@@ -1841,7 +1863,7 @@ function methodFractureChaos(inputs: SolveInputs): CraftMethod | null {
   n = fill.n;
   cost += fill.cost;
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, allTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -1954,7 +1976,7 @@ function methodDesecration(inputs: SolveInputs): CraftMethod | null {
   n = fill.n;
   cost += fill.cost;
 
-  const div = divineStep(inputs, allTargets.length, n);
+  const div = divineStep(inputs, allTargets, n);
   if (div) {
     steps.push(div.step);
     n++;
@@ -2189,6 +2211,7 @@ async function buildInputs(
         tierLevel,
         tierValue: tierValueStr,
         tierStatMax: tierMod?.stats[0]?.max,
+        tierStatMin: tierMod?.stats[0]?.min,
         desecrated,
       });
     } else if (sufMap.has(g)) {
@@ -2213,6 +2236,7 @@ async function buildInputs(
         tierLevel,
         tierValue: tierValueStr,
         tierStatMax: tierMod?.stats[0]?.max,
+        tierStatMin: tierMod?.stats[0]?.min,
         desecrated,
       });
     } else {
@@ -2265,6 +2289,11 @@ async function buildInputs(
     warnings.push("No valid target modifiers were selected for this base.");
     feasible = false;
   }
+
+  // 0.5 per-item caps (1 crafted mod, 1 desecrated mod).
+  const rule05 = validateTargets05([...desiredPrefixes, ...desiredSuffixes]);
+  warnings.push(...rule05.warnings);
+  if (!rule05.feasible) feasible = false;
 
   const determinism = resolveDeterminism(pool.base.itemClass, [
     ...pool.prefixes,
@@ -2343,7 +2372,11 @@ async function fetchBasePrices(
       }
     }
 
-    const [normal, magicHard] = await Promise.all([
+    // Fractured-base search: the hardest target's FRACTURED-type stat ids.
+    const fracturedIds =
+      statMap?.groupToFracturedStats.get(hard[0]?.group ?? "") ?? [];
+
+    const [normal, magicHard, fracturedKey] = await Promise.all([
       withTimeout(
         getBasePrice({
           league,
@@ -2367,9 +2400,26 @@ async function fetchBasePrices(
             20000,
           )
         : Promise.resolve(null),
+      fracturedIds.length > 0
+        ? withTimeout(
+            getBasePrice({
+              league,
+              baseType: inputs.baseName,
+              rarity: "nonunique",
+              ilvlMin: inputs.itemLevel,
+              statIds: fracturedIds,
+              priceMap,
+            }),
+            20000,
+          )
+        : Promise.resolve(null),
     ]);
-    if (!normal && !magicHard) return undefined;
-    return { normal: normal ?? null, magicHard: magicHard ?? null };
+    if (!normal && !magicHard && !fracturedKey) return undefined;
+    return {
+      normal: normal ?? null,
+      magicHard: magicHard ?? null,
+      fracturedKey: fracturedKey ?? null,
+    };
   } catch {
     return undefined;
   }
@@ -2513,6 +2563,8 @@ export async function solveFromBase(
   } catch {
     priceMap = await getPriceByApiId();
   }
+  // Alloys can be Runeforged from cheap runes — price them at min(buy, forge).
+  applyForgeCosts(priceMap);
   const built = await buildInputs(baseId, itemLevel, desiredGroups, priceMap);
   if (!built) return null;
   const { inputs, warnings, feasible, poolMods } = built;
@@ -2528,14 +2580,18 @@ export async function solveFromBase(
     // Estimated sale value of the finished item, from market samples.
     if (league && statMap) {
       try {
+        const desired = [...inputs.desiredPrefixes, ...inputs.desiredSuffixes];
+        const minLevelPerGroup = new Map<string, number>();
+        for (const t of desired) {
+          if (t.tierLevel != null && t.tierLevel > 0)
+            minLevelPerGroup.set(t.group, t.tierLevel);
+        }
         estimatedSale = await estimateSaleValue({
           league,
           itemClass: inputs.itemClass,
-          groups: [
-            ...inputs.desiredPrefixes,
-            ...inputs.desiredSuffixes,
-          ].map((t) => t.group),
+          groups: desired.map((t) => t.group),
           statIdsPerGroup: statMap.groupToStats,
+          minLevelPerGroup,
         });
       } catch {
         /* sale estimate is optional */
@@ -2551,6 +2607,19 @@ export async function solveFromBase(
         : null,
   }));
   const cheapest = methods[0];
+
+  // 0.5 league-system alternatives (Genesis Tree, Liquid Emotions,
+  // Verisium Runeforging) that the orb cost model can't price directly.
+  if (feasible) {
+    warnings.push(
+      ...leagueAdvice(
+        inputs.itemClass,
+        [...inputs.desiredPrefixes, ...inputs.desiredSuffixes].map(
+          (t) => t.group,
+        ),
+      ),
+    );
+  }
 
   return {
     baseId,

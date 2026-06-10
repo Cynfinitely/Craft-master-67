@@ -1,7 +1,7 @@
 {
   "source": "https://poe2scout.com",
   "league": "Runes of Aldur",
-  "fetchedAt": "2026-06-08T17:58:57.532Z",
+  "fetchedAt": "2026-06-10T13:53:19.415Z",
   "count": 611,
   "materials": [
     {
@@ -1016,10 +1016,14 @@
       "name": "Carved Majesty",
       "category": "expedition",
       "label": "Expedition",
-      "effect": [],
-      "description": null,
+      "effect": [
+        "Body Armours: +3 to Spirit per Idol socketed in your Equipment",
+        "Gloves: Companions gain Onslaught for 4 seconds on Hitting your Marked targets",
+        "Boots: 1% increased Movement Speed while Sprinting per Persistent Minion"
+      ],
+      "description": "Place into an empty Augment Socket in an Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other Augment items.",
       "iconUrl": "https://web.poecdn.com//gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUml0dWFsL1JpdHVhbE1hamVzdGljQmVhc3RzIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/db3cfd505d/RitualMajesticBeasts.png",
-      "stackSize": null,
+      "stackSize": 1,
       "maxStackSize": null
     },
     {
@@ -5274,11 +5278,13 @@
       "name": "Perfect Resolve Rune",
       "category": "runes",
       "label": "Runes & Soul Cores",
-      "effect": [],
-      "description": null,
+      "effect": [
+        "All Equipment: +15 to Intelligence"
+      ],
+      "description": "Place into an empty Augment Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other Augment items.",
       "iconUrl": "https://web.poecdn.com//gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvUGVyZmVjdFJ1bmVJbnRlbGxpZ2VuY2UiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/9c387ac5f1/PerfectRuneIntelligence.png",
-      "stackSize": null,
-      "maxStackSize": null
+      "stackSize": 1,
+      "maxStackSize": 10
     },
     {
       "apiId": "perfect-robust-rune",

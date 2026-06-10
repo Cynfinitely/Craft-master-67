@@ -22,6 +22,8 @@ export interface DesiredMod {
   tierValue?: string;
   /** Top stat value of the targeted tier (for essence reach checks). */
   tierStatMax?: number;
+  /** Bottom stat value of the targeted tier (for Divine roll-quality EV). */
+  tierStatMin?: number;
   /** True when this mod only comes from desecration (Well of Souls). */
   desecrated?: boolean;
   /**

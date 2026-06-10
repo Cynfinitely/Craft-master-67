@@ -13,6 +13,7 @@
     "data:seed": "tsx scripts/seed-db.ts",
     "data:setup": "tsx scripts/refresh-data.ts && tsx scripts/refresh-materials.ts && tsx scripts/seed-db.ts",
     "trade:stats": "tsx scripts/sync-trade-stats.ts",
+    "trade:coverage": "tsx scripts/mod-coverage.ts",
     "market:sample": "tsx scripts/sample-market.ts",
     "test": "tsx --test tests/*.test.ts"
   },

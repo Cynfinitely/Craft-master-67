@@ -5,6 +5,7 @@ import { getOpportunities } from "@/lib/market/opportunities";
 import { getSampleSummary } from "@/lib/market/analytics";
 import { formatCost } from "@/lib/pricing/format";
 import { OpportunityControls } from "@/components/market/OpportunityControls";
+import { SnipePanel } from "@/components/market/SnipePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function OpportunitiesPage({
     base?: string;
     ilvl?: string;
     league?: string;
+    view?: string;
   };
 }) {
   const categories = await listCraftableCategories();
@@ -29,6 +31,7 @@ export default async function OpportunitiesPage({
   }
   const itemClass = searchParams.class ?? null;
   const baseId = searchParams.base ?? null;
+  const view = searchParams.view === "snipes" ? "snipes" : "crafts";
   const itemLevel = Math.min(
     100,
     Math.max(1, Number.parseInt(searchParams.ilvl ?? "82", 10) || 82),
@@ -53,14 +56,26 @@ export default async function OpportunitiesPage({
   const summary = itemClass
     ? await getSampleSummary({ league, itemClass })
     : null;
-  const { opportunities, unmappedCombos } = itemClass
-    ? await getOpportunities({
-        league,
-        itemClass,
-        itemLevel,
-        baseId: pinnedBaseName ? baseId : null,
-      })
-    : { opportunities: [], unmappedCombos: 0 };
+  const { opportunities, unmappedCombos } =
+    itemClass && view === "crafts"
+      ? await getOpportunities({
+          league,
+          itemClass,
+          itemLevel,
+          baseId: pinnedBaseName ? baseId : null,
+        })
+      : { opportunities: [], unmappedCombos: 0 };
+
+  const tabHref = (v: string) => {
+    const next = new URLSearchParams();
+    if (itemClass) next.set("class", itemClass);
+    if (baseId) next.set("base", baseId);
+    if (searchParams.ilvl) next.set("ilvl", searchParams.ilvl);
+    if (searchParams.league) next.set("league", searchParams.league);
+    if (v !== "crafts") next.set("view", v);
+    const qs = next.toString();
+    return `/opportunities${qs ? `?${qs}` : ""}`;
+  };
 
   return (
     <div className="space-y-5">
@@ -83,10 +98,32 @@ export default async function OpportunitiesPage({
         />
       </div>
 
+      <div className="flex gap-1.5">
+        {[
+          { id: "crafts", label: "Craft from scratch" },
+          { id: "snipes", label: "Snipe & finish" },
+        ].map((t) => (
+          <Link
+            key={t.id}
+            href={tabHref(t.id)}
+            className={`rounded-t border-b-2 px-3 py-1.5 text-sm transition-colors ${
+              view === t.id
+                ? "border-forge-gold font-semibold text-forge-goldbright"
+                : "border-transparent text-forge-gold/55 hover:text-forge-gold"
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
+
       {!itemClass ? (
         <div className="panel p-8 text-center text-forge-gold/50">
-          Choose an item class to rank its craft opportunities.
+          Choose an item class to rank its{" "}
+          {view === "snipes" ? "snipe-and-finish" : "craft"} opportunities.
         </div>
+      ) : view === "snipes" ? (
+        <SnipePanel itemClass={itemClass} league={league} />
       ) : opportunities.length === 0 ? (
         <div className="panel p-8 text-center text-forge-gold/50">
           <p>
@@ -195,7 +232,18 @@ export default async function OpportunitiesPage({
                       : ""}
                   </p>
                   <p className="mt-0.5 text-[11px] text-forge-gold/45">
-                    sale {formatCost(o.saleExalted, divinePrice)} each ·{" "}
+                    sale {formatCost(o.saleExalted, divinePrice)} each
+                    {o.adjustedSaleExalted < o.saleExalted ? (
+                      <>
+                        {" "}
+                        (~{formatCost(o.adjustedSaleExalted, divinePrice)} after
+                        undercut)
+                      </>
+                    ) : null}
+                    {o.timeToSellDays != null
+                      ? ` · ~${o.timeToSellDays}d to sell`
+                      : ""}{" "}
+                    ·{" "}
                     {o.saleSource === "probe" ? (
                       <>
                         {o.supply ?? 0} listed

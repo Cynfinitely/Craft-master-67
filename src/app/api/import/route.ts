@@ -6,7 +6,11 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { text?: string };
+    const body = (await request.json()) as {
+      text?: string;
+      /** Parse + resolve only — skip the (slow) crafting plan. */
+      parseOnly?: boolean;
+    };
     const text = (body.text ?? "").trim();
     if (!text) {
       return NextResponse.json({ error: "No item text provided." }, { status: 400 });
@@ -14,7 +18,7 @@ export async function POST(request: Request) {
 
     const resolved = await resolveItem(text);
     const plan =
-      resolved.baseId && resolved.desiredGroups.length
+      !body.parseOnly && resolved.baseId && resolved.desiredGroups.length
         ? await solveFromBase(
             resolved.baseId,
             resolved.itemLevel,

@@ -15,6 +15,8 @@ import { GROUP_STAT_OVERRIDES } from "./overrides";
 export interface ModStatMap {
   /** Mod group -> trade stat ids (all lines of the mod's text). */
   groupToStats: Map<string, string[]>;
+  /** Mod group -> FRACTURED-type stat ids (for fractured-base searches). */
+  groupToFracturedStats: Map<string, string[]>;
   /** Trade stat id -> mod groups whose text contains that stat line. */
   statToGroups: Map<string, string[]>;
   /** Trade stat id -> display text. */
@@ -25,6 +27,7 @@ const MATCHABLE_TYPES = new Set(["explicit", "desecrated", "fractured"]);
 
 let catalogMemo: {
   byNorm: Map<string, string>;
+  byNormFractured: Map<string, string>;
   statText: Map<string, string>;
 } | null = null;
 
@@ -32,19 +35,21 @@ async function getCatalogIndex() {
   if (catalogMemo) return catalogMemo;
   const stats = await getTradeStats();
   const byNorm = new Map<string, string>();
+  const byNormFractured = new Map<string, string>();
   const statText = new Map<string, string>();
   for (const s of stats) {
     statText.set(s.id, s.text);
     if (!MATCHABLE_TYPES.has(s.type)) continue;
     const norm = normalizeStat(s.text);
-    // Prefer plain explicit stats over desecrated/fractured duplicates.
     if (!norm) continue;
+    if (s.type === "fractured") byNormFractured.set(norm, s.id);
+    // Prefer plain explicit stats over desecrated/fractured duplicates.
     const existing = byNorm.get(norm);
     if (!existing || (s.type === "explicit" && !existing.startsWith("explicit."))) {
       byNorm.set(norm, s.id);
     }
   }
-  catalogMemo = { byNorm, statText };
+  catalogMemo = { byNorm, byNormFractured, statText };
   return catalogMemo;
 }
 
@@ -54,9 +59,10 @@ async function getCatalogIndex() {
  * `groupToStats` unless covered by a manual override.
  */
 export async function buildModStatMap(mods: EligibleMod[]): Promise<ModStatMap> {
-  const { byNorm, statText } = await getCatalogIndex();
+  const { byNorm, byNormFractured, statText } = await getCatalogIndex();
 
   const groupToStats = new Map<string, string[]>();
+  const groupToFracturedStats = new Map<string, string[]>();
   const statToGroups = new Map<string, string[]>();
 
   const link = (group: string, statIds: string[]) => {
@@ -83,6 +89,7 @@ export async function buildModStatMap(mods: EligibleMod[]): Promise<ModStatMap> 
     const lines = m.text.split("\n").map((l) => normalizeStat(l)).filter(Boolean);
     if (lines.length === 0) continue;
     const ids: string[] = [];
+    const fracturedIds: string[] = [];
     for (const norm of lines) {
       const id = byNorm.get(norm);
       if (!id) {
@@ -90,11 +97,16 @@ export async function buildModStatMap(mods: EligibleMod[]): Promise<ModStatMap> 
         break; // partial mapping would produce wrong trade filters
       }
       ids.push(id);
+      const fid = byNormFractured.get(norm);
+      if (fid) fracturedIds.push(fid);
     }
     if (ids.length > 0) link(group, ids);
+    if (fracturedIds.length === lines.length && fracturedIds.length > 0) {
+      groupToFracturedStats.set(group, fracturedIds);
+    }
   }
 
-  return { groupToStats, statToGroups, statText };
+  return { groupToStats, groupToFracturedStats, statToGroups, statText };
 }
 
 /** Display text for a trade stat id, falling back to the id itself. */

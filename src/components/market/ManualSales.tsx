@@ -20,6 +20,44 @@ export function ManualSales({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pasteText, setPasteText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [parsedClass, setParsedClass] = useState<string | null>(null);
+  const [parsedIlvl, setParsedIlvl] = useState<number | null>(null);
+
+  const parseItem = async () => {
+    if (!pasteText.trim()) return;
+    setParsing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: pasteText, parseOnly: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not parse the item");
+      const resolved = data.resolved as {
+        baseName: string | null;
+        itemClass: string | null;
+        itemLevel: number;
+        matched: { group: string }[];
+        warnings: string[];
+      };
+      if (!resolved.baseName) {
+        throw new Error(resolved.warnings[0] ?? "Could not match the base.");
+      }
+      setBaseType(resolved.baseName);
+      setMods(resolved.matched.map((m) => m.group).join(", "));
+      setParsedClass(resolved.itemClass);
+      setParsedIlvl(resolved.itemLevel);
+      if (resolved.warnings.length) setError(resolved.warnings.join(" "));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not parse the item.");
+    } finally {
+      setParsing(false);
+    }
+  };
 
   const submit = async () => {
     const priceNum = Number.parseFloat(price);
@@ -39,8 +77,9 @@ export function ManualSales({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           league,
-          itemClass,
+          itemClass: parsedClass ?? itemClass,
           baseType: baseType.trim(),
+          ilvl: parsedIlvl,
           priceExalted: priceNum,
           groups,
           note: note.trim() || null,
@@ -54,6 +93,9 @@ export function ManualSales({
       setPrice("");
       setMods("");
       setNote("");
+      setPasteText("");
+      setParsedClass(null);
+      setParsedIlvl(null);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
@@ -73,10 +115,27 @@ export function ManualSales({
         Manual sale records
       </h3>
       <p className="mt-1 text-xs text-forge-gold/50">
-        Record items you actually sold (fallback when trade sampling is
-        unavailable). Mods are comma-separated mod-group ids or labels — use
-        the same group ids as the planner for them to feed sale estimates.
+        Record items you actually sold — realized prices feed the sale
+        estimates and Opportunities ranking. Paste the in-game item text
+        (Ctrl+C on the item) and the base + mods fill themselves.
       </p>
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <textarea
+          className="input min-h-[72px] flex-1 font-mono text-xs"
+          placeholder={"Paste item text here (Ctrl+C on the item in game)…"}
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn shrink-0 self-start disabled:opacity-50"
+          disabled={parsing || !pasteText.trim()}
+          onClick={parseItem}
+        >
+          {parsing ? "Parsing…" : "Parse item"}
+        </button>
+      </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <input

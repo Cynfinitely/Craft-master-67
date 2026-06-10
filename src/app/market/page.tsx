@@ -11,6 +11,7 @@ import {
 import { listManualSales } from "@/lib/market/manual";
 import { getProbes, type ComboProbe } from "@/lib/market/probes";
 import { formatCost } from "@/lib/pricing/format";
+import { getRunicRecipeEV, type RunicRecipeEV } from "@/lib/market/runes";
 import { MarketControls } from "@/components/market/MarketControls";
 import { ManualSales } from "@/components/market/ManualSales";
 
@@ -192,6 +193,71 @@ function ProbeTable({
   );
 }
 
+function RunicRecipePanel({
+  recipes,
+  divinePrice,
+}: {
+  recipes: RunicRecipeEV[];
+  divinePrice: number;
+}) {
+  if (recipes.length === 0) return null;
+  return (
+    <div className="panel">
+      <div className="border-b border-forge-border px-4 py-2.5">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+          Runic Recipe EV (0.5 Runeforging)
+        </h3>
+        <p className="mt-0.5 text-[11px] text-forge-gold/45">
+          Ezomyte Remnant recipes priced as output value − rune input cost.
+          &ldquo;forge&rdquo; = making it beats buying it. Rune prices fall
+          back to estimates when poe2scout has no quote — treat those rows as
+          rough.
+        </p>
+      </div>
+      <ul className="divide-y divide-forge-border/40">
+        {recipes.map((r, i) => (
+          <li
+            key={`${r.recipe.outputApiId}-${i}`}
+            className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs"
+          >
+            <span className="min-w-0 flex-1 text-forge-gold/80">
+              <span className="font-semibold text-forge-goldbright">
+                {r.recipe.outputCount}x {r.recipe.outputName}
+              </span>
+              <span className="ml-2 text-forge-gold/50">
+                = {r.recipe.inputs.map((inp) => inp.name).join(" + ")}
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-3">
+              <span className="text-forge-gold/55">
+                in {formatCost(r.inputCostExalted, divinePrice)} → out{" "}
+                {formatCost(r.outputValueExalted, divinePrice)}
+              </span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  r.verdict === "forge"
+                    ? "bg-emerald-900/50 text-emerald-300"
+                    : r.verdict === "buy"
+                      ? "bg-forge-rust/20 text-forge-rust"
+                      : "bg-forge-panel2 text-forge-gold/50"
+                }`}
+                title={
+                  r.fullyPriced
+                    ? "All prices live"
+                    : "Some prices are fallback estimates"
+                }
+              >
+                {r.verdict}
+                {r.fullyPriced ? "" : "*"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default async function MarketPage({
   searchParams,
 }: {
@@ -213,6 +279,13 @@ export default async function MarketPage({
     divinePrice = (await getPrices(league)).divinePrice;
   } catch {
     /* format in exalted only */
+  }
+
+  let runicRecipes: RunicRecipeEV[] = [];
+  try {
+    runicRecipes = (await getRunicRecipeEV(league)).recipes;
+  } catch {
+    /* recipe EV is optional */
   }
 
   const [summary, combosBySize, manualList, probes] = itemClass
@@ -367,6 +440,8 @@ export default async function MarketPage({
       )}
 
       <ManualSales league={league} itemClass={itemClass} sales={manualList} />
+
+      <RunicRecipePanel recipes={runicRecipes} divinePrice={divinePrice} />
 
       <p className="text-xs text-forge-gold/40">
         Listing prices are ask prices, not confirmed sales — treat medians as
