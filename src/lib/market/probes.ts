@@ -483,10 +483,17 @@ export async function runProbes(opts: {
   classMods: EligibleMod[];
   maxProbes?: number;
   staleMs?: number;
+  /** Live step reporting for the UI (optional). */
+  onProgress?: (
+    text: string,
+    o?: { current?: number; total?: number },
+  ) => void;
 }): Promise<ProbeRunResult> {
+  const report = opts.onProgress ?? (() => {});
   const maxProbes = Math.max(1, Math.min(20, opts.maxProbes ?? 6));
   const staleMs = opts.staleMs ?? 6 * 60 * 60 * 1000;
 
+  report(`Building candidate combos for ${opts.itemClass}…`);
   const candidates = await buildCandidates(
     opts.league,
     opts.itemClass,
@@ -501,8 +508,20 @@ export async function runProbes(opts: {
     return !p || now - p.fetchedAt > staleMs;
   });
 
+  const toRun = stale.slice(0, maxProbes);
+  report(
+    `${candidates.length} candidate combos; ${existing.length} already stored, ${stale.length} stale — probing ${toRun.length} now (2 trade calls each).`,
+    { current: 0, total: toRun.length },
+  );
+
   let refreshed = 0;
-  for (const c of stale.slice(0, maxProbes)) {
+  for (let i = 0; i < toRun.length; i++) {
+    const c = toRun[i];
+    const comboName = c.labels.join(" + ");
+    report(`Probing ${comboName} (${i + 1}/${toRun.length})…`, {
+      current: i,
+      total: toRun.length,
+    });
     try {
       const probe = await probeCombo({
         league: opts.league,
@@ -512,9 +531,23 @@ export async function runProbes(opts: {
         statIds: c.statIds,
         ttlMs: staleMs,
       });
-      if (probe) refreshed++;
+      if (probe) {
+        refreshed++;
+        const ask =
+          probe.medianAskExalted ?? probe.minAskExalted;
+        report(
+          `${comboName}: ${probe.listingCount} listed${
+            ask != null ? `, asks ~${Math.round(ask * 10) / 10}ex` : ""
+          }${probe.recentCount != null ? `, ${probe.recentCount} new today` : ""}.`,
+          { current: i + 1, total: toRun.length },
+        );
+      }
     } catch (err) {
       console.warn(`combo probe failed (${c.key}): ${err}`);
+      report(
+        `Probe for ${comboName} failed (likely rate-limited) — stopping early to respect the API.`,
+        { current: i + 1, total: toRun.length },
+      );
       break; // budget the failure too — likely rate limited
     }
   }

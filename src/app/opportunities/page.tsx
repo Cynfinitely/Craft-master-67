@@ -6,6 +6,8 @@ import { getSampleSummary } from "@/lib/market/analytics";
 import { formatCost } from "@/lib/pricing/format";
 import { OpportunityControls } from "@/components/market/OpportunityControls";
 import { SnipePanel } from "@/components/market/SnipePanel";
+import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
+import { oppsProgressId } from "@/lib/progressId";
 
 export const dynamic = "force-dynamic";
 
@@ -56,15 +58,38 @@ export default async function OpportunitiesPage({
   const summary = itemClass
     ? await getSampleSummary({ league, itemClass })
     : null;
-  const { opportunities, unmappedCombos } =
-    itemClass && view === "crafts"
-      ? await getOpportunities({
-          league,
-          itemClass,
-          itemLevel,
-          baseId: pinnedBaseName ? baseId : null,
-        })
-      : { opportunities: [], unmappedCombos: 0 };
+  let result = { opportunities: [] as Awaited<ReturnType<typeof getOpportunities>>["opportunities"], unmappedCombos: 0 };
+  if (itemClass && view === "crafts") {
+    // Deterministic job id: the still-mounted controls on the OLD page poll
+    // this id during navigation and show what the build is doing live.
+    const jobId = oppsProgressId(
+      league,
+      itemClass,
+      searchParams.ilvl ?? "82",
+      baseId,
+    );
+    startJob(jobId, "opportunities", "Building craft opportunities…");
+    try {
+      result = await getOpportunities({
+        league,
+        itemClass,
+        itemLevel,
+        baseId: pinnedBaseName ? baseId : null,
+        onProgress: reporterFor(jobId),
+      });
+      finishJob(
+        jobId,
+        `Done — ${result.opportunities.length} opportunities ranked.`,
+      );
+    } catch (err) {
+      failJob(
+        jobId,
+        err instanceof Error ? err.message : "Opportunity build failed.",
+      );
+      throw err;
+    }
+  }
+  const { opportunities, unmappedCombos } = result;
 
   const tabHref = (v: string) => {
     const next = new URLSearchParams();

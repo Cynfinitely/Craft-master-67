@@ -344,6 +344,8 @@ function listingCurrentMods(
 interface ProbeBudget {
   left: number;
   deadline: number;
+  /** Live step reporting (optional). */
+  report?: (text: string) => void;
 }
 
 /** The single trade stat id for a group, when the mapping is unambiguous. */
@@ -415,6 +417,11 @@ async function saleWithFallback(opts: {
     return null;
   }
   opts.budget.left--;
+  opts.budget.report?.(
+    `Pricing "${opts.groups
+      .map((g) => opts.ctx.labelByGroup.get(g) ?? g)
+      .join(" + ")}" with a live trade probe…`,
+  );
   try {
     // Per-probe timeout: when the rate limiter is saturated, give up on this
     // combo instead of stalling the scan — the probe budget covers retries
@@ -527,8 +534,15 @@ export async function scanSnipeTemplate(opts: {
   itemClass: string;
   itemLevel?: number;
   maxListings?: number;
+  /** Live step reporting for the UI (optional). */
+  onProgress?: (
+    text: string,
+    o?: { current?: number; total?: number },
+  ) => void;
 }): Promise<SnipeScan | null> {
+  const report = opts.onProgress ?? (() => {});
   const itemLevel = opts.itemLevel ?? 82;
+  report("Loading templates and class mod data…");
   const templates = await listSnipeTemplates(
     opts.league,
     opts.itemClass,
@@ -558,10 +572,15 @@ export async function scanSnipeTemplate(opts: {
     sort: { price: "asc" },
   });
 
+  report(`Searching the trade site for "${template.name}"…`);
   const res = await searchAndFetch(opts.league, query, {
     maxListings: Math.min(20, opts.maxListings ?? 10),
     ttlMs: 10 * 60 * 1000,
   });
+  report(
+    `${res.total} matching listings online — evaluating the ${res.listings.length} cheapest.`,
+    { current: 0, total: res.listings.length },
+  );
   const priceMap = await getCachedPriceMap(opts.league);
 
   // Desecration candidates (shared across listings of the same class).
@@ -593,9 +612,20 @@ export async function scanSnipeTemplate(opts: {
   // Live-probe budget for the whole scan. Probes persist, so each scan adds
   // coverage and later scans read earlier discoveries back for free. The
   // wall-clock deadline keeps a rate-limited API from stalling the scan.
-  const budget: ProbeBudget = { left: 12, deadline: Date.now() + 90 * 1000 };
+  const budget: ProbeBudget = {
+    left: 12,
+    deadline: Date.now() + 90 * 1000,
+    report,
+  };
 
-  for (const listing of res.listings) {
+  for (let li = 0; li < res.listings.length; li++) {
+    const listing = res.listings[li];
+    report(
+      `(${li + 1}/${res.listings.length}) ${listing.baseType}${
+        listing.price ? ` @ ${listing.price.amount} ${listing.price.currency}` : ""
+      } — resolving mods and picking the finish…`,
+      { current: li, total: res.listings.length },
+    );
     if (!listing.price) {
       skipped++;
       continue;
@@ -663,6 +693,15 @@ export async function scanSnipeTemplate(opts: {
       skipped++;
       continue;
     }
+
+    report(
+      `(${li + 1}/${res.listings.length}) ${listing.baseType}: finish "${
+        ctx.labelByGroup.get(target.group) ?? target.group
+      }" — ${Math.round(plan.successRate * 100)}% success, EV ${
+        plan.evExalted != null ? `${plan.evExalted}ex` : "unknown"
+      }.`,
+      { current: li + 1, total: res.listings.length },
+    );
 
     results.push({
       listingId: listing.id,

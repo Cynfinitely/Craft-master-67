@@ -303,7 +303,9 @@ async function selectAndVerify(opts: {
   league: string;
   itemClass: string;
   candidates: Candidate[];
+  onProgress?: (text: string) => void;
 }): Promise<Candidate[]> {
+  const report = opts.onProgress ?? (() => {});
   const probeBacked = opts.candidates.filter((c) => c.saleSource === "probe");
   const sampleOnly = opts.candidates.filter((c) => c.saleSource === "sample");
 
@@ -324,6 +326,9 @@ async function selectAndVerify(opts: {
       continue;
     }
     budget--;
+    report(
+      `Verifying sampler find "${cand.labels.join(" + ")}" against the live order book…`,
+    );
     try {
       const probe = await withTimeout(
         probeCombo({
@@ -373,6 +378,7 @@ async function selectAndVerify(opts: {
   for (const cand of staleFirst) {
     if (budget <= 0) break;
     budget--;
+    report(`Refreshing stale probe "${cand.labels.join(" + ")}"…`);
     try {
       const probe = await withTimeout(
         probeCombo({
@@ -446,10 +452,17 @@ export async function getOpportunities(opts: {
   minSamples?: number;
   /** Pin the search to one specific base instead of auto-picking per combo. */
   baseId?: string | null;
+  /** Live step reporting for the UI (optional). */
+  onProgress?: (
+    text: string,
+    o?: { current?: number; total?: number },
+  ) => void;
 }): Promise<{ opportunities: Opportunity[]; unmappedCombos: number }> {
+  const report = opts.onProgress ?? (() => {});
   const itemLevel = opts.itemLevel ?? 82;
 
   // Class-wide stat <-> group mapping + display labels.
+  report(`Loading ${opts.itemClass} mod pools and trade-stat mappings…`);
   const bases = await searchBases({ itemClass: opts.itemClass, limit: 500 });
   const pinnedBase = opts.baseId
     ? (bases.find((b) => b.id === opts.baseId) ?? null)
@@ -463,6 +476,7 @@ export async function getOpportunities(opts: {
     labelByGroup.set(g.group, modLabel(g.mods[0]));
   }
 
+  report("Collecting candidate combos from probes, samples and manual sales…");
   const { candidates, unmappedCombos } = await buildCandidates({
     league: opts.league,
     itemClass: opts.itemClass,
@@ -470,6 +484,7 @@ export async function getOpportunities(opts: {
     labelByGroup,
   });
   if (candidates.length === 0) return { opportunities: [], unmappedCombos };
+  report(`${candidates.length} candidate combos found.`);
 
   // Live currency prices for the simulator's cost model.
   let priceMap = new Map<string, number>();
@@ -487,12 +502,19 @@ export async function getOpportunities(opts: {
     league: opts.league,
     itemClass: opts.itemClass,
     candidates,
+    onProgress: report,
   });
 
   const baseQuoteCache = new Map<string, number | null>();
   const opportunities: Opportunity[] = [];
 
-  for (const cand of selected.slice(0, MAX_COMBOS_TO_SOLVE)) {
+  const toSolve = selected.slice(0, MAX_COMBOS_TO_SOLVE);
+  for (let ci = 0; ci < toSolve.length; ci++) {
+    const cand = toSolve[ci];
+    report(
+      `(${ci + 1}/${toSolve.length}) Simulating crafting routes for "${cand.labels.join(" + ")}"…`,
+      { current: ci, total: toSolve.length },
+    );
     try {
       // Pinned base, or the best base for this combo.
       let best: { baseId: string; baseName: string };

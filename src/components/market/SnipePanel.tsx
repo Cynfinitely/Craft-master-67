@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LiveProgress, newProgressId } from "@/components/LiveProgress";
 
 interface Template {
   id: string;
@@ -55,6 +56,7 @@ export function SnipePanel({
   const [scanning, setScanning] = useState<string | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,8 +85,10 @@ export function SnipePanel({
       setScanning(templateId);
       setScan(null);
       setScanError(null);
+      const id = newProgressId();
+      setJobId(id);
       fetch(
-        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}&template=${encodeURIComponent(templateId)}`,
+        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}&template=${encodeURIComponent(templateId)}&progress=${encodeURIComponent(id)}`,
       )
         .then(async (r) => {
           const body = await r.json();
@@ -147,6 +151,8 @@ export function SnipePanel({
           </div>
         ))}
       </div>
+
+      <LiveProgress jobId={jobId} active={scanning !== null} showLog={5} />
 
       {scanError ? (
         <div className="panel p-4 text-sm text-forge-rust">{scanError}</div>

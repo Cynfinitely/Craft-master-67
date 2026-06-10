@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { LiveProgress, newProgressId } from "@/components/LiveProgress";
 
 export function MarketControls({
   classes,
@@ -16,6 +17,7 @@ export function MarketControls({
   const [sampling, setSampling] = useState(false);
   const [probing, setProbing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   const itemClass = params.get("class") ?? "";
 
@@ -32,11 +34,13 @@ export function MarketControls({
     if (!itemClass || sampling) return;
     setSampling(true);
     setMessage(null);
+    const id = newProgressId();
+    setJobId(id);
     try {
       const res = await fetch("/api/market/sample", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemClass, league }),
+        body: JSON.stringify({ itemClass, league, progressId: id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sampling failed");
@@ -55,11 +59,13 @@ export function MarketControls({
     if (!itemClass || probing) return;
     setProbing(true);
     setMessage(null);
+    const id = newProgressId();
+    setJobId(id);
     try {
       const res = await fetch("/api/market/probe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemClass, league }),
+        body: JSON.stringify({ itemClass, league, progressId: id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Probing failed");
@@ -111,6 +117,7 @@ export function MarketControls({
         </button>
         <span className="text-xs text-forge-gold/50">league: {league}</span>
       </div>
+      <LiveProgress jobId={jobId} active={probing || sampling} />
       {message ? (
         <p className="text-xs text-forge-gold/60">{message}</p>
       ) : null}

@@ -128,14 +128,21 @@ export async function sampleMarket(opts: {
   itemClass: string;
   baseType?: string;
   ilvlMin?: number;
+  /** Live step reporting for the UI (optional). */
+  onProgress?: (
+    text: string,
+    o?: { current?: number; total?: number },
+  ) => void;
 }): Promise<SampleRunResult> {
+  const report = opts.onProgress ?? (() => {});
   const priceMap = await getCachedPriceMap(opts.league);
   let inserted = 0;
   let fetched = 0;
   let totalListings = 0;
   let tradeUrl: string | null = null;
 
-  for (const floor of PASS_FLOORS) {
+  for (let i = 0; i < PASS_FLOORS.length; i++) {
+    const floor = PASS_FLOORS[i];
     const query = buildQuery({
       itemClass: opts.itemClass,
       baseType: opts.baseType,
@@ -147,6 +154,10 @@ export async function sampleMarket(opts: {
         `No trade category mapping for item class "${opts.itemClass}" — pass a baseType instead.`,
       );
     }
+    report(
+      `Pass ${i + 1}/${PASS_FLOORS.length}: searching rare ${opts.baseType ?? opts.itemClass} listings${floor ? ` from ${floor}ex up` : " (cheapest first)"}…`,
+      { current: i, total: PASS_FLOORS.length },
+    );
     try {
       const res = await searchAndFetch(opts.league, query, {
         maxListings: LISTINGS_PER_PASS,
@@ -157,15 +168,24 @@ export async function sampleMarket(opts: {
         totalListings = res.total;
         tradeUrl = res.tradeUrl;
       }
-      inserted += await persistListings(
+      const stored = await persistListings(
         opts.league,
         opts.itemClass,
         res.listings,
         priceMap,
       );
+      inserted += stored;
+      report(
+        `Pass ${i + 1}/${PASS_FLOORS.length}: ${res.listings.length} listings fetched, ${stored} stored (${res.total} online in this bracket).`,
+        { current: i + 1, total: PASS_FLOORS.length },
+      );
     } catch (err) {
       // A failed pass (rate limit, network) shouldn't void the others.
       console.warn(`market sampler: pass (floor ${floor}) failed: ${err}`);
+      report(
+        `Pass ${i + 1}/${PASS_FLOORS.length} failed (likely rate-limited) — continuing with the next pass.`,
+        { current: i + 1, total: PASS_FLOORS.length },
+      );
     }
   }
 

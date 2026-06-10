@@ -4,6 +4,7 @@ import { getCurrentLeagueName, getPrices } from "@/lib/pricing/poe2scout";
 import { searchBases } from "@/lib/data";
 import { getEligibleMods } from "@/lib/data/queries";
 import { runProbes } from "@/lib/market/probes";
+import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
 
 export const dynamic = "force-dynamic";
 // Each probe is ~2 rate-limited trade calls; allow time for the budgeted run.
@@ -14,13 +15,23 @@ const bodySchema = z.object({
   league: z.string().min(1).optional(),
   itemLevel: z.number().int().min(1).max(100).optional(),
   maxProbes: z.number().int().min(1).max(20).optional(),
+  /** Client-generated id for live progress polling. */
+  progressId: z.string().max(80).optional(),
 });
 
 export async function POST(request: Request) {
+  let progressId: string | undefined;
   try {
     const body = bodySchema.parse(await request.json());
+    progressId = body.progressId;
+    if (progressId) {
+      startJob(progressId, "probe", "Starting combo probes…");
+    }
+    const report = progressId ? reporterFor(progressId) : () => {};
+
     const league = body.league ?? (await getCurrentLeagueName());
     // Warm the currency price cache so asks convert to Exalted.
+    report("Refreshing currency prices…");
     await getPrices(league).catch(() => null);
 
     const bases = await searchBases({ itemClass: body.itemClass, limit: 500 });
@@ -33,7 +44,14 @@ export async function POST(request: Request) {
       itemClass: body.itemClass,
       classMods,
       maxProbes: body.maxProbes,
+      onProgress: report,
     });
+    if (progressId) {
+      finishJob(
+        progressId,
+        `Done — refreshed ${result.refreshed} of ${result.candidates} candidate combos (${result.probes.length} stored).`,
+      );
+    }
     return NextResponse.json({
       league,
       itemClass: body.itemClass,
@@ -42,9 +60,8 @@ export async function POST(request: Request) {
       probeCount: result.probes.length,
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Probing failed" },
-      { status: 400 },
-    );
+    const message = err instanceof Error ? err.message : "Probing failed";
+    if (progressId) failJob(progressId, message);
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

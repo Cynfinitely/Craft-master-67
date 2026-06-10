@@ -1,6 +1,9 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { LiveProgress } from "@/components/LiveProgress";
+import { oppsProgressId } from "@/lib/progressId";
 
 export function OpportunityControls({
   classes,
@@ -15,6 +18,8 @@ export function OpportunityControls({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const [isPending, startTransition] = useTransition();
+  const [jobId, setJobId] = useState<string | null>(null);
 
   const itemClass = params.get("class") ?? "";
   const baseId = params.get("base") ?? "";
@@ -26,12 +31,29 @@ export function OpportunityControls({
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
-    router.push(`${pathname}?${next.toString()}`);
+    // The server page registers its build under this deterministic id; this
+    // (still-mounted) component polls it while the navigation is pending.
+    const nextClass = next.get("class");
+    const nextView = next.get("view") ?? "crafts";
+    setJobId(
+      nextClass && nextView === "crafts"
+        ? oppsProgressId(
+            league,
+            nextClass,
+            next.get("ilvl") ?? "82",
+            next.get("base"),
+          )
+        : null,
+    );
+    startTransition(() => {
+      router.push(`${pathname}?${next.toString()}`);
+    });
   };
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <select
+    <div className="space-y-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <select
         className="input"
         value={itemClass}
         onChange={(e) => push({ class: e.target.value || null, base: null })}
@@ -78,7 +100,9 @@ export function OpportunityControls({
           }}
         />
       </div>
-      <span className="text-xs text-forge-gold/50">league: {league}</span>
+        <span className="text-xs text-forge-gold/50">league: {league}</span>
+      </div>
+      <LiveProgress jobId={jobId} active={isPending} showLog={3} />
     </div>
   );
 }
