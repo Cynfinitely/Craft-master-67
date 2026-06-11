@@ -173,7 +173,36 @@ interface ClassContext {
   modsByGroup: Map<string, EligibleMod[]>;
 }
 
-async function loadClassContext(
+// Class context is pure game data (bases, mod pools, stat maps) — expensive
+// to build but immutable at runtime. Cache per class/ilvl with inflight
+// dedupe; survives dev HMR via globalThis.
+const CTX_TTL_MS = 60 * 60 * 1000;
+const ctxCache: Map<string, { ctx: ClassContext; at: number }> = ((
+  globalThis as { __snipeCtxCache?: Map<string, { ctx: ClassContext; at: number }> }
+).__snipeCtxCache ??= new Map());
+const ctxInflight = new Map<string, Promise<ClassContext>>();
+
+function loadClassContext(
+  itemClass: string,
+  itemLevel: number,
+): Promise<ClassContext> {
+  const key = `${itemClass}|${itemLevel}`;
+  const hit = ctxCache.get(key);
+  if (hit && Date.now() - hit.at < CTX_TTL_MS) return Promise.resolve(hit.ctx);
+  const inflight = ctxInflight.get(key);
+  if (inflight) return inflight;
+  const p = buildClassContext(itemClass, itemLevel)
+    .then((ctx) => {
+      if (ctxCache.size > 12) ctxCache.clear();
+      ctxCache.set(key, { ctx, at: Date.now() });
+      return ctx;
+    })
+    .finally(() => ctxInflight.delete(key));
+  ctxInflight.set(key, p);
+  return p;
+}
+
+async function buildClassContext(
   itemClass: string,
   itemLevel: number,
 ): Promise<ClassContext> {

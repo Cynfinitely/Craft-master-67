@@ -48,16 +48,21 @@ export default async function OpportunitiesPage({
   const pinnedBaseName =
     classBases.find((b) => b.id === baseId)?.name ?? null;
 
+  // Crafts-view-only data: skip entirely on the snipes tab so switching
+  // tabs stays cheap (the SnipePanel fetches its own data client-side).
   let divinePrice = 0;
-  try {
-    divinePrice = (await getPrices(league)).divinePrice;
-  } catch {
-    /* exalted-only display */
+  if (view === "crafts") {
+    try {
+      divinePrice = (await getPrices(league)).divinePrice;
+    } catch {
+      /* exalted-only display */
+    }
   }
 
-  const summary = itemClass
-    ? await getSampleSummary({ league, itemClass })
-    : null;
+  const summary =
+    itemClass && view === "crafts"
+      ? await getSampleSummary({ league, itemClass })
+      : null;
   let result = { opportunities: [] as Awaited<ReturnType<typeof getOpportunities>>["opportunities"], unmappedCombos: 0 };
   if (itemClass && view === "crafts") {
     // Deterministic job id: the still-mounted controls on the OLD page poll

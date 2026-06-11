@@ -445,7 +445,12 @@ async function nearMissValue(opts: {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
-export async function getOpportunities(opts: {
+export interface OpportunityResult {
+  opportunities: Opportunity[];
+  unmappedCombos: number;
+}
+
+interface GetOpportunitiesOpts {
   league: string;
   itemClass: string;
   itemLevel?: number;
@@ -457,7 +462,82 @@ export async function getOpportunities(opts: {
     text: string,
     o?: { current?: number; total?: number },
   ) => void;
-}): Promise<{ opportunities: Opportunity[]; unmappedCombos: number }> {
+}
+
+/* ----------------- result cache (stale-while-revalidate) ----------------- */
+
+interface OppsCacheEntry {
+  result: OpportunityResult;
+  at: number;
+  revalidating: boolean;
+}
+
+const OPPS_FRESH_MS = 5 * 60 * 1000;
+const OPPS_MAX_STALE_MS = 30 * 60 * 1000;
+
+// globalThis so the cache survives Next.js dev HMR reloads.
+const oppsCache: Map<string, OppsCacheEntry> = ((
+  globalThis as { __oppsCache?: Map<string, OppsCacheEntry> }
+).__oppsCache ??= new Map());
+const oppsInflight: Map<string, Promise<OpportunityResult>> = ((
+  globalThis as { __oppsInflight?: Map<string, Promise<OpportunityResult>> }
+).__oppsInflight ??= new Map());
+
+/**
+ * Cached entry point: builds are expensive (live probes + Monte Carlo sims),
+ * so results are cached per league/class/ilvl/base. Fresh hits return
+ * instantly (this is what makes tab switches fast); stale hits return
+ * immediately too while a background rebuild refreshes the entry; concurrent
+ * identical builds share one computation.
+ */
+export async function getOpportunities(
+  opts: GetOpportunitiesOpts,
+): Promise<OpportunityResult> {
+  const key = `${opts.league}|${opts.itemClass}|${opts.itemLevel ?? 82}|${opts.baseId ?? ""}`;
+  const cached = oppsCache.get(key);
+  const age = cached ? Date.now() - cached.at : Infinity;
+
+  if (cached && age < OPPS_FRESH_MS) {
+    opts.onProgress?.(
+      `Served from cache (built ${Math.max(1, Math.round(age / 1000))}s ago).`,
+    );
+    return cached.result;
+  }
+
+  if (cached && age < OPPS_MAX_STALE_MS) {
+    // Serve stale instantly; rebuild in the background for the next view.
+    if (!cached.revalidating) {
+      cached.revalidating = true;
+      computeOpportunities({ ...opts, onProgress: undefined })
+        .then((result) => oppsCache.set(key, { result, at: Date.now(), revalidating: false }))
+        .catch(() => {
+          cached.revalidating = false;
+        });
+    }
+    opts.onProgress?.(
+      `Served from cache (built ${Math.round(age / 60000)}m ago) — refreshing in the background.`,
+    );
+    return cached.result;
+  }
+
+  const inflight = oppsInflight.get(key);
+  if (inflight) {
+    opts.onProgress?.("Another identical build is already running — waiting for it…");
+    return inflight;
+  }
+  const promise = computeOpportunities(opts)
+    .then((result) => {
+      oppsCache.set(key, { result, at: Date.now(), revalidating: false });
+      return result;
+    })
+    .finally(() => oppsInflight.delete(key));
+  oppsInflight.set(key, promise);
+  return promise;
+}
+
+async function computeOpportunities(
+  opts: GetOpportunitiesOpts,
+): Promise<OpportunityResult> {
   const report = opts.onProgress ?? (() => {});
   const itemLevel = opts.itemLevel ?? 82;
 
