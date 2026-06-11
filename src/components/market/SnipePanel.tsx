@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveProgress, newProgressId } from "@/components/LiveProgress";
 import { SnipeBuilder, type SpecSummary } from "./SnipeBuilder";
 
@@ -49,9 +49,12 @@ function ex(n: number | null): string {
 export function SnipePanel({
   itemClass,
   league,
+  initialSpecId,
 }: {
   itemClass: string;
   league: string;
+  /** From ?spec= — auto-run a scan once the saved spec list has loaded. */
+  initialSpecId?: number;
 }) {
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [specs, setSpecs] = useState<SpecSummary[]>([]);
@@ -61,6 +64,7 @@ export function SnipePanel({
   const [scanError, setScanError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const autoScannedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +118,19 @@ export function SnipePanel({
     },
     [itemClass, league],
   );
+
+  useEffect(() => {
+    if (
+      autoScannedRef.current ||
+      initialSpecId == null ||
+      templates === null ||
+      !specs.some((s) => s.id === initialSpecId)
+    ) {
+      return;
+    }
+    autoScannedRef.current = true;
+    runScan({ spec: initialSpecId });
+  }, [initialSpecId, templates, specs, runScan]);
 
   if (loadError) {
     return <div className="panel p-6 text-sm text-forge-rust">{loadError}</div>;

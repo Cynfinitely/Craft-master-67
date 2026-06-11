@@ -20,6 +20,7 @@ export default async function OpportunitiesPage({
     ilvl?: string;
     league?: string;
     view?: string;
+    spec?: string;
   };
 }) {
   const categories = await listCraftableCategories();
@@ -34,6 +35,7 @@ export default async function OpportunitiesPage({
   const itemClass = searchParams.class ?? null;
   const baseId = searchParams.base ?? null;
   const view = searchParams.view === "snipes" ? "snipes" : "crafts";
+  const initialSpecId = Number.parseInt(searchParams.spec ?? "", 10);
   const itemLevel = Math.min(
     100,
     Math.max(1, Number.parseInt(searchParams.ilvl ?? "82", 10) || 82),
@@ -153,7 +155,13 @@ export default async function OpportunitiesPage({
           {view === "snipes" ? "snipe-and-finish" : "craft"} opportunities.
         </div>
       ) : view === "snipes" ? (
-        <SnipePanel itemClass={itemClass} league={league} />
+        <SnipePanel
+          itemClass={itemClass}
+          league={league}
+          initialSpecId={
+            Number.isFinite(initialSpecId) ? initialSpecId : undefined
+          }
+        />
       ) : opportunities.length === 0 ? (
         <div className="panel p-8 text-center text-forge-gold/50">
           <p>

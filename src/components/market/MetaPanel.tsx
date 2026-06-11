@@ -35,6 +35,10 @@ export function MetaPanel({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [specNotice, setSpecNotice] = useState<string | null>(null);
+  const [createdSpec, setCreatedSpec] = useState<{
+    id: number;
+    itemClass: string;
+  } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -103,6 +107,7 @@ export function MetaPanel({
 
   const makeSpec = async (item: MetaItemView) => {
     setSpecNotice(null);
+    setCreatedSpec(null);
     try {
       const r = await fetch("/api/market/snipe", {
         method: "POST",
@@ -123,13 +128,21 @@ export function MetaPanel({
         setSpecNotice(body.error ?? "Failed to create snipe spec");
         return;
       }
+      const spec = body.spec as { id: number; name: string } | undefined;
       setSpecNotice(
-        `Snipe spec "${body.spec?.name}" created for ${item.itemClass}.`,
+        `Snipe spec "${spec?.name}" created for ${item.itemClass}.`,
       );
+      if (spec?.id) {
+        setCreatedSpec({ id: spec.id, itemClass: item.itemClass });
+      }
     } catch {
       setSpecNotice("Failed to create snipe spec");
     }
   };
+
+  const snipeHref = createdSpec
+    ? `/opportunities?view=snipes&class=${encodeURIComponent(createdSpec.itemClass)}&spec=${createdSpec.id}`
+    : null;
 
   return (
     <div className="panel">
@@ -181,12 +194,14 @@ export function MetaPanel({
         {specNotice ? (
           <p className="text-xs text-emerald-300/90">
             {specNotice}{" "}
-            <Link
-              href="/opportunities?view=snipes"
-              className="underline hover:text-emerald-200"
-            >
-              open Snipe &amp; finish →
-            </Link>
+            {snipeHref ? (
+              <Link
+                href={snipeHref}
+                className="underline hover:text-emerald-200"
+              >
+                open Snipe &amp; finish →
+              </Link>
+            ) : null}
           </p>
         ) : null}
 
