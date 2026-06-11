@@ -62,19 +62,62 @@ CREATE TABLE IF NOT EXISTS combo_probes (
 );
 CREATE INDEX IF NOT EXISTS combo_probes_class_idx ON combo_probes(league, item_class);
 CREATE INDEX IF NOT EXISTS combo_probes_fetched_idx ON combo_probes(fetched_at);
+CREATE TABLE IF NOT EXISTS listing_snapshots (
+  probe_id TEXT NOT NULL,
+  listing_id TEXT NOT NULL,
+  price_exalted REAL,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (probe_id, listing_id)
+);
+CREATE INDEX IF NOT EXISTS listing_snapshots_probe_idx ON listing_snapshots(probe_id);
+CREATE TABLE IF NOT EXISTS snipe_specs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  league TEXT NOT NULL,
+  item_class TEXT NOT NULL,
+  base_id TEXT,
+  name TEXT NOT NULL,
+  mods TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  league TEXT NOT NULL,
+  item_class TEXT NOT NULL,
+  base_id TEXT,
+  base_name TEXT,
+  groups TEXT NOT NULL,
+  labels TEXT NOT NULL DEFAULT '[]',
+  source_label TEXT,
+  added_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS meta_items_class_idx ON meta_items(league, item_class);
 `;
+
+/** Columns added to existing tables after they shipped (idempotent ALTERs —
+ * each runs in its own statement and "duplicate column" errors are ignored). */
+const COLUMN_MIGRATIONS = [
+  "ALTER TABLE combo_probes ADD COLUMN sell_through_per_day REAL",
+];
 
 let ensured: Promise<void> | null = null;
 
 /** Creates any missing app tables (cached; safe to call before every query). */
 export function ensureAppTables(): Promise<void> {
   if (!ensured) {
-    ensured = getClient()
-      .executeMultiple(APP_TABLES_DDL)
-      .catch((err) => {
-        ensured = null; // allow a retry on transient failure
-        throw err;
-      });
+    ensured = (async () => {
+      const client = getClient();
+      await client.executeMultiple(APP_TABLES_DDL);
+      for (const sql of COLUMN_MIGRATIONS) {
+        try {
+          await client.execute(sql);
+        } catch {
+          /* column already exists */
+        }
+      }
+    })().catch((err) => {
+      ensured = null; // allow a retry on transient failure
+      throw err;
+    });
   }
   return ensured;
 }

@@ -12,8 +12,10 @@ import { listManualSales } from "@/lib/market/manual";
 import { getProbes, type ComboProbe } from "@/lib/market/probes";
 import { formatCost } from "@/lib/pricing/format";
 import { getRunicRecipeEV, type RunicRecipeEV } from "@/lib/market/runes";
+import { listMetaItems } from "@/lib/market/meta";
 import { MarketControls } from "@/components/market/MarketControls";
 import { ManualSales } from "@/components/market/ManualSales";
+import { MetaPanel } from "@/components/market/MetaPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +151,14 @@ function ProbeTable({
                     </span>
                     {p.recentCount != null ? (
                       <span>{p.recentCount} new today</span>
+                    ) : null}
+                    {p.sellThroughPerDay != null ? (
+                      <span
+                        className="text-emerald-300/80"
+                        title="Measured between probes: previously-seen cheapest listings that vanished from the order book."
+                      >
+                        sells ~{p.sellThroughPerDay}/day
+                      </span>
                     ) : null}
                     {p.minAskExalted != null ? (
                       <span>floor {formatCost(p.minAskExalted, divinePrice)}</span>
@@ -287,6 +297,8 @@ export default async function MarketPage({
   } catch {
     /* recipe EV is optional */
   }
+
+  const metaList = await listMetaItems(league, itemClass).catch(() => []);
 
   const [summary, combosBySize, manualList, probes] = itemClass
     ? await Promise.all([
@@ -438,6 +450,20 @@ export default async function MarketPage({
           )}
         </>
       )}
+
+      <MetaPanel
+        league={league}
+        itemClass={itemClass}
+        initialItems={metaList.map((m) => ({
+          id: m.id,
+          itemClass: m.itemClass,
+          baseId: m.baseId,
+          baseName: m.baseName,
+          groups: m.groups,
+          labels: m.labels,
+          sourceLabel: m.sourceLabel,
+        }))}
+      />
 
       <ManualSales league={league} itemClass={itemClass} sales={manualList} />
 

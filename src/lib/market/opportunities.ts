@@ -20,6 +20,7 @@ import {
 } from "@/lib/solver/simulate";
 import { getComboStats, velocityAdjustedSale } from "./analytics";
 import { listManualSales } from "./manual";
+import { getMetaCombos } from "./meta";
 import {
   comboKeyFromGroups,
   getProbes,
@@ -54,6 +55,8 @@ export interface Opportunity {
   supply: number | null;
   /** Listings added in the last day (probe-backed only). */
   velocity: number | null;
+  /** Measured items sold/day (listing-snapshot diff between probes). */
+  sellThroughPerDay: number | null;
   saturated: boolean;
   confidence: "high" | "medium" | "low";
   /**
@@ -63,6 +66,8 @@ export interface Opportunity {
    */
   rareCombo: boolean;
   sampleCount: number;
+  /** Imported ladder builds wearing this combo (0 = no meta signal). */
+  metaUses: number;
   /* craft side */
   baseId: string;
   baseName: string;
@@ -131,11 +136,15 @@ interface Candidate {
   saleSource: "probe" | "sample";
   supply: number | null;
   velocity: number | null;
+  /** Measured items sold/day (probe-backed only). */
+  sellThroughPerDay?: number | null;
   sampleCount: number;
   /** When the backing probe was fetched (null for sample-only data). */
   fetchedAt: number | null;
   /** Live probe found zero listings (see Opportunity.rareCombo). */
   rare?: boolean;
+  /** Imported ladder builds wearing this combo (meta demand strength). */
+  metaUses?: number;
 }
 
 /**
@@ -186,6 +195,7 @@ async function buildCandidates(opts: {
         saleSource: "probe",
         supply: p.listingCount,
         velocity: p.recentCount,
+        sellThroughPerDay: p.sellThroughPerDay,
         sampleCount: p.listingCount,
         fetchedAt: p.fetchedAt,
       });
@@ -287,6 +297,42 @@ async function buildCandidates(opts: {
     /* manual sales optional */
   }
 
+  // 4) Meta demand (imported ladder gear): annotate combos players actually
+  // wear, and inject unpriced meta combos so they get a verification probe.
+  try {
+    const metaCombos = await getMetaCombos(opts.league, opts.itemClass);
+    const byKey = new Map(out.map((c) => [c.key, c]));
+    for (const combo of metaCombos) {
+      const usable = combo.groups.filter((g) => opts.labelByGroup.has(g));
+      if (usable.length < 2) continue;
+      const key = groupKey(usable);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.metaUses = combo.uses;
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key,
+        groups: usable,
+        labels: usable.map((g) => opts.labelByGroup.get(g) ?? g),
+        statIds:
+          comboKeyFromGroups(usable, opts.statMap.groupToStats)?.statIds ??
+          null,
+        saleExalted: 0, // unknown until the verification probe prices it
+        saleSource: "sample",
+        supply: null,
+        velocity: null,
+        sampleCount: combo.uses,
+        fetchedAt: null,
+        metaUses: combo.uses,
+      });
+    }
+  } catch {
+    /* meta demand optional */
+  }
+
   out.sort((a, b) => b.saleExalted - a.saleExalted);
   return { candidates: out, unmappedCombos };
 }
@@ -307,7 +353,11 @@ async function selectAndVerify(opts: {
 }): Promise<Candidate[]> {
   const report = opts.onProgress ?? (() => {});
   const probeBacked = opts.candidates.filter((c) => c.saleSource === "probe");
-  const sampleOnly = opts.candidates.filter((c) => c.saleSource === "sample");
+  // Meta-demand combos jump the verification queue: real builds wear them,
+  // so a probe that prices them is the highest-value API call available.
+  const sampleOnly = opts.candidates
+    .filter((c) => c.saleSource === "sample")
+    .sort((a, b) => (b.metaUses ?? 0) - (a.metaUses ?? 0));
 
   const sampleSlots =
     probeBacked.length >= MAX_COMBOS_TO_SOLVE - SAMPLE_SLOTS
@@ -360,6 +410,7 @@ async function selectAndVerify(opts: {
         saleSource: "probe",
         supply: probe.listingCount,
         velocity: probe.recentCount,
+        sellThroughPerDay: probe.sellThroughPerDay,
         sampleCount: probe.listingCount,
         fetchedAt: probe.fetchedAt,
       });
@@ -395,6 +446,7 @@ async function selectAndVerify(opts: {
         cand.saleExalted = probe.medianAskExalted;
         cand.supply = probe.listingCount;
         cand.velocity = probe.recentCount;
+        cand.sellThroughPerDay = probe.sellThroughPerDay;
         cand.sampleCount = probe.listingCount;
         cand.fetchedAt = probe.fetchedAt;
       }
@@ -588,7 +640,9 @@ async function computeOpportunities(
   const baseQuoteCache = new Map<string, number | null>();
   const opportunities: Opportunity[] = [];
 
-  const toSolve = selected.slice(0, MAX_COMBOS_TO_SOLVE);
+  const toSolve = selected
+    .filter((c) => c.saleExalted > 0) // unpriced meta combos can't be ranked
+    .slice(0, MAX_COMBOS_TO_SOLVE);
   for (let ci = 0; ci < toSolve.length; ci++) {
     const cand = toSolve[ci];
     report(
@@ -782,10 +836,12 @@ async function computeOpportunities(
         basesCount * bestMethod.pNearMiss * subsetValue * NEAR_MISS_HAIRCUT;
 
       // Asks are upper bounds — haircut revenue by how slow this market is.
+      // Measured sell-through (real outflow) beats the new-listings proxy.
       const velAdj = velocityAdjustedSale(
         cand.saleExalted,
         cand.supply,
         cand.velocity,
+        cand.sellThroughPerDay,
       );
 
       const profitAt = (hits: number) =>
@@ -805,10 +861,12 @@ async function computeOpportunities(
         saleSource: cand.saleSource,
         supply: cand.supply,
         velocity: cand.velocity,
+        sellThroughPerDay: cand.sellThroughPerDay ?? null,
         saturated: (cand.supply ?? 0) >= SATURATION_SUPPLY,
         confidence,
         rareCombo: cand.rare ?? false,
         sampleCount: cand.sampleCount,
+        metaUses: cand.metaUses ?? 0,
         baseId: best.baseId,
         baseName: best.baseName,
         methodId: bestMethod.spec.id,
@@ -837,12 +895,15 @@ async function computeOpportunities(
     }
   }
 
-  // Rank: verified opportunities first, then expected profit. An unverified
-  // sample median should never outrank a probe-confirmed money-maker.
+  // Rank: verified opportunities first, then meta demand (real builds wear
+  // it), then expected profit. An unverified sample median should never
+  // outrank a probe-confirmed money-maker.
   const tier = { high: 2, medium: 1, low: 0 } as const;
   opportunities.sort((a, b) => {
     const t = tier[b.confidence] - tier[a.confidence];
     if (t !== 0) return t;
+    const m = (b.metaUses > 0 ? 1 : 0) - (a.metaUses > 0 ? 1 : 0);
+    if (m !== 0) return m;
     if (a.saturated !== b.saturated) return a.saturated ? 1 : -1;
     return b.profitP50Exalted - a.profitP50Exalted;
   });

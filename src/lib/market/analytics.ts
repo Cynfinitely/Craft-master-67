@@ -216,6 +216,8 @@ export interface SaleEstimate {
   priceExalted: number;
   sampleCount: number;
   source: "probe" | "trade" | "manual" | "mixed";
+  /** Measured demand (items/day) when the backing probe has snapshot data. */
+  sellThroughPerDay?: number | null;
 }
 
 export interface VelocityAdjustment {
@@ -235,11 +237,16 @@ export interface VelocityAdjustment {
  * - supply/velocity unknown: mild 10% trust haircut (sample-derived data).
  * - <= 1 day of inventory: full price.
  * - Each extra day of inventory shaves ~6%, floored at 55%.
+ *
+ * Daily flow preference: measured sell-through (listings that actually
+ * disappeared between probes) > new-listings-per-day proxy > a guessed
+ * 0.5/day.
  */
 export function velocityAdjustedSale(
   saleExalted: number,
   supply: number | null,
   velocity: number | null,
+  sellThroughPerDay?: number | null,
 ): VelocityAdjustment {
   if (supply == null || supply <= 0) {
     return {
@@ -248,8 +255,12 @@ export function velocityAdjustedSale(
       timeToSellDays: supply === 0 ? null : null,
     };
   }
-  // No demand signal at all: assume a sluggish 0.5 listings/day.
-  const flow = velocity != null && velocity > 0 ? velocity : 0.5;
+  const flow =
+    sellThroughPerDay != null && sellThroughPerDay > 0
+      ? sellThroughPerDay
+      : velocity != null && velocity > 0
+        ? velocity
+        : 0.5;
   const days = supply / flow;
   const haircut = Math.max(0.55, Math.min(1, 1 - 0.06 * (days - 1)));
   return {
@@ -298,6 +309,7 @@ export async function estimateSaleValue(opts: {
           priceExalted: probe.medianAskExalted,
           sampleCount: probe.listingCount,
           source: "probe",
+          sellThroughPerDay: probe.sellThroughPerDay,
         };
       }
     } catch {

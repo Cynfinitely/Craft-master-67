@@ -25,6 +25,12 @@ import {
   getProbes,
   probeCombo,
 } from "./probes";
+import { getSnipeSpec } from "./specs";
+import {
+  resolveSpecMods,
+  templatesFromSpec,
+  type SpecVariantContext,
+} from "./specVariants";
 
 /**
  * Snipe scanner: finds underpriced, partially-rolled listings that are
@@ -37,7 +43,12 @@ import {
 /* ----------------------------- templates ----------------------------- */
 
 export type SnipeFinishSpec =
-  | { kind: "desecrate"; side: "prefix" | "suffix" }
+  | {
+      kind: "desecrate";
+      side: "prefix" | "suffix";
+      /** Restrict the desired reveal to these groups (default: whole pool). */
+      candidates?: string[];
+    }
   | { kind: "slam"; side: "prefix" | "suffix"; candidates: string[] };
 
 export interface SnipeTemplate {
@@ -45,12 +56,14 @@ export interface SnipeTemplate {
   name: string;
   description: string;
   itemClass: string;
-  source: "recipe" | "auto";
+  source: "recipe" | "auto" | "custom";
   /** Mod groups the listing must already have (becomes AND stat filters). */
   requiredGroups: string[];
   /** Non-stat search criteria (rarity, ilvl, open slots, price cap...). */
   query: Omit<TradeQueryOpts, "statIds">;
   finish: SnipeFinishSpec;
+  /** Tier floors per group ("Group@level" for the finish plan), if any. */
+  minLevelByGroup?: Record<string, number>;
 }
 
 const RECIPE_TEMPLATES: SnipeTemplate[] = [
@@ -331,6 +344,8 @@ export interface SnipeResult {
   saleExalted: number | null;
   saleSource: SaleEstimate["source"] | null;
   saleSamples: number;
+  /** Measured demand for the finished combo (items/day), when known. */
+  sellThroughPerDay: number | null;
   evExalted: number | null;
   feasible: boolean;
   warnings: string[];
@@ -432,6 +447,7 @@ async function saleWithFallback(opts: {
         priceExalted: stored.medianAskExalted,
         sampleCount: stored.listingCount,
         source: "probe",
+        sellThroughPerDay: stored.sellThroughPerDay,
       };
     }
   } catch {
@@ -472,6 +488,7 @@ async function saleWithFallback(opts: {
         priceExalted: probe.medianAskExalted,
         sampleCount: probe.listingCount,
         source: "probe",
+        sellThroughPerDay: probe.sellThroughPerDay,
       };
     }
     // Timed out — the request may still land and persist; don't keep queueing.
@@ -581,6 +598,34 @@ export async function scanSnipeTemplate(opts: {
   if (!template) return null;
 
   const ctx = await loadClassContext(template.itemClass, itemLevel);
+  const budget: ProbeBudget = {
+    left: 12,
+    deadline: Date.now() + 90 * 1000,
+    report,
+  };
+  return runTemplateScan(template, ctx, {
+    league: opts.league,
+    itemLevel,
+    maxListings: Math.min(20, opts.maxListings ?? 10),
+    report,
+    budget,
+  });
+}
+
+/** Shared scan pipeline: one template -> trade search -> per-listing EV. */
+async function runTemplateScan(
+  template: SnipeTemplate,
+  ctx: ClassContext,
+  opts: {
+    league: string;
+    itemLevel: number;
+    maxListings: number;
+    report: (text: string, o?: { current?: number; total?: number }) => void;
+    budget: ProbeBudget;
+  },
+): Promise<SnipeScan> {
+  const { report, budget } = opts;
+  const itemLevel = opts.itemLevel;
   const warnings: string[] = [];
 
   const statIds: string[] = [];
@@ -603,7 +648,7 @@ export async function scanSnipeTemplate(opts: {
 
   report(`Searching the trade site for "${template.name}"…`);
   const res = await searchAndFetch(opts.league, query, {
-    maxListings: Math.min(20, opts.maxListings ?? 10),
+    maxListings: opts.maxListings,
     ttlMs: 10 * 60 * 1000,
   });
   report(
@@ -620,10 +665,16 @@ export async function scanSnipeTemplate(opts: {
       template.finish.side === "prefix"
         ? desecPool.prefixes
         : desecPool.suffixes;
-    desecCandidates = sideGroups.map((g) => g.group);
+    const poolGroups = sideGroups.map((g) => g.group);
+    // Custom specs restrict the desired reveal to specific groups.
+    desecCandidates = template.finish.candidates
+      ? template.finish.candidates.filter((g) => poolGroups.includes(g))
+      : poolGroups;
     if (desecCandidates.length === 0) {
       warnings.push(
-        `No desecrated ${template.finish.side} mods exist for ${template.itemClass} — scan aborted.`,
+        `No desecrated ${template.finish.side} mods ${
+          template.finish.candidates ? "match the spec" : "exist"
+        } for ${template.itemClass} — scan aborted.`,
       );
       return {
         template,
@@ -638,14 +689,6 @@ export async function scanSnipeTemplate(opts: {
 
   const results: SnipeResult[] = [];
   let skipped = 0;
-  // Live-probe budget for the whole scan. Probes persist, so each scan adds
-  // coverage and later scans read earlier discoveries back for free. The
-  // wall-clock deadline keeps a rate-limited API from stalling the scan.
-  const budget: ProbeBudget = {
-    left: 12,
-    deadline: Date.now() + 90 * 1000,
-    report,
-  };
 
   for (let li = 0; li < res.listings.length; li++) {
     const listing = res.listings[li];
@@ -680,12 +723,11 @@ export async function scanSnipeTemplate(opts: {
     }
     const currentGroups = current.map((m) => m.group);
 
-    const candidates =
+    const candidates = (
       template.finish.kind === "desecrate"
         ? desecCandidates
-        : template.finish.candidates.filter(
-            (g) => !currentGroups.includes(g),
-          );
+        : template.finish.candidates
+    ).filter((g) => !currentGroups.includes(g));
     if (candidates.length === 0) {
       skipped++;
       continue;
@@ -699,13 +741,16 @@ export async function scanSnipeTemplate(opts: {
       budget,
     });
 
+    // Tier floor from the spec, if any — the slam must roll at this tier or
+    // better to count as a success.
+    const floor = template.minLevelByGroup?.[target.group] ?? 0;
     let plan: FinishPlan | null = null;
     try {
       plan = await planFinish({
         baseId,
         itemLevel: listing.ilvl ?? itemLevel,
         current,
-        desiredGroups: [target.group],
+        desiredGroups: [floor > 0 ? `${target.group}@${floor}` : target.group],
         buyPriceExalted: buyEx,
         saleOverride: target.sale,
         // The scanner owns the probe budget — don't probe per listing.
@@ -748,6 +793,7 @@ export async function scanSnipeTemplate(opts: {
       saleExalted: plan.estimatedSale?.priceExalted ?? null,
       saleSource: plan.estimatedSale?.source ?? null,
       saleSamples: plan.estimatedSale?.sampleCount ?? 0,
+      sellThroughPerDay: plan.estimatedSale?.sellThroughPerDay ?? null,
       evExalted: plan.evExalted,
       feasible: plan.feasible,
       warnings: plan.warnings,
@@ -781,4 +827,244 @@ export async function scanSnipeTemplate(opts: {
     skipped,
     warnings,
   };
+}
+
+/* ----------------------------- custom specs ----------------------------- */
+
+/** Value floor of the tier rolled at `level` (its stat's minimum roll). */
+function tierValueFloor(mods: EligibleMod[], level: number): number | null {
+  let best: EligibleMod | null = null;
+  for (const m of mods) {
+    if (m.requiredLevel > level || m.stats.length === 0) continue;
+    if (!best || m.requiredLevel > best.requiredLevel) best = m;
+  }
+  if (!best) return null;
+  return Math.max(1, Math.floor(best.stats[0].min));
+}
+
+/** Adapts the (DB-backed) class context to the pure spec-variant module. */
+function specVariantCtx(ctx: ClassContext): SpecVariantContext {
+  return {
+    itemClass: ctx.itemClass,
+    sideByGroup: ctx.sideByGroup,
+    labelByGroup: ctx.labelByGroup,
+    normalGroups: new Set(ctx.modsByGroup.keys()),
+    groupToStats: ctx.statMap.groupToStats,
+    baseNameById: new Map([...ctx.baseIdByName].map(([name, id]) => [id, name])),
+  };
+}
+
+/**
+ * Scans the market for a user-defined target item: values the finished combo
+ * (tier-aware), then hunts listings that are exactly one finishable mod
+ * short across up to 5 "drop one" search variants, sharing one probe budget.
+ */
+export async function scanSnipeSpec(opts: {
+  league: string;
+  specId: number;
+  itemLevel?: number;
+  maxListings?: number;
+  /** Live step reporting for the UI (optional). */
+  onProgress?: (
+    text: string,
+    o?: { current?: number; total?: number },
+  ) => void;
+}): Promise<SnipeScan | null> {
+  const report = opts.onProgress ?? (() => {});
+  const spec = await getSnipeSpec(opts.specId);
+  if (!spec) return null;
+  const itemLevel = opts.itemLevel ?? 82;
+
+  report(`Loading ${spec.itemClass} mod pools for "${spec.name}"…`);
+  const ctx = await loadClassContext(spec.itemClass, itemLevel);
+  const vctx = specVariantCtx(ctx);
+  const { resolved, errors } = resolveSpecMods(spec.mods, vctx);
+
+  const displayTemplate: SnipeTemplate = {
+    id: `spec-${spec.id}`,
+    name: spec.name,
+    description: `Custom target: ${resolved.map((m) => m.label).join(" + ")}.`,
+    itemClass: spec.itemClass,
+    source: "custom",
+    requiredGroups: resolved.map((m) => m.group),
+    query: {},
+    finish: { kind: "slam", side: "suffix", candidates: [] },
+  };
+  const abort = (warnings: string[]): SnipeScan => ({
+    template: displayTemplate,
+    tradeUrl: "",
+    total: 0,
+    results: [],
+    skipped: 0,
+    warnings,
+  });
+  if (resolved.length < 2) {
+    return abort([
+      ...errors,
+      "A snipe target needs at least 2 mods (one to require, one to finish).",
+    ]);
+  }
+  if (errors.length > 0) return abort(errors);
+
+  // One probe budget for the whole spec scan, shared across variants.
+  const budget: ProbeBudget = {
+    left: 12,
+    deadline: Date.now() + 120 * 1000,
+    report,
+  };
+
+  // Value the FINISHED combo first (tier-aware) — it sets the buy-price cap
+  // and is the sale target every listing's EV is measured against.
+  report(
+    `Valuing the finished combo (${resolved.map((m) => m.label).join(" + ")})…`,
+  );
+  const minLevelPerGroup = new Map<string, number>();
+  const statMins = new Map<string, number>();
+  for (const m of resolved) {
+    if (m.minLevel <= 0) continue;
+    minLevelPerGroup.set(m.group, m.minLevel);
+    const statId = soleStatId(ctx, m.group);
+    const floor = tierValueFloor(ctx.modsByGroup.get(m.group) ?? [], m.minLevel);
+    if (statId && floor != null) statMins.set(statId, floor);
+  }
+  const finishedSale = await saleWithFallback({
+    league: opts.league,
+    ctx,
+    groups: resolved.map((m) => m.group),
+    minLevelPerGroup,
+    statMins,
+    budget,
+    allowLive: true,
+  });
+  const warnings: string[] = [];
+  if (finishedSale) {
+    report(
+      `Finished combo sells for ~${Math.round(finishedSale.priceExalted * 10) / 10}ex (${finishedSale.sampleCount} ${finishedSale.source}). Buy cap: 35% of that.`,
+    );
+    displayTemplate.description += ` Finished value ~${Math.round(finishedSale.priceExalted * 10) / 10}ex.`;
+  } else {
+    warnings.push(
+      "The finished combo has no market price yet (no listings matched a live probe) — scanning without a buy-price cap; EV per listing may still resolve from looser comparables.",
+    );
+  }
+
+  const variants = templatesFromSpec({
+    spec,
+    resolved,
+    ctx: vctx,
+    finishedValue: finishedSale?.priceExalted ?? null,
+    warnings,
+  });
+  if (variants.length === 0) {
+    return abort([...warnings, "No scannable variants for this spec."]);
+  }
+
+  // Run each variant; merge by listing id (a listing can satisfy several
+  // variants — keep its best-EV evaluation).
+  const byListing = new Map<string, SnipeResult>();
+  let total = 0;
+  let skipped = 0;
+  let tradeUrl = "";
+  for (let vi = 0; vi < variants.length; vi++) {
+    const v = variants[vi];
+    report(`Variant ${vi + 1}/${variants.length}: ${v.name}…`, {
+      current: vi,
+      total: variants.length,
+    });
+    try {
+      const scan = await runTemplateScan(v, ctx, {
+        league: opts.league,
+        itemLevel,
+        maxListings: Math.min(10, opts.maxListings ?? 8),
+        report,
+        budget,
+      });
+      total += scan.total;
+      skipped += scan.skipped;
+      if (!tradeUrl) tradeUrl = scan.tradeUrl;
+      for (const w of scan.warnings) {
+        if (!warnings.includes(w)) warnings.push(w);
+      }
+      for (const r of scan.results) {
+        const prev = byListing.get(r.listingId);
+        if (!prev || (r.evExalted ?? -Infinity) > (prev.evExalted ?? -Infinity)) {
+          byListing.set(r.listingId, r);
+        }
+      }
+    } catch (err) {
+      warnings.push(
+        `Variant "${v.name}" failed (${err instanceof Error ? err.message : "trade search error"}) — continuing with the rest.`,
+      );
+    }
+  }
+
+  const results = [...byListing.values()].sort((a, b) => {
+    if (a.evExalted != null && b.evExalted != null)
+      return b.evExalted - a.evExalted;
+    if (a.evExalted != null) return -1;
+    if (b.evExalted != null) return 1;
+    return b.successRate - a.successRate;
+  });
+
+  return {
+    template: displayTemplate,
+    tradeUrl,
+    total,
+    results,
+    skipped,
+    warnings,
+  };
+}
+
+/* ----------------------------- builder options ----------------------------- */
+
+export interface SnipeBuilderMod {
+  group: string;
+  label: string;
+  side: "prefix" | "suffix";
+  /** Only obtainable via desecration (Well of Souls). */
+  desecratedOnly: boolean;
+  /** Searchable on the trade site (has stat-id mapping). */
+  mapped: boolean;
+  /** Tier floors selectable as min levels (normal pool, descending). */
+  tiers: number[];
+}
+
+/** Mod pool + bases for the custom-snipe builder UI. */
+export async function getSnipeBuilderOptions(
+  itemClass: string,
+  itemLevel = 82,
+): Promise<{
+  mods: SnipeBuilderMod[];
+  bases: { id: string; name: string }[];
+}> {
+  const ctx = await loadClassContext(itemClass, itemLevel);
+  const mods: SnipeBuilderMod[] = [];
+  for (const [group, side] of ctx.sideByGroup) {
+    const normalMods = ctx.modsByGroup.get(group);
+    const tiers = normalMods
+      ? [...new Set(normalMods.map((m) => m.requiredLevel))].sort(
+          (a, b) => b - a,
+        )
+      : [];
+    mods.push({
+      group,
+      label: ctx.labelByGroup.get(group) ?? group,
+      side,
+      desecratedOnly: !normalMods,
+      mapped: (ctx.statMap.groupToStats.get(group)?.length ?? 0) > 0,
+      tiers,
+    });
+  }
+  mods.sort((a, b) =>
+    a.side !== b.side
+      ? a.side === "prefix"
+        ? -1
+        : 1
+      : a.label.localeCompare(b.label),
+  );
+  const bases = [...ctx.baseIdByName]
+    .map(([name, id]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { mods, bases };
 }

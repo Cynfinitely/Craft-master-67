@@ -238,6 +238,8 @@ export const comboProbes = sqliteTable(
     medianAskExalted: real("median_ask_exalted"),
     /** Listings indexed within the last day (demand/velocity proxy). */
     recentCount: integer("recent_count"),
+    /** Estimated items sold per day (listing-snapshot disappearance rate). */
+    sellThroughPerDay: real("sell_through_per_day"),
     tradeUrl: text("trade_url"),
     fetchedAt: integer("fetched_at").notNull(),
   },
@@ -247,7 +249,66 @@ export const comboProbes = sqliteTable(
   }),
 );
 
+/**
+ * Cheapest listings seen by each combo probe. On the next probe of the same
+ * combo, listings that disappeared from the order book ≈ sold — the most
+ * direct demand signal the trade API allows.
+ */
+export const listingSnapshots = sqliteTable(
+  "listing_snapshots",
+  {
+    probeId: text("probe_id").notNull(),
+    listingId: text("listing_id").notNull(),
+    priceExalted: real("price_exalted"),
+    seenAt: integer("seen_at").notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.probeId, t.listingId] }),
+    probeIdx: index("listing_snapshots_probe_idx").on(t.probeId),
+  }),
+);
+
+/**
+ * User-defined snipe targets: an exact item (class, optional base, up to six
+ * mod groups with optional tier floors) the scanner hunts partials for.
+ * `mods` is JSON: [{ group, minLevel? }].
+ */
+export const snipeSpecs = sqliteTable("snipe_specs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  league: text("league").notNull(),
+  itemClass: text("item_class").notNull(),
+  baseId: text("base_id"),
+  name: text("name").notNull(),
+  mods: text("mods").notNull(), // json {group, minLevel?}[]
+  createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * Meta demand items imported from builds (PoB2 codes / pasted gear): which
+ * bases + explicit-mod combos the ladder actually wears. `groups` is a JSON
+ * array of mod-group ids.
+ */
+export const metaItems = sqliteTable(
+  "meta_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    league: text("league").notNull(),
+    itemClass: text("item_class").notNull(),
+    baseId: text("base_id"),
+    baseName: text("base_name"),
+    groups: text("groups").notNull(), // json string[]
+    labels: text("labels").notNull().default("[]"), // json string[]
+    sourceLabel: text("source_label"),
+    addedAt: integer("added_at").notNull(),
+  },
+  (t) => ({
+    classIdx: index("meta_items_class_idx").on(t.league, t.itemClass),
+  }),
+);
+
 export type BaseRow = typeof bases.$inferSelect;
+export type SnipeSpecRow = typeof snipeSpecs.$inferSelect;
+export type MetaItemRow = typeof metaItems.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;
 export type SavedPlanRow = typeof savedPlans.$inferSelect;

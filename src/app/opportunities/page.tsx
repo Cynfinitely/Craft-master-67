@@ -225,6 +225,14 @@ export default async function OpportunitiesPage({
                         rare combo · 0 listed
                       </span>
                     ) : null}
+                    {o.metaUses > 0 ? (
+                      <span
+                        className="rounded bg-purple-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-300"
+                        title="Imported ladder builds wear this combo — proven demand from the meta, not just listing data."
+                      >
+                        meta demand ×{o.metaUses}
+                      </span>
+                    ) : null}
                     {o.craftModel === "keys-fillers" ? (
                       <span
                         className="rounded bg-sky-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
@@ -277,7 +285,10 @@ export default async function OpportunitiesPage({
                     {o.saleSource === "probe" ? (
                       <>
                         {o.supply ?? 0} listed
-                        {o.velocity != null ? ` · ${o.velocity} new today` : ""}{" "}
+                        {o.velocity != null ? ` · ${o.velocity} new today` : ""}
+                        {o.sellThroughPerDay != null
+                          ? ` · sells ~${o.sellThroughPerDay}/day (measured)`
+                          : ""}{" "}
                         (exact probe)
                       </>
                     ) : o.rareCombo ? (

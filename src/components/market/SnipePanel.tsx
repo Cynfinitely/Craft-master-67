@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { LiveProgress, newProgressId } from "@/components/LiveProgress";
+import { SnipeBuilder, type SpecSummary } from "./SnipeBuilder";
 
 interface Template {
   id: string;
   name: string;
   description: string;
-  source: "recipe" | "auto";
+  source: "recipe" | "auto" | "custom";
 }
 
 interface SnipeResult {
@@ -24,6 +25,7 @@ interface SnipeResult {
   saleExalted: number | null;
   saleSource: string | null;
   saleSamples: number;
+  sellThroughPerDay: number | null;
   evExalted: number | null;
   feasible: boolean;
   warnings: string[];
@@ -52,16 +54,20 @@ export function SnipePanel({
   league: string;
 }) {
   const [templates, setTemplates] = useState<Template[] | null>(null);
+  const [specs, setSpecs] = useState<SpecSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [scanning, setScanning] = useState<string | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setTemplates(null);
-    setScan(null);
+    if (reloadTick === 0) {
+      setTemplates(null);
+      setScan(null);
+    }
     setLoadError(null);
     fetch(
       `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}`,
@@ -70,7 +76,10 @@ export function SnipePanel({
         const body = await r.json();
         if (cancelled) return;
         if (!r.ok) setLoadError(body.error ?? "Failed to load templates");
-        else setTemplates(body.templates ?? []);
+        else {
+          setTemplates(body.templates ?? []);
+          setSpecs(body.specs ?? []);
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadError("Failed to load templates");
@@ -78,17 +87,22 @@ export function SnipePanel({
     return () => {
       cancelled = true;
     };
-  }, [itemClass, league]);
+    // reloadTick re-fetches after spec create/delete without a full reset.
+  }, [itemClass, league, reloadTick]);
 
   const runScan = useCallback(
-    (templateId: string) => {
-      setScanning(templateId);
+    (params: { template?: string; spec?: number }) => {
+      const key = params.template ?? `spec-${params.spec}`;
+      setScanning(key);
       setScan(null);
       setScanError(null);
       const id = newProgressId();
       setJobId(id);
+      const target = params.template
+        ? `&template=${encodeURIComponent(params.template)}`
+        : `&spec=${params.spec}`;
       fetch(
-        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}&template=${encodeURIComponent(templateId)}&progress=${encodeURIComponent(id)}`,
+        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}${target}&progress=${encodeURIComponent(id)}`,
       )
         .then(async (r) => {
           const body = await r.json();
@@ -111,46 +125,58 @@ export function SnipePanel({
       </div>
     );
   }
-  if (templates.length === 0) {
-    return (
-      <div className="panel p-6 text-sm text-forge-gold/50">
-        No snipe templates for {itemClass} yet. Probe combos on the Market page
-        — high-value probes auto-generate &ldquo;one mod short&rdquo; templates.
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        {templates.map((t) => (
-          <div key={t.id} className="panel flex flex-col gap-2 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <span className="font-semibold text-forge-goldbright">
-                {t.name}
-              </span>
-              <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  t.source === "recipe"
-                    ? "bg-emerald-900/50 text-emerald-300"
-                    : "bg-indigo-900/40 text-indigo-300"
-                }`}
+      <SnipeBuilder
+        itemClass={itemClass}
+        league={league}
+        specs={specs}
+        scanning={scanning !== null}
+        onSpecsChanged={() => setReloadTick((t) => t + 1)}
+        onScan={(specId) => runScan({ spec: specId })}
+      />
+
+      {templates.length === 0 ? (
+        <div className="panel p-6 text-sm text-forge-gold/50">
+          No snipe templates for {itemClass} yet. Build a custom target above,
+          or probe combos on the Market page — high-value probes auto-generate
+          &ldquo;one mod short&rdquo; templates.
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {templates.map((t) => (
+            <div key={t.id} className="panel flex flex-col gap-2 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-forge-goldbright">
+                  {t.name}
+                </span>
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                    t.source === "recipe"
+                      ? "bg-emerald-900/50 text-emerald-300"
+                      : "bg-indigo-900/40 text-indigo-300"
+                  }`}
+                >
+                  {t.source === "recipe" ? "known recipe" : "from probe"}
+                </span>
+              </div>
+              <p className="flex-1 text-xs text-forge-gold/60">
+                {t.description}
+              </p>
+              <button
+                type="button"
+                className="self-start rounded border border-forge-gold/40 px-2.5 py-1 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
+                disabled={scanning !== null}
+                onClick={() => runScan({ template: t.id })}
               >
-                {t.source === "recipe" ? "known recipe" : "from probe"}
-              </span>
+                {scanning === t.id
+                  ? "Scanning live listings…"
+                  : "Scan listings"}
+              </button>
             </div>
-            <p className="flex-1 text-xs text-forge-gold/60">{t.description}</p>
-            <button
-              type="button"
-              className="self-start rounded border border-forge-gold/40 px-2.5 py-1 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
-              disabled={scanning !== null}
-              onClick={() => runScan(t.id)}
-            >
-              {scanning === t.id ? "Scanning live listings…" : "Scan listings"}
-            </button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <LiveProgress jobId={jobId} active={scanning !== null} showLog={5} />
 
@@ -225,6 +251,9 @@ export function SnipePanel({
                       {r.saleExalted != null
                         ? `sells ~${ex(r.saleExalted)} (${r.saleSamples} ${r.saleSource})`
                         : "no sale data — the finished combo had no priced listings"}
+                      {r.sellThroughPerDay != null
+                        ? ` · demand ~${r.sellThroughPerDay}/day`
+                        : ""}
                     </p>
                     {r.tierNote ? (
                       <p className="mt-0.5 text-[11px] text-sky-300/70">
