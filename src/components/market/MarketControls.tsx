@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { InfoTip } from "@/components/InfoTip";
 import { LiveProgress, newProgressId } from "@/components/LiveProgress";
 
 export function MarketControls({
@@ -99,22 +100,46 @@ export function MarketControls({
             </optgroup>
           ))}
         </select>
-        <button
-          type="button"
-          className="btn btn-primary shrink-0 disabled:opacity-50"
-          disabled={!itemClass || probing || sampling}
-          onClick={probe}
-        >
-          {probing ? "Probing combos…" : "Probe meta combos"}
-        </button>
-        <button
-          type="button"
-          className="btn shrink-0 disabled:opacity-50"
-          disabled={!itemClass || sampling || probing}
-          onClick={sample}
-        >
-          {sampling ? "Sampling trade…" : "Sample live listings"}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="btn btn-primary disabled:opacity-50"
+            disabled={!itemClass || probing || sampling}
+            onClick={probe}
+          >
+            {probing ? "Probing combos…" : "Probe meta combos"}
+          </button>
+          <InfoTip
+            label="Probe meta combos"
+            summary="Runs targeted trade searches for known high-value mod combinations."
+            detail={[
+              "Uses meta templates and prior sample hits as candidates.",
+              "Refreshes up to 6 stale probes per run (rate-limited).",
+              "Gives exact listing count, ask price, and sell-through.",
+              "Feeds Craft Opportunities with high-confidence pricing.",
+            ]}
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="btn disabled:opacity-50"
+            disabled={!itemClass || sampling || probing}
+            onClick={sample}
+          >
+            {sampling ? "Sampling trade…" : "Sample live listings"}
+          </button>
+          <InfoTip
+            label="Sample live listings"
+            summary="Fetches ~60 random rare listings across price bands for the item class."
+            detail={[
+              "Discovery pass when you don't know which combos sell.",
+              "Populates the combo analytics tables below.",
+              "Finds unexpected profitable mod pairs.",
+              "Less precise than probes, but broader coverage.",
+            ]}
+          />
+        </div>
         <span className="text-xs text-forge-gold/50">league: {league}</span>
       </div>
       <LiveProgress jobId={jobId} active={probing || sampling} />

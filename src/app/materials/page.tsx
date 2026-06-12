@@ -1,8 +1,21 @@
 import {
   MaterialsBrowser,
-  type MaterialGroup,
+  type MaterialsCatalog,
+  type MaterialView,
 } from "@/components/materials/MaterialsBrowser";
-import { getMaterialsMeta, materialsByCategory } from "@/lib/materials/source";
+import {
+  currencyMisc,
+  currencyTierRows,
+  essenceMatrix,
+  gemsAndOther,
+  getMaterialsMeta,
+  leagueGroups,
+  omens,
+  runes,
+  soulCores,
+  type Material,
+  type MaterialTier,
+} from "@/lib/materials/source";
 import { getPriceByApiId } from "@/lib/pricing/poe2scout";
 
 export const metadata = {
@@ -12,26 +25,66 @@ export const metadata = {
 // Re-fetch live prices at most hourly; the material catalog itself is static.
 export const revalidate = 3600;
 
+function toView(m: Material, prices: Map<string, number>): MaterialView {
+  return {
+    apiId: m.apiId,
+    name: m.name,
+    label: m.label,
+    tier: m.tier,
+    effect: m.effect,
+    description: m.description,
+    iconUrl: m.iconUrl,
+    stackSize: m.stackSize,
+    maxStackSize: m.maxStackSize,
+    priceExalted: prices.get(m.apiId) ?? null,
+  };
+}
+
+function tierEntry(m: Material, prices: Map<string, number>) {
+  return {
+    apiId: m.apiId,
+    name: m.name,
+    effect: m.effect,
+    priceExalted: prices.get(m.apiId) ?? null,
+  };
+}
+
 export default async function MaterialsPage() {
-  const byCategory = materialsByCategory();
   const meta = getMaterialsMeta();
   const prices = await getPriceByApiId();
 
-  const groups: MaterialGroup[] = byCategory.map((g) => ({
-    label: g.label,
-    items: g.items.map((m) => ({
-      apiId: m.apiId,
-      name: m.name,
-      label: m.label,
-      tier: m.tier,
-      effect: m.effect,
-      description: m.description,
-      iconUrl: m.iconUrl,
-      stackSize: m.stackSize,
-      maxStackSize: m.maxStackSize,
-      priceExalted: prices.get(m.apiId) ?? null,
+  const catalog: MaterialsCatalog = {
+    essenceRows: essenceMatrix().map((row) => ({
+      family: row.family,
+      tiers: Object.fromEntries(
+        Object.entries(row.tiers).map(([tier, m]) => [
+          tier as MaterialTier,
+          tierEntry(m, prices),
+        ]),
+      ) as MaterialsCatalog["essenceRows"][0]["tiers"],
     })),
-  }));
+    currencyRows: currencyTierRows().map((row) => ({
+      family: row.family,
+      tiers: Object.fromEntries(
+        Object.entries(row.tiers).map(([tier, m]) => [
+          tier as MaterialTier,
+          tierEntry(m, prices),
+        ]),
+      ) as MaterialsCatalog["currencyRows"][0]["tiers"],
+    })),
+    currencyMisc: currencyMisc().map((m) => toView(m, prices)),
+    omens: omens().map((m) => toView(m, prices)),
+    runes: runes().map((m) => toView(m, prices)),
+    soulCores: soulCores().map((m) => toView(m, prices)),
+    leagueGroups: leagueGroups().map((g) => ({
+      label: g.label,
+      items: g.items.map((m) => toView(m, prices)),
+    })),
+    gemsGroups: gemsAndOther().map((g) => ({
+      label: g.label,
+      items: g.items.map((m) => toView(m, prices)),
+    })),
+  };
 
   return (
     <div className="space-y-5">
@@ -46,7 +99,7 @@ export default async function MaterialsPage() {
           <span className="text-forge-gold/80">{meta.league}</span>.
         </p>
       </div>
-      <MaterialsBrowser groups={groups} />
+      <MaterialsBrowser catalog={catalog} />
     </div>
   );
 }

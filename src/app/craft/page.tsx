@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import {
   getModPool,
+  hasBaseSearchFilter,
   listCraftableCategories,
   searchBases,
 } from "@/lib/data";
@@ -146,7 +147,10 @@ async function BasePicker({
   itemLevel: number;
   mode: "base" | "mass";
 }) {
-  const results = await searchBases({ q, itemClass });
+  const filterActive = hasBaseSearchFilter({ q, itemClass });
+  const results = filterActive
+    ? await searchBases({ q, itemClass })
+    : [];
   const buildHref = (id: string) => {
     const p = new URLSearchParams();
     p.set("mode", mode);
@@ -157,26 +161,56 @@ async function BasePicker({
     return `/craft?${p.toString()}`;
   };
   return (
-    <div className="panel max-h-[60vh] overflow-y-auto">
-      {results.length === 0 ? (
-        <p className="p-4 text-sm text-forge-gold/50">No bases found.</p>
-      ) : (
-        <ul className="divide-y divide-forge-border/50">
-          {results.map((b) => (
-            <li key={b.id}>
-              <Link
-                href={buildHref(b.id)}
-                className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-forge-gold/80 transition-colors hover:bg-forge-panel2/60"
-              >
-                <span>{b.name}</span>
-                <span className="text-[11px] text-forge-gold/40">
-                  {b.itemClass}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="space-y-3">
+      <div className="panel-inset flex items-center gap-2 px-3 py-2 text-xs text-forge-gold/55">
+        <span className="font-semibold text-forge-gold/75">1. Filter</span>
+        <span className="text-forge-gold/30">→</span>
+        <span className="font-semibold text-forge-gold/75">2. Select base</span>
+      </div>
+      <div className="panel max-h-[60vh] overflow-y-auto">
+        {!filterActive ? (
+          <div className="p-6 text-center text-sm text-forge-gold/50">
+            <p className="font-medium text-forge-gold/70">
+              Step 1: Filter bases
+            </p>
+            <p className="mt-2">
+              Choose an item class or search for a base name (min. 2 characters)
+              above, then pick a base from the list.
+            </p>
+          </div>
+        ) : results.length === 0 ? (
+          <p className="p-4 text-sm text-forge-gold/50">No bases found.</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 border-b border-forge-border/50 px-4 py-2">
+              <span className="text-xs text-forge-gold/50">
+                {results.length} base{results.length === 1 ? "" : "s"}
+              </span>
+              {itemClass ? (
+                <span className="tag-chip">{itemClass}</span>
+              ) : null}
+              {q?.trim() ? (
+                <span className="tag-chip">&ldquo;{q.trim()}&rdquo;</span>
+              ) : null}
+            </div>
+            <ul className="divide-y divide-forge-border/50">
+              {results.map((b) => (
+                <li key={b.id}>
+                  <Link
+                    href={buildHref(b.id)}
+                    className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-forge-gold/80 transition-colors hover:bg-forge-panel2/60"
+                  >
+                    <span>{b.name}</span>
+                    <span className="text-[11px] text-forge-gold/40">
+                      {b.itemClass}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   );
 }

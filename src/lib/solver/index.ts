@@ -18,7 +18,6 @@ import {
 } from "./determinism";
 import { resolveAlloys, type AlloyGuarantee } from "./alloys";
 import { leagueAdvice } from "./leagueAdvisor";
-import { applyForgeCosts } from "@/lib/market/runes";
 import { BONE_BY_CLASS } from "./registry";
 import {
   MAX_DESECRATED_MODS,
@@ -2563,8 +2562,6 @@ export async function solveFromBase(
   } catch {
     priceMap = await getPriceByApiId();
   }
-  // Alloys can be Runeforged from cheap runes — price them at min(buy, forge).
-  applyForgeCosts(priceMap);
   const built = await buildInputs(baseId, itemLevel, desiredGroups, priceMap);
   if (!built) return null;
   const { inputs, warnings, feasible, poolMods } = built;

@@ -1,8 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { MaterialTier } from "@/lib/materials/source";
+import {
+  CurrencyTierTable,
+  EssenceMatrixTable,
+  LeagueAccordion,
+  MaterialListTable,
+} from "./MaterialsTable";
 
-export type MaterialTier = "Lesser" | "Normal" | "Greater" | "Perfect";
+export type MaterialTierView = MaterialTier;
 
 export interface MaterialView {
   apiId: string;
@@ -22,131 +29,150 @@ export interface MaterialGroup {
   items: MaterialView[];
 }
 
-const TIER_STYLES: Record<MaterialTier, string> = {
-  Lesser: "bg-zinc-700/60 text-zinc-200",
-  Normal: "bg-sky-900/50 text-sky-200",
-  Greater: "bg-violet-900/50 text-violet-200",
-  Perfect: "bg-amber-800/50 text-amber-200",
-};
-
-function formatPrice(p: number | null): string | null {
-  if (p == null) return null;
-  if (p >= 1000) return `${(p / 1000).toFixed(1)}k ex`;
-  if (p >= 10) return `${Math.round(p)} ex`;
-  if (p >= 1) return `${p.toFixed(1)} ex`;
-  return `${p.toFixed(2)} ex`;
+export interface TierCellData {
+  apiId: string;
+  name: string;
+  effect: string[];
+  priceExalted: number | null;
 }
 
-/**
- * Minimum modifier level a tiered currency guarantees (poe2wiki):
- * Transmutation Greater 55 / Perfect 70; Augmentation Greater 44 / Perfect
- * 70; Exalt/Chaos/Regal Greater 35 / Perfect 50; Perfect essences 50;
- * Ancient bones 40.
- */
-function minModLevel(name: string): number | null {
-  const greater = /\bgreater\b/i.test(name);
-  const perfect = /\bperfect\b/i.test(name);
-  const trans = /transmutation/i.test(name);
-  const aug = /augmentation/i.test(name);
-  if (/\bancient\b/i.test(name) && /jawbone|rib|collarbone|cranium/i.test(name))
-    return 40;
-  if (perfect && /essence/i.test(name)) return 50;
-  if (greater) return trans ? 55 : aug ? 44 : 35;
-  if (perfect) return trans || aug ? 70 : 50;
-  return null;
+export interface MaterialsCatalog {
+  essenceRows: {
+    family: string;
+    tiers: Partial<Record<MaterialTier, TierCellData>>;
+  }[];
+  currencyRows: {
+    family: string;
+    tiers: Partial<Record<MaterialTier, TierCellData>>;
+  }[];
+  currencyMisc: MaterialView[];
+  omens: MaterialView[];
+  runes: MaterialView[];
+  soulCores: MaterialView[];
+  leagueGroups: MaterialGroup[];
+  gemsGroups: MaterialGroup[];
 }
 
-function MaterialCard({ m }: { m: MaterialView }) {
-  const price = formatPrice(m.priceExalted);
+type TabId = "essentials" | "league" | "gems";
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "essentials", label: "Crafting essentials" },
+  { id: "league", label: "League materials" },
+  { id: "gems", label: "Gems & other" },
+];
+
+function matchesSearch(m: MaterialView, needle: string): boolean {
   return (
-    <div className="panel flex flex-col gap-2 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2">
-          {m.iconUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={m.iconUrl}
-              alt=""
-              width={32}
-              height={32}
-              className="mt-0.5 h-8 w-8 shrink-0"
-              loading="lazy"
-            />
-          ) : null}
-          <div>
-            <h3 className="font-semibold leading-tight text-rarity-currency">
-              {m.name}
-            </h3>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              {m.tier ? (
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${TIER_STYLES[m.tier]}`}
-                >
-                  {m.tier}
-                </span>
-              ) : null}
-              {minModLevel(m.name) != null ? (
-                <span className="rounded bg-violet-900/50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-200">
-                  min mod lvl {minModLevel(m.name)}
-                </span>
-              ) : null}
-              {m.maxStackSize ? (
-                <span className="text-[10px] text-forge-gold/40">
-                  stack {m.maxStackSize}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        {price ? (
-          <span className="shrink-0 rounded bg-forge-black/40 px-2 py-0.5 text-xs font-semibold text-rarity-currency">
-            {price}
-          </span>
-        ) : null}
-      </div>
-
-      {m.effect.length > 0 ? (
-        <ul className="space-y-0.5 text-sm text-forge-goldbright/90">
-          {m.effect.map((line, i) => (
-            <li key={i} className={i === 0 ? "" : "pl-2 text-forge-gold/70"}>
-              {line}
-            </li>
-          ))}
-        </ul>
-      ) : m.description ? (
-        <p className="text-sm text-forge-goldbright/90">{m.description}</p>
-      ) : null}
-    </div>
+    m.name.toLowerCase().includes(needle) ||
+    m.effect.some((e) => e.toLowerCase().includes(needle)) ||
+    (m.description?.toLowerCase().includes(needle) ?? false)
   );
 }
 
-export function MaterialsBrowser({ groups }: { groups: MaterialGroup[] }) {
-  const [q, setQ] = useState("");
-  const [label, setLabel] = useState<string>("all");
+function filterItems(items: MaterialView[], needle: string): MaterialView[] {
+  if (!needle) return items;
+  return items.filter((m) => matchesSearch(m, needle));
+}
 
-  const labels = useMemo(() => groups.map((g) => g.label), [groups]);
+function filterGroups(
+  groups: MaterialGroup[],
+  needle: string,
+): MaterialGroup[] {
+  if (!needle) return groups;
+  return groups
+    .map((g) => ({
+      label: g.label,
+      items: g.items.filter((m) => matchesSearch(m, needle)),
+    }))
+    .filter((g) => g.items.length > 0);
+}
+
+export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
+  const [q, setQ] = useState("");
+  const [tab, setTab] = useState<TabId>("essentials");
+
+  const needle = q.trim().toLowerCase();
+
+  const priceMap = useMemo(() => {
+    const entries: [string, number | null][] = [];
+    for (const row of catalog.essenceRows) {
+      for (const m of Object.values(row.tiers)) {
+        if (m) entries.push([m.apiId, m.priceExalted]);
+      }
+    }
+    for (const row of catalog.currencyRows) {
+      for (const m of Object.values(row.tiers)) {
+        if (m) entries.push([m.apiId, m.priceExalted]);
+      }
+    }
+    return new Map(entries);
+  }, [catalog]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return groups
-      .filter((g) => label === "all" || g.label === label)
-      .map((g) => ({
-        label: g.label,
-        items: g.items.filter((m) => {
-          if (!needle) return true;
-          return (
-            m.name.toLowerCase().includes(needle) ||
-            m.effect.some((e) => e.toLowerCase().includes(needle)) ||
-            (m.description?.toLowerCase().includes(needle) ?? false)
+    const essenceRows = needle
+      ? catalog.essenceRows.filter((row) => {
+          const familyMatch = row.family.toLowerCase().includes(needle);
+          const tierMatch = Object.values(row.tiers).some(
+            (m) =>
+              m &&
+              (m.name.toLowerCase().includes(needle) ||
+                m.effect.some((e) => e.toLowerCase().includes(needle))),
           );
-        }),
-      }))
-      .filter((g) => g.items.length > 0);
-  }, [groups, q, label]);
+          return familyMatch || tierMatch;
+        })
+      : catalog.essenceRows;
 
-  const total = useMemo(
-    () => filtered.reduce((n, g) => n + g.items.length, 0),
-    [filtered],
+    const currencyRows = needle
+      ? catalog.currencyRows.filter((row) => {
+          const familyMatch = row.family.toLowerCase().includes(needle);
+          const tierMatch = Object.values(row.tiers).some((m) =>
+            m?.name.toLowerCase().includes(needle),
+          );
+          return familyMatch || tierMatch;
+        })
+      : catalog.currencyRows;
+
+    return {
+      essenceRows,
+      currencyRows,
+      currencyMisc: filterItems(catalog.currencyMisc, needle),
+      omens: filterItems(catalog.omens, needle),
+      runes: filterItems(catalog.runes, needle),
+      soulCores: filterItems(catalog.soulCores, needle),
+      leagueGroups: filterGroups(catalog.leagueGroups, needle),
+      gemsGroups: filterGroups(catalog.gemsGroups, needle),
+    };
+  }, [catalog, needle]);
+
+  const tabCount = useMemo(() => {
+    if (tab === "essentials") {
+      return (
+        filtered.essenceRows.length +
+        filtered.currencyRows.length +
+        filtered.currencyMisc.length +
+        filtered.omens.length +
+        filtered.runes.length +
+        filtered.soulCores.length
+      );
+    }
+    if (tab === "league") {
+      return filtered.leagueGroups.reduce((n, g) => n + g.items.length, 0);
+    }
+    return filtered.gemsGroups.reduce((n, g) => n + g.items.length, 0);
+  }, [filtered, tab]);
+
+  const tabBtn = (id: TabId, label: string) => (
+    <button
+      type="button"
+      onClick={() => setTab(id)}
+      className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
+        tab === id
+          ? "bg-forge-rust/30 text-forge-goldbright"
+          : "text-forge-gold/70 hover:text-forge-goldbright"
+      }`}
+    >
+      {label}
+    </button>
   );
 
   return (
@@ -158,40 +184,45 @@ export function MaterialsBrowser({ groups }: { groups: MaterialGroup[] }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          className="input sm:max-w-[18rem]"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        >
-          <option value="all">All categories</option>
-          {labels.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
       </div>
 
-      <p className="text-xs text-forge-gold/40">{total} materials</p>
+      <div className="flex gap-1 rounded-md border border-forge-border bg-forge-panel2 p-1">
+        {TABS.map((t) => tabBtn(t.id, t.label))}
+      </div>
 
-      {filtered.length === 0 ? (
+      <p className="text-xs text-forge-gold/40">{tabCount} materials in view</p>
+
+      {tab === "essentials" ? (
+        <div className="space-y-6">
+          <EssenceMatrixTable rows={filtered.essenceRows} prices={priceMap} />
+          <CurrencyTierTable rows={filtered.currencyRows} prices={priceMap} />
+          <MaterialListTable
+            title="Other currency"
+            items={filtered.currencyMisc}
+          />
+          <MaterialListTable title="Omens" items={filtered.omens} />
+          <MaterialListTable title="Runes" items={filtered.runes} />
+          <MaterialListTable title="Soul cores" items={filtered.soulCores} />
+          {tabCount === 0 ? (
+            <div className="panel p-8 text-center text-forge-gold/50">
+              No materials match your search.
+            </div>
+          ) : null}
+        </div>
+      ) : tab === "league" ? (
+        filtered.leagueGroups.length === 0 ? (
+          <div className="panel p-8 text-center text-forge-gold/50">
+            No league materials match your search.
+          </div>
+        ) : (
+          <LeagueAccordion groups={filtered.leagueGroups} />
+        )
+      ) : filtered.gemsGroups.length === 0 ? (
         <div className="panel p-8 text-center text-forge-gold/50">
-          No materials match your search.
+          No gems or other items match your search.
         </div>
       ) : (
-        filtered.map((g) => (
-          <section key={g.label}>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-              {g.label}{" "}
-              <span className="text-forge-gold/30">({g.items.length})</span>
-            </h2>
-            <div className="grid gap-3 md:grid-cols-2">
-              {g.items.map((m) => (
-                <MaterialCard key={m.apiId} m={m} />
-              ))}
-            </div>
-          </section>
-        ))
+        <LeagueAccordion groups={filtered.gemsGroups} />
       )}
     </div>
   );

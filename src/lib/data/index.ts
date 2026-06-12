@@ -3,6 +3,7 @@ export * from "./format";
 export {
   listItemClasses,
   listCraftableCategories,
+  hasBaseSearchFilter,
   searchBases,
   getBase,
   getEligibleMods,

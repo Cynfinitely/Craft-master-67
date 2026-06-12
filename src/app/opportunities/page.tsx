@@ -21,6 +21,7 @@ export default async function OpportunitiesPage({
     league?: string;
     view?: string;
     spec?: string;
+    run?: string;
   };
 }) {
   const categories = await listCraftableCategories();
@@ -35,6 +36,8 @@ export default async function OpportunitiesPage({
   const itemClass = searchParams.class ?? null;
   const baseId = searchParams.base ?? null;
   const view = searchParams.view === "snipes" ? "snipes" : "crafts";
+  const shouldBuild =
+    !!itemClass && view === "crafts" && searchParams.run === "1";
   const initialSpecId = Number.parseInt(searchParams.spec ?? "", 10);
   const itemLevel = Math.min(
     100,
@@ -53,7 +56,7 @@ export default async function OpportunitiesPage({
   // Crafts-view-only data: skip entirely on the snipes tab so switching
   // tabs stays cheap (the SnipePanel fetches its own data client-side).
   let divinePrice = 0;
-  if (view === "crafts") {
+  if (shouldBuild) {
     try {
       divinePrice = (await getPrices(league)).divinePrice;
     } catch {
@@ -61,12 +64,11 @@ export default async function OpportunitiesPage({
     }
   }
 
-  const summary =
-    itemClass && view === "crafts"
-      ? await getSampleSummary({ league, itemClass })
-      : null;
+  const summary = shouldBuild
+    ? await getSampleSummary({ league, itemClass: itemClass! })
+    : null;
   let result = { opportunities: [] as Awaited<ReturnType<typeof getOpportunities>>["opportunities"], unmappedCombos: 0 };
-  if (itemClass && view === "crafts") {
+  if (shouldBuild) {
     // Deterministic job id: the still-mounted controls on the OLD page poll
     // this id during navigation and show what the build is doing live.
     const jobId = oppsProgressId(
@@ -105,6 +107,7 @@ export default async function OpportunitiesPage({
     if (searchParams.ilvl) next.set("ilvl", searchParams.ilvl);
     if (searchParams.league) next.set("league", searchParams.league);
     if (v !== "crafts") next.set("view", v);
+    // Switching tabs clears an in-flight build request (no run=1).
     const qs = next.toString();
     return `/opportunities${qs ? `?${qs}` : ""}`;
   };
@@ -153,6 +156,22 @@ export default async function OpportunitiesPage({
         <div className="panel p-8 text-center text-forge-gold/50">
           Choose an item class to rank its{" "}
           {view === "snipes" ? "snipe-and-finish" : "craft"} opportunities.
+        </div>
+      ) : view === "crafts" && !shouldBuild ? (
+        <div className="panel p-8 text-center text-forge-gold/50">
+          <p>
+            Options set for{" "}
+            <span className="text-forge-gold/75">
+              {pinnedBaseName
+                ? `${pinnedBaseName} (${itemClass})`
+                : itemClass}
+            </span>
+            .
+          </p>
+          <p className="mt-2">
+            Click <span className="font-semibold text-forge-gold/75">Rank craft opportunities</span>{" "}
+            above to build the ranking.
+          </p>
         </div>
       ) : view === "snipes" ? (
         <SnipePanel

@@ -57,7 +57,7 @@ export function ItemControls({
           value={itemClass}
           onChange={(e) => setParam({ class: e.target.value || null })}
         >
-          <option value="">All item classes</option>
+          <option value="">Choose an item class…</option>
           {classes.map((cat) => (
             <optgroup key={cat.category} label={cat.category}>
               {cat.classes.map((c) => (
