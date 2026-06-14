@@ -128,6 +128,8 @@ export async function sampleMarket(opts: {
   itemClass: string;
   baseType?: string;
   ilvlMin?: number;
+  /** One cheapest pass only (faster scans). */
+  quick?: boolean;
   /** Live step reporting for the UI (optional). */
   onProgress?: (
     text: string,
@@ -141,8 +143,10 @@ export async function sampleMarket(opts: {
   let totalListings = 0;
   let tradeUrl: string | null = null;
 
-  for (let i = 0; i < PASS_FLOORS.length; i++) {
-    const floor = PASS_FLOORS[i];
+  const floors = opts.quick ? [0] : PASS_FLOORS;
+
+  for (let i = 0; i < floors.length; i++) {
+    const floor = floors[i];
     const query = buildQuery({
       itemClass: opts.itemClass,
       baseType: opts.baseType,
@@ -155,8 +159,8 @@ export async function sampleMarket(opts: {
       );
     }
     report(
-      `Pass ${i + 1}/${PASS_FLOORS.length}: searching rare ${opts.baseType ?? opts.itemClass} listings${floor ? ` from ${floor}ex up` : " (cheapest first)"}…`,
-      { current: i, total: PASS_FLOORS.length },
+      `Pass ${i + 1}/${floors.length}: searching rare ${opts.baseType ?? opts.itemClass} listings${floor ? ` from ${floor}ex up` : " (cheapest first)"}…`,
+      { current: i, total: floors.length },
     );
     try {
       const res = await searchAndFetch(opts.league, query, {
@@ -176,15 +180,14 @@ export async function sampleMarket(opts: {
       );
       inserted += stored;
       report(
-        `Pass ${i + 1}/${PASS_FLOORS.length}: ${res.listings.length} listings fetched, ${stored} stored (${res.total} online in this bracket).`,
-        { current: i + 1, total: PASS_FLOORS.length },
+        `Pass ${i + 1}/${floors.length}: ${res.listings.length} listings fetched, ${stored} stored (${res.total} online in this bracket).`,
+        { current: i + 1, total: floors.length },
       );
     } catch (err) {
-      // A failed pass (rate limit, network) shouldn't void the others.
       console.warn(`market sampler: pass (floor ${floor}) failed: ${err}`);
       report(
-        `Pass ${i + 1}/${PASS_FLOORS.length} failed (likely rate-limited) — continuing with the next pass.`,
-        { current: i + 1, total: PASS_FLOORS.length },
+        `Pass ${i + 1}/${floors.length} failed (likely rate-limited) — continuing with the next pass.`,
+        { current: i + 1, total: floors.length },
       );
     }
   }

@@ -10,7 +10,8 @@ import {
 import { getBasePrice, type BasePriceQuote } from "@/lib/trade/basePrice";
 import { buildModStatMap, type ModStatMap } from "@/lib/trade/modMap";
 import { withTimeout } from "@/lib/trade/client";
-import { estimateSaleValue } from "@/lib/market/analytics";
+import { estimateSaleValue, velocityAdjustedSale } from "@/lib/market/analytics";
+import { estimateSinglePlanProfit } from "@/lib/market/profitEngine";
 import {
   essenceReachesTarget,
   resolveDeterminism,
@@ -2599,13 +2600,39 @@ export async function solveFromBase(
     }
   }
 
-  const methods = (feasible ? buildMethods(inputs) : []).map((m) => ({
-    ...m,
-    expectedProfitExalted:
-      estimatedSale && m.estCostExalted != null
-        ? Math.round(estimatedSale.priceExalted - m.estCostExalted)
-        : null,
-  }));
+  const methods = (feasible ? buildMethods(inputs) : []).map((m) => {
+    let expectedProfitExalted: number | null = null;
+    let roiPercent: number | null = null;
+    let profitPerHour: number | null = null;
+    if (estimatedSale && m.estCostExalted != null) {
+      const sellableRate = Math.min(
+        1,
+        Math.max(0, m.successChancePerAttempt ?? m.overallOdds ?? 0),
+      );
+      const velAdj = velocityAdjustedSale(estimatedSale.priceExalted, null, null);
+      const craftMinutes =
+        m.id.includes("fracture") || m.id.includes("Fractured") ? 5 : 3;
+      const metrics = estimateSinglePlanProfit({
+        costExalted: m.estCostExalted,
+        adjustedSaleExalted: velAdj.adjustedExalted,
+        sellableRate,
+        craftMinutes,
+        timeToSellDays: velAdj.timeToSellDays,
+      });
+      expectedProfitExalted = Math.round(metrics.profitPerCraftP50);
+      roiPercent = Math.round(metrics.roiPercent * 10) / 10;
+      profitPerHour =
+        metrics.profitPerHour != null
+          ? Math.round(metrics.profitPerHour * 100) / 100
+          : null;
+    }
+    return {
+      ...m,
+      expectedProfitExalted,
+      roiPercent,
+      profitPerHour,
+    };
+  });
   const cheapest = methods[0];
 
   // 0.5 league-system alternatives (Genesis Tree, Liquid Emotions,

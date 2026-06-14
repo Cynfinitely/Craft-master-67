@@ -85,7 +85,25 @@ function MethodCard({
             >
               {method.expectedProfitExalted >= 0 ? "+" : ""}
               {formatCost(method.expectedProfitExalted, divinePriceExalted)}{" "}
-              profit
+              EV profit
+              {method.roiPercent != null ? (
+                <span className="font-normal text-forge-gold/55">
+                  {" "}
+                  · {method.roiPercent.toFixed(0)}% ROI
+                </span>
+              ) : null}
+              {method.profitPerHour != null ? (
+                <span className="font-normal text-forge-gold/55">
+                  {" "}
+                  · {formatCost(method.profitPerHour, divinePriceExalted)}/hr
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {method.expectedProfitExalted != null &&
+          method.expectedProfitExalted < 0 ? (
+            <div className="mt-0.5 text-[10px] text-forge-rust/80">
+              likely unprofitable at current prices
             </div>
           ) : null}
         </div>

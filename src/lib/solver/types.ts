@@ -78,6 +78,10 @@ export interface CraftMethod {
   excludesMarketPrice?: boolean;
   /** Expected profit vs. the estimated market sale value, in Exalted Orbs. */
   expectedProfitExalted?: number | null;
+  /** Return on investment (profit / cost × 100). */
+  roiPercent?: number | null;
+  /** Expected profit per hour including rough sell time. */
+  profitPerHour?: number | null;
   /** Probability a single full pass of the sequence succeeds (0..1). */
   successChancePerAttempt?: number;
   /** Probability the craft bricks (strips finished progress) on a pass, 0..1. */

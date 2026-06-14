@@ -247,6 +247,21 @@ export const comboProbes = sqliteTable(
   }),
 );
 
+/**
+ * Background / manual market scan job history.
+ */
+export const scanJobs = sqliteTable("scan_jobs", {
+  id: text("id").primaryKey(),
+  league: text("league").notNull(),
+  itemClass: text("item_class"),
+  status: text("status").notNull(),
+  combosProbed: integer("combos_probed").default(0),
+  samplesAdded: integer("samples_added").default(0),
+  startedAt: integer("started_at").notNull(),
+  finishedAt: integer("finished_at"),
+  error: text("error"),
+});
+
 export type BaseRow = typeof bases.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;

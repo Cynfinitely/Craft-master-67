@@ -91,6 +91,10 @@ export function LiveProgress({
       : null;
   const elapsed = Math.max(0, Math.round((job.updatedAt - job.startedAt) / 1000));
   const recent = showLog > 0 ? job.log.slice(-1 - showLog, -1).slice(-showLog) : [];
+  const stillWorking =
+    job.status === "running" &&
+    elapsed > 20 &&
+    (pct == null || pct >= 100);
 
   return (
     <div className="rounded border border-forge-border bg-forge-panel2/40 px-3 py-2 text-xs">
@@ -120,11 +124,23 @@ export function LiveProgress({
         <div className="mt-1.5 h-1 overflow-hidden rounded bg-forge-panel2">
           <div
             className={`h-full transition-all ${
-              job.status === "error" ? "bg-red-400/70" : "bg-amber-400/70"
+              job.status === "error"
+                ? "bg-red-400/70"
+                : stillWorking
+                  ? "animate-pulse bg-amber-400/50"
+                  : "bg-amber-400/70"
             }`}
-            style={{ width: `${pct}%` }}
+            style={{
+              width: stillWorking ? "100%" : `${pct}%`,
+            }}
           />
         </div>
+      ) : null}
+      {stillWorking ? (
+        <p className="mt-1 text-[11px] text-forge-gold/45">
+          Waiting on the PoE2 trade API (rate-limited, ~5–15s per probe). This
+          is normal — not stuck.
+        </p>
       ) : null}
       {recent.length > 0 ? (
         <div className="mt-1.5 space-y-0.5 border-t border-forge-border/50 pt-1.5">

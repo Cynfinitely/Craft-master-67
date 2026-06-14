@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS combo_probes (
 );
 CREATE INDEX IF NOT EXISTS combo_probes_class_idx ON combo_probes(league, item_class);
 CREATE INDEX IF NOT EXISTS combo_probes_fetched_idx ON combo_probes(fetched_at);
+CREATE TABLE IF NOT EXISTS scan_jobs (
+  id TEXT PRIMARY KEY,
+  league TEXT NOT NULL,
+  item_class TEXT,
+  status TEXT NOT NULL,
+  combos_probed INTEGER DEFAULT 0,
+  samples_added INTEGER DEFAULT 0,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  error TEXT
+);
 `;
 
 let ensured: Promise<void> | null = null;

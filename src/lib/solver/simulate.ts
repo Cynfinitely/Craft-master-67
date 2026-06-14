@@ -196,7 +196,9 @@ export type SimMethodId =
   | "essence-exalt"
   | "omen-exalt"
   | "essence-omen-exalt"
+  | "essence-desec-double-exalt"
   | "fracture-omen-exalt"
+  | "fractured-finish"
   | "desecrate-omen-exalt";
 
 export interface SimEssenceSpec {
@@ -237,6 +239,8 @@ export interface SimDesecrateSpec {
 export interface SimFractureSpec {
   targetGroup: string;
   side: Side;
+  /** Minimum tier level when starting from a bought fractured base. */
+  minLevel?: number;
 }
 
 export interface SimMethodSpec {
@@ -313,10 +317,22 @@ export const SIM_METHODS: { id: SimMethodId; name: string; blurb: string }[] = [
       "Transmute, essence-guarantee the lead mod (0.5: one crafted mod), then directional Exalt slams with Annul cleanup.",
   },
   {
+    id: "essence-desec-double-exalt",
+    name: "Essence → Desecrate → Double-Exalt",
+    blurb:
+      "Flagship: essence-lock the lead mod, desecrate-unveil a second, then Greater Exaltation double-slam the rest.",
+  },
+  {
     id: "fracture-omen-exalt",
     name: "Fracture + Omen-directed Exalts",
     blurb:
       "Alchemy, Fracture to lock the key mod (random pick), Annul fillers, then directional Exalt slams.",
+  },
+  {
+    id: "fractured-finish",
+    name: "Fractured base → finish",
+    blurb:
+      "Buy a pre-fractured key mod, essence/crystallisation adds, then directional Exalts to finish.",
   },
   {
     id: "desecrate-omen-exalt",
@@ -330,6 +346,8 @@ export const SIM_METHODS: { id: SimMethodId; name: string; blurb: string }[] = [
 export const OMEN_METHODS: ReadonlySet<SimMethodId> = new Set([
   "omen-exalt",
   "essence-omen-exalt",
+  "essence-desec-double-exalt",
+  "fractured-finish",
   "fracture-omen-exalt",
   "desecrate-omen-exalt",
 ]);
@@ -603,7 +621,8 @@ function runTrial(
       omenExaltFill(pool, item, targets, tally);
       break;
     }
-    case "essence-omen-exalt": {
+    case "essence-omen-exalt":
+    case "essence-desec-double-exalt": {
       // Transmute, essence-guarantee the lead (single 0.5 crafted mod),
       // optional desecration for a second chosen-side mod, then directional
       // slams for the rest.
@@ -611,6 +630,20 @@ function runTrial(
       addRandomMod(pool, item);
       if (spec.essence) applyEssence(item, spec.essence, tally);
       if (spec.desecrate) applyDesecration(item, spec.desecrate, tally);
+      omenExaltFill(pool, item, targets, tally);
+      break;
+    }
+    case "fractured-finish": {
+      const f = spec.fracture;
+      if (f) {
+        item.mods.push({
+          group: f.targetGroup,
+          level: f.minLevel ?? 0,
+          side: f.side,
+          fractured: true,
+        });
+      }
+      if (spec.essence) applyEssence(item, spec.essence, tally);
       omenExaltFill(pool, item, targets, tally);
       break;
     }

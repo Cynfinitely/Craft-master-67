@@ -7,6 +7,7 @@ A local-first web app for planning crafts in **Path of Exile 2**:
 - **Crafting Planner** — pick a base + the mods you want and get several cost-ranked methods (Essence-led, **Essence + Desecrate + Double-Exalt**, Alloy-led, Transmute→Regal→Exalt, Alchemy+Chaos, Buy-Magic-base+Regal, **Fractured base**, Abyss-Mark Fracture, Desecration, Mass-slam, Remnant) each with steps, odds, an estimated cost, and an honest **luck/brick read** (success per attempt, brick risk, expected items consumed, and a "bricks here" tag on the risky steps); **paste an in-game item** (Ctrl+C) to recreate it at the exact tiers shown; or describe a goal and get base recommendations with the cheapest method cost per base.
 - **Price Check** — live currency values (in Exalted Orbs) with a crafting-budget calculator.
 - **Saved** — locally stored crafting plans and favorite bases.
+- **Profit Dashboard** — unified market intel + craft opportunities ranked by profit/hour, batch EV, or ROI; background market scanning; snipe-and-finish tab.
 
 Built with Next.js (App Router) + TypeScript + Tailwind, with a local SQLite database (via Drizzle + `@libsql/client`).
 
@@ -40,6 +41,9 @@ npm run dev               # http://localhost:3000
 | `npm run data:setup` | Refresh + materials + seed (run after each PoE2 patch). |
 | `npm run dev` | Start the Next.js dev server. |
 | `npm run build` / `npm start` | Production build / serve. |
+| `npm run market:sample` | CLI: sample live trade listings into the local DB. |
+| `npm run market:scan` | CLI: incremental sample + probe scan for a class. |
+| `npm test` | Run solver and profit-engine tests. |
 
 ## How it works
 

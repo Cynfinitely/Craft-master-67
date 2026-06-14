@@ -237,12 +237,28 @@ export async function buildSimSpecs(opts: {
     specs.set("essence-omen-exalt", {
       id: "essence-omen-exalt",
       essence,
-      // A desecration for a SECOND chosen-side mod when one is wanted.
       desecrate: desecrate ?? undefined,
     });
+    if (desecrate) {
+      specs.set("essence-desec-double-exalt", {
+        id: "essence-desec-double-exalt",
+        essence,
+        desecrate,
+      });
+    }
   }
   if (fracture && targets.length >= 2) {
     specs.set("fracture-omen-exalt", { id: "fracture-omen-exalt", fracture });
+    specs.set("fractured-finish", {
+      id: "fractured-finish",
+      fracture: {
+        ...fracture,
+        minLevel:
+          keysByRarity.find((t) => t.group === fracture.targetGroup)
+            ?.minLevel ?? 0,
+      },
+      essence: essence ?? undefined,
+    });
   }
   if (desecrate) {
     specs.set("desecrate-omen-exalt", { id: "desecrate-omen-exalt", desecrate });

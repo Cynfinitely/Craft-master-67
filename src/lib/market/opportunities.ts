@@ -10,7 +10,14 @@ import { makePricer, recommendBases } from "@/lib/solver";
 import { resolveFlux } from "@/lib/solver/flux";
 import { buildSimSpecs } from "@/lib/solver/registry";
 import {
-  binomialQuantiles,
+  computeBatchProfit,
+  craftMinutesForMethod,
+  filterOpportunities,
+  rankOpportunities,
+  type RankMode,
+} from "./profitEngine";
+import type { MinConfidence } from "./profitEngine";
+import {
   buildSimPool,
   simulateMethod,
   SIM_METHODS,
@@ -91,11 +98,14 @@ export interface Opportunity {
   profitP10Exalted: number;
   profitP50Exalted: number;
   profitP90Exalted: number;
+  roiPercent: number;
+  profitPerHour: number | null;
+  adjustedProfitP50: number;
   craftHref: string;
   massHref: string;
 }
 
-const MAX_COMBOS_TO_SOLVE = 6;
+const MAX_COMBOS_TO_SOLVE = 8;
 /** Slots reserved for fresh sampler discoveries (they get live-verified). */
 const SAMPLE_SLOTS = 2;
 /** Live trade probes allowed per opportunities run (each ≈ 2 API calls). */
@@ -109,13 +119,14 @@ const SIM_TRIALS = 1500;
  * are only simulated when actually runnable on the combo's base.
  */
 const CANDIDATE_METHODS: SimMethodId[] = [
-  "alch-spam",
-  "transmute-regal-exalt",
-  "perfect-seed",
-  "omen-exalt",
+  "essence-desec-double-exalt",
   "essence-omen-exalt",
+  "fractured-finish",
   "fracture-omen-exalt",
   "desecrate-omen-exalt",
+  "perfect-seed",
+  "alch-spam",
+  "transmute-regal-exalt",
 ];
 /** Ask haircut applied to near-miss resale (partial items sell slow/low). */
 const NEAR_MISS_HAIRCUT = 0.6;
@@ -452,6 +463,10 @@ export async function getOpportunities(opts: {
   minSamples?: number;
   /** Pin the search to one specific base instead of auto-picking per combo. */
   baseId?: string | null;
+  rankMode?: RankMode;
+  minConfidence?: MinConfidence;
+  maxBatchCostExalted?: number | null;
+  holdingCostPerDay?: number;
   /** Live step reporting for the UI (optional). */
   onProgress?: (
     text: string,
@@ -679,7 +694,6 @@ export async function getOpportunities(opts: {
         500,
         Math.max(5, Math.ceil(2 / bestMethod.sellableRate)),
       );
-      const batch = binomialQuantiles(basesCount, hitRate);
       const totalCost = basesCount * bestMethod.costPerBase;
 
       // Near-miss resale: keys always land (keys-fillers model), so the
@@ -708,8 +722,17 @@ export async function getOpportunities(opts: {
         cand.velocity,
       );
 
-      const profitAt = (hits: number) =>
-        Math.round(hits * velAdj.adjustedExalted + nearMissTotal - totalCost);
+      const batch = computeBatchProfit({
+        basesCount,
+        hitRate,
+        sellableRate: bestMethod.sellableRate,
+        adjustedSaleExalted: velAdj.adjustedExalted,
+        totalCostExalted: totalCost,
+        nearMissResaleExalted: nearMissTotal,
+        craftMinutesPerBase: craftMinutesForMethod(bestMethod.spec.id),
+        timeToSellDays: velAdj.timeToSellDays,
+        holdingCostPerDay: opts.holdingCostPerDay ?? 0.5,
+      });
 
       const confidence = scoreConfidence(cand);
 
@@ -746,9 +769,15 @@ export async function getOpportunities(opts: {
         totalCostExalted: Math.round(totalCost),
         excludesBasePrice: basePerBase == null,
         nearMissResaleExalted: Math.round(nearMissTotal),
-        profitP10Exalted: profitAt(batch.p10),
-        profitP50Exalted: profitAt(batch.p50),
-        profitP90Exalted: profitAt(batch.p90),
+        profitP10Exalted: Math.round(batch.totalBatchProfitP10),
+        profitP50Exalted: Math.round(batch.totalBatchProfitP50),
+        profitP90Exalted: Math.round(batch.totalBatchProfitP90),
+        roiPercent: Math.round(batch.roiPercent * 10) / 10,
+        profitPerHour:
+          batch.profitPerHour != null
+            ? Math.round(batch.profitPerHour * 100) / 100
+            : null,
+        adjustedProfitP50: Math.round(batch.adjustedProfitP50),
         craftHref: `/craft?mode=base&class=${encodeURIComponent(opts.itemClass)}&ilvl=${itemLevel}&base=${encodeURIComponent(best.baseId)}&groups=${groupsParam}`,
         massHref: `/craft?mode=mass&class=${encodeURIComponent(opts.itemClass)}&ilvl=${itemLevel}&base=${encodeURIComponent(best.baseId)}&groups=${groupsParam}&method=${bestMethod.spec.id}&n=${basesCount}`,
       });
@@ -757,14 +786,13 @@ export async function getOpportunities(opts: {
     }
   }
 
-  // Rank: verified opportunities first, then expected profit. An unverified
-  // sample median should never outrank a probe-confirmed money-maker.
-  const tier = { high: 2, medium: 1, low: 0 } as const;
-  opportunities.sort((a, b) => {
-    const t = tier[b.confidence] - tier[a.confidence];
-    if (t !== 0) return t;
-    if (a.saturated !== b.saturated) return a.saturated ? 1 : -1;
-    return b.profitP50Exalted - a.profitP50Exalted;
+  const rankMode = opts.rankMode ?? "hour";
+  const filtered = filterOpportunities(opportunities, {
+    minConfidence: opts.minConfidence ?? "medium",
+    maxBatchCostExalted: opts.maxBatchCostExalted ?? null,
   });
-  return { opportunities, unmappedCombos };
+  return {
+    opportunities: rankOpportunities(filtered, rankMode),
+    unmappedCombos,
+  };
 }

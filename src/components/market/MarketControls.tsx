@@ -27,6 +27,9 @@ export function MarketControls({
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
+    if (pathname.startsWith("/profit")) {
+      next.set("tab", "market");
+    }
     router.push(`${pathname}?${next.toString()}`);
   };
 
