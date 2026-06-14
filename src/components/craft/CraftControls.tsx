@@ -90,9 +90,7 @@ export function CraftControls({
             push({ class: e.target.value || null, base: null, groups: null })
           }
         >
-          <option value="">
-            {mode === "recommend" ? "Choose an item class…" : "All item classes"}
-          </option>
+          <option value="">Choose an item class…</option>
           {classes.map((cat) => (
             <optgroup key={cat.category} label={cat.category}>
               {cat.classes.map((c) => (

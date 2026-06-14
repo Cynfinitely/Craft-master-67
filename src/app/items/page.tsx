@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   getModPool,
   getModTexts,
+  hasBaseSearchFilter,
   listCraftableCategories,
   searchBases,
 } from "@/lib/data";
@@ -37,9 +38,15 @@ export default async function ItemsPage({
   };
 }) {
   const itemLevel = clampIlvl(searchParams.ilvl);
+  const filterActive = hasBaseSearchFilter({
+    q: searchParams.q,
+    itemClass: searchParams.class,
+  });
   const [categories, results] = await Promise.all([
     listCraftableCategories(),
-    searchBases({ q: searchParams.q, itemClass: searchParams.class }),
+    filterActive
+      ? searchBases({ q: searchParams.q, itemClass: searchParams.class })
+      : Promise.resolve([]),
   ]);
 
   const pool = searchParams.base
@@ -91,12 +98,36 @@ export default async function ItemsPage({
             <ItemControls classes={categories} tags={[...NOTABLE_TAGS]} />
           </div>
           <div className="panel max-h-[70vh] overflow-y-auto">
-            {results.length === 0 ? (
+            {!filterActive ? (
+              <div className="p-6 text-center text-sm text-forge-gold/50">
+                <p className="font-medium text-forge-gold/70">
+                  Step 1: Filter bases
+                </p>
+                <p className="mt-2">
+                  Choose an item class or search for a base name (min. 2
+                  characters).
+                </p>
+              </div>
+            ) : results.length === 0 ? (
               <p className="p-4 text-sm text-forge-gold/50">
                 No bases match your search.
               </p>
             ) : (
-              <ul className="divide-y divide-forge-border/50">
+              <>
+                <div className="flex flex-wrap items-center gap-2 border-b border-forge-border/50 px-4 py-2">
+                  <span className="text-xs text-forge-gold/50">
+                    {results.length} base{results.length === 1 ? "" : "s"}
+                  </span>
+                  {searchParams.class ? (
+                    <span className="tag-chip">{searchParams.class}</span>
+                  ) : null}
+                  {searchParams.q?.trim() ? (
+                    <span className="tag-chip">
+                      &ldquo;{searchParams.q.trim()}&rdquo;
+                    </span>
+                  ) : null}
+                </div>
+                <ul className="divide-y divide-forge-border/50">
                 {results.map((b) => {
                   const active = b.id === searchParams.base;
                   return (
@@ -117,7 +148,8 @@ export default async function ItemsPage({
                     </li>
                   );
                 })}
-              </ul>
+                </ul>
+              </>
             )}
           </div>
         </div>

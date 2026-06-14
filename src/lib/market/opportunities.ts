@@ -27,6 +27,7 @@ import {
 } from "@/lib/solver/simulate";
 import { getComboStats, velocityAdjustedSale } from "./analytics";
 import { listManualSales } from "./manual";
+import { getMetaCombos } from "./meta";
 import {
   comboKeyFromGroups,
   getProbes,
@@ -61,6 +62,8 @@ export interface Opportunity {
   supply: number | null;
   /** Listings added in the last day (probe-backed only). */
   velocity: number | null;
+  /** Measured items sold/day (listing-snapshot diff between probes). */
+  sellThroughPerDay: number | null;
   saturated: boolean;
   confidence: "high" | "medium" | "low";
   /**
@@ -70,6 +73,8 @@ export interface Opportunity {
    */
   rareCombo: boolean;
   sampleCount: number;
+  /** Imported ladder builds wearing this combo (0 = no meta signal). */
+  metaUses: number;
   /* craft side */
   baseId: string;
   baseName: string;
@@ -142,11 +147,15 @@ interface Candidate {
   saleSource: "probe" | "sample";
   supply: number | null;
   velocity: number | null;
+  /** Measured items sold/day (probe-backed only). */
+  sellThroughPerDay?: number | null;
   sampleCount: number;
   /** When the backing probe was fetched (null for sample-only data). */
   fetchedAt: number | null;
   /** Live probe found zero listings (see Opportunity.rareCombo). */
   rare?: boolean;
+  /** Imported ladder builds wearing this combo (meta demand strength). */
+  metaUses?: number;
 }
 
 /**
@@ -197,6 +206,7 @@ async function buildCandidates(opts: {
         saleSource: "probe",
         supply: p.listingCount,
         velocity: p.recentCount,
+        sellThroughPerDay: p.sellThroughPerDay,
         sampleCount: p.listingCount,
         fetchedAt: p.fetchedAt,
       });
@@ -298,6 +308,42 @@ async function buildCandidates(opts: {
     /* manual sales optional */
   }
 
+  // 4) Meta demand (imported ladder gear): annotate combos players actually
+  // wear, and inject unpriced meta combos so they get a verification probe.
+  try {
+    const metaCombos = await getMetaCombos(opts.league, opts.itemClass);
+    const byKey = new Map(out.map((c) => [c.key, c]));
+    for (const combo of metaCombos) {
+      const usable = combo.groups.filter((g) => opts.labelByGroup.has(g));
+      if (usable.length < 2) continue;
+      const key = groupKey(usable);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.metaUses = combo.uses;
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key,
+        groups: usable,
+        labels: usable.map((g) => opts.labelByGroup.get(g) ?? g),
+        statIds:
+          comboKeyFromGroups(usable, opts.statMap.groupToStats)?.statIds ??
+          null,
+        saleExalted: 0, // unknown until the verification probe prices it
+        saleSource: "sample",
+        supply: null,
+        velocity: null,
+        sampleCount: combo.uses,
+        fetchedAt: null,
+        metaUses: combo.uses,
+      });
+    }
+  } catch {
+    /* meta demand optional */
+  }
+
   out.sort((a, b) => b.saleExalted - a.saleExalted);
   return { candidates: out, unmappedCombos };
 }
@@ -318,7 +364,11 @@ async function selectAndVerify(opts: {
 }): Promise<Candidate[]> {
   const report = opts.onProgress ?? (() => {});
   const probeBacked = opts.candidates.filter((c) => c.saleSource === "probe");
-  const sampleOnly = opts.candidates.filter((c) => c.saleSource === "sample");
+  // Meta-demand combos jump the verification queue: real builds wear them,
+  // so a probe that prices them is the highest-value API call available.
+  const sampleOnly = opts.candidates
+    .filter((c) => c.saleSource === "sample")
+    .sort((a, b) => (b.metaUses ?? 0) - (a.metaUses ?? 0));
 
   const sampleSlots =
     probeBacked.length >= MAX_COMBOS_TO_SOLVE - SAMPLE_SLOTS
@@ -371,6 +421,7 @@ async function selectAndVerify(opts: {
         saleSource: "probe",
         supply: probe.listingCount,
         velocity: probe.recentCount,
+        sellThroughPerDay: probe.sellThroughPerDay,
         sampleCount: probe.listingCount,
         fetchedAt: probe.fetchedAt,
       });
@@ -406,6 +457,7 @@ async function selectAndVerify(opts: {
         cand.saleExalted = probe.medianAskExalted;
         cand.supply = probe.listingCount;
         cand.velocity = probe.recentCount;
+        cand.sellThroughPerDay = probe.sellThroughPerDay;
         cand.sampleCount = probe.listingCount;
         cand.fetchedAt = probe.fetchedAt;
       }
@@ -456,7 +508,12 @@ async function nearMissValue(opts: {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
-export async function getOpportunities(opts: {
+export interface OpportunityResult {
+  opportunities: Opportunity[];
+  unmappedCombos: number;
+}
+
+interface GetOpportunitiesOpts {
   league: string;
   itemClass: string;
   itemLevel?: number;
@@ -472,7 +529,82 @@ export async function getOpportunities(opts: {
     text: string,
     o?: { current?: number; total?: number },
   ) => void;
-}): Promise<{ opportunities: Opportunity[]; unmappedCombos: number }> {
+}
+
+/* ----------------- result cache (stale-while-revalidate) ----------------- */
+
+interface OppsCacheEntry {
+  result: OpportunityResult;
+  at: number;
+  revalidating: boolean;
+}
+
+const OPPS_FRESH_MS = 5 * 60 * 1000;
+const OPPS_MAX_STALE_MS = 30 * 60 * 1000;
+
+// globalThis so the cache survives Next.js dev HMR reloads.
+const oppsCache: Map<string, OppsCacheEntry> = ((
+  globalThis as { __oppsCache?: Map<string, OppsCacheEntry> }
+).__oppsCache ??= new Map());
+const oppsInflight: Map<string, Promise<OpportunityResult>> = ((
+  globalThis as { __oppsInflight?: Map<string, Promise<OpportunityResult>> }
+).__oppsInflight ??= new Map());
+
+/**
+ * Cached entry point: builds are expensive (live probes + Monte Carlo sims),
+ * so results are cached per league/class/ilvl/base. Fresh hits return
+ * instantly (this is what makes tab switches fast); stale hits return
+ * immediately too while a background rebuild refreshes the entry; concurrent
+ * identical builds share one computation.
+ */
+export async function getOpportunities(
+  opts: GetOpportunitiesOpts,
+): Promise<OpportunityResult> {
+  const key = `${opts.league}|${opts.itemClass}|${opts.itemLevel ?? 82}|${opts.baseId ?? ""}`;
+  const cached = oppsCache.get(key);
+  const age = cached ? Date.now() - cached.at : Infinity;
+
+  if (cached && age < OPPS_FRESH_MS) {
+    opts.onProgress?.(
+      `Served from cache (built ${Math.max(1, Math.round(age / 1000))}s ago).`,
+    );
+    return cached.result;
+  }
+
+  if (cached && age < OPPS_MAX_STALE_MS) {
+    // Serve stale instantly; rebuild in the background for the next view.
+    if (!cached.revalidating) {
+      cached.revalidating = true;
+      computeOpportunities({ ...opts, onProgress: undefined })
+        .then((result) => oppsCache.set(key, { result, at: Date.now(), revalidating: false }))
+        .catch(() => {
+          cached.revalidating = false;
+        });
+    }
+    opts.onProgress?.(
+      `Served from cache (built ${Math.round(age / 60000)}m ago) — refreshing in the background.`,
+    );
+    return cached.result;
+  }
+
+  const inflight = oppsInflight.get(key);
+  if (inflight) {
+    opts.onProgress?.("Another identical build is already running — waiting for it…");
+    return inflight;
+  }
+  const promise = computeOpportunities(opts)
+    .then((result) => {
+      oppsCache.set(key, { result, at: Date.now(), revalidating: false });
+      return result;
+    })
+    .finally(() => oppsInflight.delete(key));
+  oppsInflight.set(key, promise);
+  return promise;
+}
+
+async function computeOpportunities(
+  opts: GetOpportunitiesOpts,
+): Promise<OpportunityResult> {
   const report = opts.onProgress ?? (() => {});
   const itemLevel = opts.itemLevel ?? 82;
 
@@ -523,7 +655,9 @@ export async function getOpportunities(opts: {
   const baseQuoteCache = new Map<string, number | null>();
   const opportunities: Opportunity[] = [];
 
-  const toSolve = selected.slice(0, MAX_COMBOS_TO_SOLVE);
+  const toSolve = selected
+    .filter((c) => c.saleExalted > 0) // unpriced meta combos can't be ranked
+    .slice(0, MAX_COMBOS_TO_SOLVE);
   for (let ci = 0; ci < toSolve.length; ci++) {
     const cand = toSolve[ci];
     report(
@@ -716,10 +850,12 @@ export async function getOpportunities(opts: {
         basesCount * bestMethod.pNearMiss * subsetValue * NEAR_MISS_HAIRCUT;
 
       // Asks are upper bounds — haircut revenue by how slow this market is.
+      // Measured sell-through (real outflow) beats the new-listings proxy.
       const velAdj = velocityAdjustedSale(
         cand.saleExalted,
         cand.supply,
         cand.velocity,
+        cand.sellThroughPerDay,
       );
 
       const batch = computeBatchProfit({
@@ -748,10 +884,12 @@ export async function getOpportunities(opts: {
         saleSource: cand.saleSource,
         supply: cand.supply,
         velocity: cand.velocity,
+        sellThroughPerDay: cand.sellThroughPerDay ?? null,
         saturated: (cand.supply ?? 0) >= SATURATION_SUPPLY,
         confidence,
         rareCombo: cand.rare ?? false,
         sampleCount: cand.sampleCount,
+        metaUses: cand.metaUses ?? 0,
         baseId: best.baseId,
         baseName: best.baseName,
         methodId: bestMethod.spec.id,

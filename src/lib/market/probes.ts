@@ -13,6 +13,7 @@ import { getCachedPriceMap, tradePriceToExalted } from "@/lib/trade/currency";
 import { buildModStatMap } from "@/lib/trade/modMap";
 import { tradeCategoryForClass } from "./categories";
 import { getComboStats } from "./analytics";
+import { getMetaCombos } from "./meta";
 
 /**
  * Targeted combo probing — the precise side of market intelligence.
@@ -41,6 +42,10 @@ export interface ComboProbe {
   minAskExalted: number | null;
   medianAskExalted: number | null;
   recentCount: number | null;
+  /** Estimated items sold/day: cheapest listings that vanished between
+   * probes of this combo (listing-snapshot diff). Null until two probes
+   * at least SELL_THROUGH_MIN_WINDOW_MS apart have run. */
+  sellThroughPerDay: number | null;
   tradeUrl: string | null;
   fetchedAt: number;
 }
@@ -167,6 +172,9 @@ function probeId(league: string, itemClass: string, key: string): string {
   return `${league}|${itemClass}|${key}`;
 }
 
+import { computeSellThrough } from "./sellThrough";
+export { computeSellThrough, SELL_THROUGH_MIN_WINDOW_MS } from "./sellThrough";
+
 function median(sorted: number[]): number | null {
   if (sorted.length === 0) return null;
   const mid = Math.floor(sorted.length / 2);
@@ -272,8 +280,70 @@ export async function probeCombo(opts: {
       return min != null && min > 0 ? `${id}>=${Math.round(min)}` : id;
     })
     .join("+");
+  const pid = probeId(opts.league, opts.itemClass, key);
+
+  await ensureAppTables();
+  const client = getClient();
+
+  // Sell-through: diff the previous listing snapshot against the current
+  // order book. The snapshot baseline is only replaced once a measurement
+  // window has elapsed, so frequent probing can't reset it endlessly.
+  let sellThroughPerDay: number | null = null;
+  try {
+    const prev = await client.execute({
+      sql: "SELECT listing_id, seen_at FROM listing_snapshots WHERE probe_id = ?",
+      args: [pid],
+    });
+    const currentIds = res.listings.map((l) => l.id);
+    let refreshSnapshot = prev.rows.length === 0;
+    if (prev.rows.length > 0) {
+      const prevAt = Math.max(...prev.rows.map((r) => Number(r.seen_at)));
+      const measured = computeSellThrough(
+        prev.rows.map((r) => String(r.listing_id)),
+        currentIds,
+        Date.now() - prevAt,
+      );
+      if (measured != null) {
+        sellThroughPerDay = measured;
+        refreshSnapshot = true;
+      } else {
+        // Window too short — carry the previous measurement forward.
+        const prior = await client.execute({
+          sql: "SELECT sell_through_per_day FROM combo_probes WHERE id = ?",
+          args: [pid],
+        });
+        const v = prior.rows[0]?.sell_through_per_day;
+        sellThroughPerDay = v == null ? null : Number(v);
+      }
+    }
+    if (refreshSnapshot && currentIds.length > 0) {
+      const now = Date.now();
+      await client.execute({
+        sql: "DELETE FROM listing_snapshots WHERE probe_id = ?",
+        args: [pid],
+      });
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO listing_snapshots
+          (probe_id, listing_id, price_exalted, seen_at) VALUES ${res.listings
+            .map(() => "(?, ?, ?, ?)")
+            .join(", ")}`,
+        args: res.listings.flatMap((l) => [
+          pid,
+          l.id,
+          l.price
+            ? (tradePriceToExalted(l.price.amount, l.price.currency, priceMap) ??
+              null)
+            : null,
+          now,
+        ]),
+      });
+    }
+  } catch {
+    /* sell-through tracking is best-effort */
+  }
+
   const probe: ComboProbe = {
-    id: probeId(opts.league, opts.itemClass, key),
+    id: pid,
     league: opts.league,
     itemClass: opts.itemClass,
     comboKey: key,
@@ -283,16 +353,17 @@ export async function probeCombo(opts: {
     minAskExalted: asks[0] ?? null,
     medianAskExalted: median(asks.slice(0, 5)),
     recentCount,
+    sellThroughPerDay,
     tradeUrl: res.tradeUrl || tradeSiteUrl(opts.league, ""),
     fetchedAt: Date.now(),
   };
 
-  await ensureAppTables();
-  await getClient().execute({
+  await client.execute({
     sql: `INSERT OR REPLACE INTO combo_probes
       (id, league, item_class, combo_key, groups, labels, listing_count,
-       min_ask_exalted, median_ask_exalted, recent_count, trade_url, fetched_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       min_ask_exalted, median_ask_exalted, recent_count, sell_through_per_day,
+       trade_url, fetched_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       probe.id,
       probe.league,
@@ -304,6 +375,7 @@ export async function probeCombo(opts: {
       probe.minAskExalted,
       probe.medianAskExalted,
       probe.recentCount,
+      probe.sellThroughPerDay,
       probe.tradeUrl,
       probe.fetchedAt,
     ],
@@ -323,6 +395,7 @@ function rowToProbe(r: typeof comboProbes.$inferSelect): ComboProbe {
     minAskExalted: r.minAskExalted,
     medianAskExalted: r.medianAskExalted,
     recentCount: r.recentCount,
+    sellThroughPerDay: r.sellThroughPerDay,
     tradeUrl: r.tradeUrl,
     fetchedAt: r.fetchedAt,
   };
@@ -412,6 +485,27 @@ async function buildCandidates(
 
   const out: Candidate[] = [];
   const seen = new Set<string>();
+
+  // 0) Imported meta demand (ladder build gear) — the strongest "people
+  // actually want this" signal, so these combos get probed first.
+  try {
+    const metaCombos = await getMetaCombos(league, itemClass);
+    for (const combo of metaCombos) {
+      const keyed = comboKeyFromGroups(combo.groups, statMap.groupToStats);
+      if (!keyed || seen.has(keyed.key)) continue;
+      seen.add(keyed.key);
+      out.push({
+        groups: combo.groups,
+        labels: combo.groups.map(
+          (g, i) => labelByGroup.get(g) ?? combo.labels[i] ?? g,
+        ),
+        statIds: keyed.statIds,
+        key: keyed.key,
+      });
+    }
+  } catch {
+    /* meta demand is optional */
+  }
 
   // 1) Meta templates supported by this class's pool.
   for (const template of META_TEMPLATES) {

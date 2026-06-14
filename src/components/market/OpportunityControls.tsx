@@ -24,22 +24,28 @@ export function OpportunityControls({
   const itemClass = params.get("class") ?? "";
   const baseId = params.get("base") ?? "";
   const ilvl = params.get("ilvl") ?? "82";
+  const view = params.get("view") ?? "crafts";
+  const isRunning = params.get("run") === "1";
 
-  const push = (updates: Record<string, string | null>) => {
+  const push = (
+    updates: Record<string, string | null>,
+    options?: { triggerBuild?: boolean },
+  ) => {
     const next = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
-    // The server page registers its build under this deterministic id; this
-    // (still-mounted) component polls it while the navigation is pending.
     const nextClass = next.get("class");
     const nextView = next.get("view") ?? "crafts";
+    const willBuild =
+      options?.triggerBuild ||
+      (next.get("run") === "1" && !!nextClass && nextView === "crafts");
     setJobId(
-      nextClass && nextView === "crafts"
+      willBuild
         ? oppsProgressId(
             league,
-            nextClass,
+            nextClass!,
             next.get("ilvl") ?? "82",
             next.get("base"),
           )
@@ -50,56 +56,80 @@ export function OpportunityControls({
     });
   };
 
+  const rank = () => {
+    if (!itemClass) return;
+    push({ run: "1" }, { triggerBuild: true });
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <select
-        className="input"
-        value={itemClass}
-        onChange={(e) => push({ class: e.target.value || null, base: null })}
-      >
-        <option value="">Choose an item class…</option>
-        {classes.map((cat) => (
-          <optgroup key={cat.category} label={cat.category}>
-            {cat.classes.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      {itemClass ? (
-        <select
           className="input"
-          value={baseId}
-          onChange={(e) => push({ base: e.target.value || null })}
-          title="Pin the search to one base, or let the planner pick the best base per combo"
+          value={itemClass}
+          onChange={(e) =>
+            push({ class: e.target.value || null, base: null, run: null })
+          }
         >
-          <option value="">Any base (auto-pick best)</option>
-          {bases.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
+          <option value="">Choose an item class…</option>
+          {classes.map((cat) => (
+            <optgroup key={cat.category} label={cat.category}>
+              {cat.classes.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
-      ) : null}
-      <div className="flex shrink-0 items-center gap-1.5">
-        <label className="text-xs text-forge-gold/60">iLvl</label>
-        <input
-          type="number"
-          min={1}
-          max={100}
-          className="input w-16 text-center"
-          defaultValue={ilvl}
-          key={ilvl}
-          onBlur={(e) => push({ ilvl: e.target.value || "82" })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter")
-              push({ ilvl: (e.target as HTMLInputElement).value || "82" });
-          }}
-        />
-      </div>
+        {itemClass ? (
+          <select
+            className="input"
+            value={baseId}
+            onChange={(e) => push({ base: e.target.value || null, run: null })}
+            title="Pin the search to one base, or let the planner pick the best base per combo"
+          >
+            <option value="">Any base (auto-pick best)</option>
+            {bases.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <label className="text-xs text-forge-gold/60">iLvl</label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            className="input w-16 text-center"
+            defaultValue={ilvl}
+            key={ilvl}
+            onBlur={(e) =>
+              push({ ilvl: e.target.value || "82", run: null })
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter")
+                push({
+                  ilvl: (e.target as HTMLInputElement).value || "82",
+                  run: null,
+                });
+            }}
+          />
+        </div>
+        {view === "crafts" ? (
+          <button
+            type="button"
+            className="btn btn-primary shrink-0 disabled:opacity-50"
+            disabled={!itemClass || isPending}
+            onClick={rank}
+          >
+            {isPending && isRunning
+              ? "Ranking…"
+              : "Rank craft opportunities"}
+          </button>
+        ) : null}
         <span className="text-xs text-forge-gold/50">league: {league}</span>
       </div>
       <LiveProgress jobId={jobId} active={isPending} showLog={3} />

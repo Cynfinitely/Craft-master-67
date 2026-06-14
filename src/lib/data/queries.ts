@@ -103,6 +103,15 @@ export async function listCraftableCategories(): Promise<
 
 /* ----------------------------- bases ----------------------------- */
 
+/** True when the user has applied a meaningful base filter (class or search). */
+export function hasBaseSearchFilter(params: {
+  q?: string;
+  itemClass?: string;
+}): boolean {
+  const q = params.q?.trim() ?? "";
+  return !!params.itemClass || q.length >= 2;
+}
+
 export interface SearchBasesParams {
   q?: string;
   itemClass?: string;
