@@ -69,7 +69,7 @@ export default async function PlansPage() {
             No favorites yet. Star a base from the Items &amp; Mods page.
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {favorites.map((f) => (
               <Link
                 key={f.baseId}

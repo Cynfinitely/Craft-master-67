@@ -2,7 +2,49 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 import { tagStyle } from "@/lib/data/tags";
+
+function actionInfo(actionLabel: string): {
+  label: string;
+  summary: string;
+  detail: string[];
+} {
+  if (actionLabel.includes("Simulate")) {
+    return {
+      label: "Simulate the batch",
+      summary: "Runs Monte Carlo hit-rate simulation for mass-craft batches.",
+      detail: [
+        "Uses staged modifier groups and live material prices.",
+        "Estimates batch cost, hit rates, and profit percentiles.",
+        "Does not call trade APIs — faster than building a full plan.",
+        "Nothing runs until you press the button after staging mods.",
+      ],
+    };
+  }
+  if (actionLabel.includes("Recommend")) {
+    return {
+      label: "Recommend bases",
+      summary: "Ranks craftable bases by roll odds and expected profit.",
+      detail: [
+        "Uses staged modifier groups and optional market sale estimates.",
+        "Probe-backed prices weigh heavily when available.",
+        "Opens a ranked list — pick a base to build a full plan.",
+        "Nothing runs until you press the button after staging mods.",
+      ],
+    };
+  }
+  return {
+    label: actionLabel,
+    summary: "Runs the crafting planner solver with live prices.",
+    detail: [
+      "Uses staged modifier groups and minimum tier picks.",
+      "Fetches live material prices and trade sale estimates.",
+      "Can take a few seconds — accidental runs are expensive.",
+      "Nothing recomputes until you press the button.",
+    ],
+  };
+}
 
 export interface SelectableTier {
   level: number;
@@ -195,7 +237,7 @@ export function GroupSelector({
                         Min tier
                       </label>
                       <select
-                        className="input h-7 py-0 text-xs"
+                        className="input h-7 min-w-0 max-w-full py-0 text-xs"
                         value={tier ?? ""}
                         onChange={(e) =>
                           setTier(
@@ -240,7 +282,7 @@ export function GroupSelector({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <div className="flex flex-1 items-center justify-end gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
             {staged.size > 0 ? (
               <button
                 type="button"
@@ -259,22 +301,24 @@ export function GroupSelector({
                 Revert
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={apply}
-              disabled={!dirty || building}
-              className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors ${
-                dirty && !building
-                  ? "bg-forge-gold text-forge-bg hover:bg-forge-goldbright"
-                  : "cursor-default bg-forge-panel2 text-forge-gold/40"
-              }`}
-            >
-              {building
-                ? "Working…"
-                : staged.size === 0 && appliedRaw
-                  ? "Clear plan"
-                  : actionLabel}
-            </button>
+            <ActionWithInfo {...actionInfo(actionLabel)}>
+              <button
+                type="button"
+                onClick={apply}
+                disabled={!dirty || building}
+                className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors ${
+                  dirty && !building
+                    ? "bg-forge-gold text-forge-bg hover:bg-forge-goldbright"
+                    : "cursor-default bg-forge-panel2 text-forge-gold/40"
+                }`}
+              >
+                {building
+                  ? "Working…"
+                  : staged.size === 0 && appliedRaw
+                    ? "Clear plan"
+                    : actionLabel}
+              </button>
+            </ActionWithInfo>
           </div>
         </div>
 

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ManualSale } from "@/lib/market/manual";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export function ManualSales({
   league,
@@ -164,14 +165,24 @@ export function ManualSales({
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <button
-            type="button"
-            className="btn btn-primary shrink-0 disabled:opacity-50"
-            disabled={busy}
-            onClick={submit}
+          <ActionWithInfo
+            label="Add"
+            summary="Records a manual sale price for combo analytics."
+            detail={[
+              "Stored in SQLite for median sale estimates.",
+              "Use Parse item to fill base and mods from clipboard.",
+              "Feeds planner profit and opportunities ranking.",
+            ]}
           >
-            Add
-          </button>
+            <button
+              type="button"
+              className="btn btn-primary shrink-0 disabled:opacity-50"
+              disabled={busy}
+              onClick={submit}
+            >
+              Add
+            </button>
+          </ActionWithInfo>
         </div>
       </div>
       {error ? <p className="mt-2 text-xs text-forge-rust">{error}</p> : null}

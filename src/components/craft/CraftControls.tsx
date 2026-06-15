@@ -2,8 +2,19 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { InfoTip } from "@/components/InfoTip";
+import { ClassCombobox } from "@/components/ui/ClassCombobox";
+import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
 type CraftMode = "base" | "recommend" | "paste" | "mass";
+
+const MODE_OPTIONS: { value: CraftMode; label: string }[] = [
+  { value: "base", label: "From a base" },
+  { value: "recommend", label: "Recommend a base" },
+  { value: "mass", label: "Mass craft" },
+  { value: "paste", label: "Paste item" },
+];
 
 export function CraftControls({
   classes,
@@ -33,7 +44,10 @@ export function CraftControls({
       firstRender.current = false;
       return;
     }
-    const handle = setTimeout(() => push({ q: q || null }), 300);
+    const handle = setTimeout(
+      () => push({ q: q || null, base: null }),
+      300,
+    );
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
@@ -42,7 +56,6 @@ export function CraftControls({
   const ilvl = params.get("ilvl") ?? "82";
 
   const switchMode = (m: CraftMode) => {
-    // Reset selection-specific params when switching modes.
     const next = new URLSearchParams(params.toString());
     next.set("mode", m);
     next.delete("base");
@@ -50,78 +63,72 @@ export function CraftControls({
     router.push(`${pathname}?${next.toString()}`);
   };
 
-  const tab = (m: CraftMode, label: string) => (
-    <button
-      type="button"
-      onClick={() => switchMode(m)}
-      className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
-        mode === m
-          ? "bg-forge-rust/30 text-forge-goldbright"
-          : "text-forge-gold/70 hover:text-forge-goldbright"
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 rounded-md border border-forge-border bg-forge-panel2 p-1">
-        {tab("base", "From a base")}
-        {tab("recommend", "Recommend a base")}
-        {tab("mass", "Mass craft")}
-        {tab("paste", "Paste item")}
-      </div>
-
-      {mode === "paste" ? null : (
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {mode === "base" || mode === "mass" ? (
-          <input
-            className="input"
-            placeholder="Search base items"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        ) : null}
-        <select
-          className="input"
-          value={itemClass}
-          onChange={(e) =>
-            push({ class: e.target.value || null, base: null, groups: null })
-          }
-        >
-          <option value="">Choose an item class…</option>
-          {classes.map((cat) => (
-            <optgroup key={cat.category} label={cat.category}>
-              {cat.classes.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <label className="text-xs text-forge-gold/60">iLvl</label>
-          <input
-            type="number"
-            min={1}
-            max={100}
-            className="input w-16 text-center"
-            defaultValue={ilvl}
-            key={ilvl}
-            onBlur={(e) => {
-              if (e.target.value !== ilvl) push({ ilvl: e.target.value || "82" });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const v = (e.target as HTMLInputElement).value;
-                if (v !== ilvl) push({ ilvl: v || "82" });
-              }
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <SegmentedControl
+            value={mode}
+            onChange={switchMode}
+            options={MODE_OPTIONS}
+            shortLabels={{
+              base: "Base",
+              recommend: "Recommend",
+              mass: "Mass",
+              paste: "Paste",
             }}
           />
         </div>
+        <InfoTip
+          label="Crafting planner"
+          summary="Pick a mode, filter bases, then stage modifiers before building a plan."
+          detail={[
+            "From a base: step-by-step craft path with live prices.",
+            "Recommend: pick desired mods and get ranked base suggestions.",
+            "Mass craft: simulate batch odds for a farming strategy.",
+            "Modifier picks are staged — nothing runs until you press the action button.",
+          ]}
+        />
       </div>
+
+      {mode === "paste" ? null : (
+        <FilterFieldRow>
+          {mode === "base" || mode === "mass" ? (
+            <input
+              className="input"
+              placeholder="Search base items"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          ) : null}
+          <ClassCombobox
+            categories={classes}
+            value={itemClass}
+            onChange={(v) =>
+              push({ class: v || null, base: null, groups: null })
+            }
+          />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <label className="text-xs text-forge-gold/60">iLvl</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className="input w-16 text-center"
+              defaultValue={ilvl}
+              key={ilvl}
+              onBlur={(e) => {
+                if (e.target.value !== ilvl) push({ ilvl: e.target.value || "82" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const v = (e.target as HTMLInputElement).value;
+                  if (v !== ilvl) push({ ilvl: v || "82" });
+                }
+              }}
+            />
+          </div>
+        </FilterFieldRow>
       )}
     </div>
   );

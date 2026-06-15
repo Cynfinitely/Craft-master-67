@@ -33,44 +33,15 @@ export class TradeApiError extends Error {
   }
 }
 
+import {
+  getTradeRateLimiter,
+  rateHeaderWaitMs,
+} from "@/lib/trade/rateLimiter";
+
 /* ----------------------------- request queue ----------------------------- */
-
-let queueTail: Promise<unknown> = Promise.resolve();
-let nextAllowedAt = 0;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Reads the X-Rate-Limit-Ip / -State headers ("max:period:ban,..." vs
- * "current:period:ban,...") and returns extra wait time when we're close to a
- * window limit, so the next request doesn't trip it.
- */
-function rateHeaderWaitMs(res: Response): number {
-  const limits = res.headers.get("x-rate-limit-ip");
-  const state = res.headers.get("x-rate-limit-ip-state");
-  if (!limits || !state) return 0;
-  const lim = limits.split(",").map((s) => s.split(":").map(Number));
-  const st = state.split(",").map((s) => s.split(":").map(Number));
-  let wait = 0;
-  for (let i = 0; i < Math.min(lim.length, st.length); i++) {
-    const [max, period] = lim[i];
-    const [current] = st[i];
-    if (!max || !period) continue;
-    if (current >= max) wait = Math.max(wait, period * 1000);
-    else if (current >= max - 1) wait = Math.max(wait, (period * 1000) / 2);
-    else if (current >= max - 2) wait = Math.max(wait, (period * 1000) / max);
-  }
-  return wait;
-}
 
 async function executeRequest(path: string, init: RequestInit): Promise<unknown> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const now = Date.now();
-    if (now < nextAllowedAt) await sleep(nextAllowedAt - now);
-    nextAllowedAt = Date.now() + MIN_SPACING_MS;
-
     const res = await fetch(`${TRADE_BASE}${path}`, {
       ...init,
       headers: {
@@ -83,12 +54,15 @@ async function executeRequest(path: string, init: RequestInit): Promise<unknown>
 
     const extraWait = rateHeaderWaitMs(res);
     if (extraWait > 0) {
-      nextAllowedAt = Math.max(nextAllowedAt, Date.now() + extraWait);
+      const limiter = getTradeRateLimiter();
+      await limiter.persistNextAllowedAt(Date.now() + extraWait);
     }
 
     if (res.status === 429) {
       const retryAfter = Number(res.headers.get("retry-after") ?? "10");
-      await sleep((Number.isFinite(retryAfter) ? retryAfter + 1 : 11) * 1000);
+      await new Promise((r) =>
+        setTimeout(r, (Number.isFinite(retryAfter) ? retryAfter + 1 : 11) * 1000),
+      );
       continue;
     }
     if (!res.ok) {
@@ -106,12 +80,9 @@ async function executeRequest(path: string, init: RequestInit): Promise<unknown>
   throw new TradeApiError(`trade2 rate-limited for ${path} (gave up)`, 429);
 }
 
-/** Serializes all trade requests through one queue (rate-limit safety). */
+/** Serializes all trade requests through the shared rate limiter. */
 function enqueue(path: string, init: RequestInit): Promise<unknown> {
-  const run = () => executeRequest(path, init);
-  const p = queueTail.then(run, run);
-  queueTail = p.catch(() => {});
-  return p;
+  return getTradeRateLimiter().schedule(() => executeRequest(path, init));
 }
 
 /* ----------------------------- sqlite cache ----------------------------- */

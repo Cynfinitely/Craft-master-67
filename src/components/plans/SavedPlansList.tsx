@@ -51,8 +51,8 @@ export function SavedPlansList({
     <ul className="space-y-3">
       {plans.map((p) => (
         <li key={p.id} className="panel p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <h3 className="font-semibold text-forge-goldbright">{p.name}</h3>
               <p className="text-sm text-forge-gold/60">
                 {p.plan.baseName} · {p.plan.desiredPrefixes.length}p /{" "}
@@ -94,7 +94,7 @@ export function SavedPlansList({
                 </p>
               ) : null}
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
               <Link href={craftHref(p)} className="btn btn-primary">
                 Open
               </Link>

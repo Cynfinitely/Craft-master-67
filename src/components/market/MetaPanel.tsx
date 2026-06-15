@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export interface MetaItemView {
   id: number;
@@ -173,14 +174,24 @@ export function MetaPanel({
             value={source}
             onChange={(e) => setSource(e.target.value)}
           />
-          <button
-            type="button"
-            className="rounded border border-forge-gold/40 px-3 py-1.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
-            disabled={busy}
-            onClick={runImport}
+          <ActionWithInfo
+            label="Import build gear"
+            summary="Parses PoB/build paste for meta demand signals."
+            detail={[
+              "Extracts gear items and modifier labels from build text.",
+              "Stored per item class for combo frequency analytics.",
+              "Use Snipe this to turn an item into a snipe target.",
+            ]}
           >
-            {busy ? "Importing…" : "Import build gear"}
-          </button>
+            <button
+              type="button"
+              className="rounded border border-forge-gold/40 px-3 py-1.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
+              disabled={busy}
+              onClick={runImport}
+            >
+              {busy ? "Importing…" : "Import build gear"}
+            </button>
+          </ActionWithInfo>
         </div>
         {error ? <p className="text-xs text-forge-rust">{error}</p> : null}
         {notice ? (
@@ -229,14 +240,24 @@ export function MetaPanel({
                       ))}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-1.5">
-                    <button
-                      type="button"
-                      className="rounded border border-forge-gold/40 px-2 py-0.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright"
-                      onClick={() => makeSpec(item)}
+                  <div className="flex shrink-0 flex-wrap gap-1.5">
+                    <ActionWithInfo
+                      label="Snipe this"
+                      summary="Creates a snipe target from imported item mods."
+                      detail={[
+                        "Builds a snipe spec from the item's modifier groups.",
+                        "Opens Snipe builder pre-filled for save and scan.",
+                        "Useful for hunting partial items from meta builds.",
+                      ]}
                     >
-                      Snipe this
-                    </button>
+                      <button
+                        type="button"
+                        className="rounded border border-forge-gold/40 px-2 py-0.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright"
+                        onClick={() => makeSpec(item)}
+                      >
+                        Snipe this
+                      </button>
+                    </ActionWithInfo>
                     <button
                       type="button"
                       className="rounded border border-forge-rust/40 px-2 py-0.5 text-xs text-forge-rust/80 transition-colors hover:bg-forge-rust/10"

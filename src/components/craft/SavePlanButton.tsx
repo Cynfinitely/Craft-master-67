@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CraftPlan } from "@/lib/solver/types";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export function SavePlanButton({ plan }: { plan: CraftPlan }) {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">(
@@ -29,19 +30,29 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
   };
 
   return (
-    <button
-      type="button"
-      className="btn"
-      onClick={save}
-      disabled={state === "saving" || !plan.feasible}
+    <ActionWithInfo
+      label="Save plan"
+      summary="Stores the current plan locally for later."
+      detail={[
+        "Saved to your browser session via the plans API.",
+        "Re-open from the Plans page with drift vs current prices.",
+        "Prompts for a name — includes base and mod counts by default.",
+      ]}
     >
-      {state === "saving"
-        ? "Saving..."
-        : state === "saved"
-          ? "Saved"
-          : state === "error"
-            ? "Error"
-            : "Save plan"}
-    </button>
+      <button
+        type="button"
+        className="btn"
+        onClick={save}
+        disabled={state === "saving" || !plan.feasible}
+      >
+        {state === "saving"
+          ? "Saving..."
+          : state === "saved"
+            ? "Saved"
+            : state === "error"
+              ? "Error"
+              : "Save plan"}
+      </button>
+    </ActionWithInfo>
   );
 }

@@ -85,7 +85,7 @@ export function PriceExplorer({
   }, 0);
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_minmax(280px,360px)]">
+    <div className="grid gap-5 lg:grid-cols-[1fr_minmax(280px,360px)] xl:grid-cols-[1fr_380px]">
       <div className="space-y-3">
         <div className="panel flex flex-col gap-2 p-4 sm:flex-row sm:items-center">
           <select
@@ -116,15 +116,15 @@ export function PriceExplorer({
           </div>
         ) : null}
 
-        <div className="panel overflow-hidden">
+        <div className="panel">
           <div className="flex items-center justify-between border-b border-forge-border px-4 py-2 text-xs text-forge-gold/50">
             <span>
               {filtered.length} items · prices in Exalted Orbs · 1 Divine ≈{" "}
               {fmt(data.divinePrice)} Exalted
             </span>
           </div>
-          <div className="max-h-[64vh] overflow-y-auto">
-            <table className="w-full text-sm">
+          <div className="table-scroll max-h-[64vh] overflow-y-auto">
+            <table className="w-full min-w-[28rem] text-sm">
               <thead className="sticky top-0 bg-forge-panel text-left text-xs text-forge-gold/50">
                 <tr>
                   <th className="px-4 py-2 font-medium">Currency</th>
@@ -146,7 +146,7 @@ export function PriceExplorer({
                         {i.name}
                         {methodUses(i.name) ? (
                           <span
-                            className="ml-1.5 text-[10px] text-forge-gold/40"
+                            className="ml-1.5 hidden text-[10px] text-forge-gold/40 md:inline"
                             title="Crafting methods that consume this currency"
                           >
                             {methodUses(i.name)}

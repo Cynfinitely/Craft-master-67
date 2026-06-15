@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { MaterialTier } from "@/lib/materials/source";
 import type { MaterialView } from "./MaterialsBrowser";
 
@@ -11,10 +12,10 @@ const TIER_COLUMNS: MaterialTier[] = [
 ];
 
 const TIER_STYLES: Record<MaterialTier, string> = {
-  Lesser: "bg-zinc-700/60 text-zinc-200",
-  Normal: "bg-sky-900/50 text-sky-200",
-  Greater: "bg-violet-900/50 text-violet-200",
-  Perfect: "bg-amber-800/50 text-amber-200",
+  Lesser: "bg-forge-panel2 text-forge-gold/70",
+  Normal: "bg-forge-rust/20 text-forge-goldbright",
+  Greater: "bg-forge-gold/15 text-forge-goldbright",
+  Perfect: "bg-forge-rust/35 text-forge-goldbright",
 };
 
 function formatPrice(p: number | null): string {
@@ -31,6 +32,7 @@ function effectSummary(m: MaterialView): string {
 }
 
 function TierCell({ m }: { m: MaterialView | undefined }) {
+  const [open, setOpen] = useState(false);
   if (!m) {
     return <td className="px-2 py-2 text-center text-forge-gold/25">—</td>;
   }
@@ -38,8 +40,17 @@ function TierCell({ m }: { m: MaterialView | undefined }) {
   return (
     <td className="px-2 py-2 align-top">
       <div
-        className="group relative rounded border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5"
+        className="group relative rounded border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5 sm:cursor-default"
         title={summary || m.name}
+        onClick={() => summary && setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (summary && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
+        role={summary ? "button" : undefined}
+        tabIndex={summary ? 0 : undefined}
       >
         <div className="text-xs font-medium text-rarity-currency leading-tight">
           {m.name.replace(/^(Lesser |Greater |Perfect )/, "")}
@@ -48,7 +59,13 @@ function TierCell({ m }: { m: MaterialView | undefined }) {
           {formatPrice(m.priceExalted)}
         </div>
         {summary ? (
-          <div className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden max-w-xs rounded border border-forge-border bg-forge-panel p-2 text-[10px] text-forge-gold/80 shadow-lg group-hover:block">
+          <div
+            className={`pointer-events-none absolute left-0 top-full z-10 mt-1 max-w-xs rounded border border-forge-border bg-forge-panel p-2 text-[10px] text-forge-gold/80 shadow-lg transition-opacity ${
+              open
+                ? "max-sm:opacity-100"
+                : "max-sm:opacity-0 max-sm:pointer-events-none"
+            } opacity-0 group-hover:opacity-100`}
+          >
             {summary}
           </div>
         ) : null}

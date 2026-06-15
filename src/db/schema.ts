@@ -324,6 +324,78 @@ export const metaItems = sqliteTable(
 export type BaseRow = typeof bases.$inferSelect;
 export type SnipeSpecRow = typeof snipeSpecs.$inferSelect;
 export type MetaItemRow = typeof metaItems.$inferSelect;
+
+/**
+ * Durable job queue for long-running market intelligence work.
+ */
+export const marketJobs = sqliteTable(
+  "market_jobs",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull(), // json
+    status: text("status").notNull(), // pending | running | done | error
+    message: text("message").notNull().default(""),
+    log: text("log").notNull().default("[]"), // json ProgressEvent[]
+    current: integer("current"),
+    total: integer("total"),
+    runAt: integer("run_at").notNull(),
+    startedAt: integer("started_at"),
+    finishedAt: integer("finished_at"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    statusRunIdx: index("market_jobs_status_run_idx").on(t.status, t.runAt),
+    kindIdx: index("market_jobs_kind_idx").on(t.kind),
+  }),
+);
+
+/**
+ * Precomputed opportunity rankings written by the market worker.
+ */
+export const marketScanResults = sqliteTable(
+  "market_scan_results",
+  {
+    id: text("id").primaryKey(), // `${league}|${itemClass}|${comboKey}`
+    league: text("league").notNull(),
+    itemClass: text("item_class").notNull(),
+    comboKey: text("combo_key").notNull(),
+    groups: text("groups").notNull(), // json string[]
+    tierGroups: text("tier_groups").notNull(), // json Group@level encoding
+    payload: text("payload").notNull(), // json Opportunity
+    confidence: text("confidence").notNull(),
+    profitP50Exalted: real("profit_p50_exalted").notNull(),
+    scannedAt: integer("scanned_at").notNull(),
+    baseId: text("base_id"),
+  },
+  (t) => ({
+    classIdx: index("market_scan_results_class_idx").on(
+      t.league,
+      t.itemClass,
+    ),
+    scannedIdx: index("market_scan_results_scanned_idx").on(t.scannedAt),
+    profitIdx: index("market_scan_results_profit_idx").on(
+      t.league,
+      t.itemClass,
+      t.profitP50Exalted,
+    ),
+  }),
+);
+
+/**
+ * Persisted trade API rate-limit state (survives worker restarts).
+ */
+export const tradeRateState = sqliteTable("trade_rate_state", {
+  key: text("key").primaryKey(),
+  nextAllowedAt: integer("next_allowed_at").notNull(),
+  payload: text("payload"), // json optional window counters
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type MarketJobRow = typeof marketJobs.$inferSelect;
+export type MarketScanResultRow = typeof marketScanResults.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;
 export type SavedPlanRow = typeof savedPlans.$inferSelect;

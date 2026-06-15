@@ -11,7 +11,8 @@ export async function GET(request: Request) {
   }
   const dbJob = await getDbJob(id);
   if (dbJob) {
-    return NextResponse.json({ job: dbJob });
+    return NextResponse.json({ job: dbJob, source: "db" });
   }
-  return NextResponse.json({ job: getJob(id) });
+  const memJob = getJob(id);
+  return NextResponse.json({ job: memJob, source: memJob ? "memory" : null });
 }

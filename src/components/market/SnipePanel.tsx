@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveProgress, newProgressId } from "@/components/LiveProgress";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 import { SnipeBuilder, type SpecSummary } from "./SnipeBuilder";
 
 interface Template {
@@ -180,16 +181,27 @@ export function SnipePanel({
               <p className="flex-1 text-xs text-forge-gold/60">
                 {t.description}
               </p>
-              <button
-                type="button"
-                className="self-start rounded border border-forge-gold/40 px-2.5 py-1 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
-                disabled={scanning !== null}
-                onClick={() => runScan({ template: t.id })}
+              <ActionWithInfo
+                label="Scan listings"
+                summary="Searches trade for partial items matching template mods."
+                detail={[
+                  "Queries live trade listings for the template spec.",
+                  "Evaluates price vs expected finish cost.",
+                  "Rate-limited — may take a minute on busy leagues.",
+                  "Results link to the trade site for each listing.",
+                ]}
               >
-                {scanning === t.id
-                  ? "Scanning live listings…"
-                  : "Scan listings"}
-              </button>
+                <button
+                  type="button"
+                  className="self-start rounded border border-forge-gold/40 px-2.5 py-1 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
+                  disabled={scanning !== null}
+                  onClick={() => runScan({ template: t.id })}
+                >
+                  {scanning === t.id
+                    ? "Scanning live listings…"
+                    : "Scan listings"}
+                </button>
+              </ActionWithInfo>
             </div>
           ))}
         </div>

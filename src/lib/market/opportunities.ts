@@ -361,8 +361,12 @@ async function selectAndVerify(opts: {
   itemClass: string;
   candidates: Candidate[];
   onProgress?: (text: string) => void;
+  maxCombosToSolve?: number;
+  probeVerifyBudget?: number;
 }): Promise<Candidate[]> {
   const report = opts.onProgress ?? (() => {});
+  const maxCombos = opts.maxCombosToSolve ?? MAX_COMBOS_TO_SOLVE;
+  const verifyBudget = opts.probeVerifyBudget ?? PROBE_VERIFY_BUDGET;
   const probeBacked = opts.candidates.filter((c) => c.saleSource === "probe");
   // Meta-demand combos jump the verification queue: real builds wear them,
   // so a probe that prices them is the highest-value API call available.
@@ -371,11 +375,11 @@ async function selectAndVerify(opts: {
     .sort((a, b) => (b.metaUses ?? 0) - (a.metaUses ?? 0));
 
   const sampleSlots =
-    probeBacked.length >= MAX_COMBOS_TO_SOLVE - SAMPLE_SLOTS
+    probeBacked.length >= maxCombos - SAMPLE_SLOTS
       ? SAMPLE_SLOTS
-      : MAX_COMBOS_TO_SOLVE - probeBacked.length;
+      : maxCombos - probeBacked.length;
 
-  let budget = PROBE_VERIFY_BUDGET;
+  let budget = verifyBudget;
   const verified: Candidate[] = [];
 
   // 1) Verify the best sampler discoveries against the live order book.
@@ -432,7 +436,7 @@ async function selectAndVerify(opts: {
   }
 
   // 2) Refresh the stalest probe-backed picks with the remaining budget.
-  const picks = probeBacked.slice(0, MAX_COMBOS_TO_SOLVE - verified.length);
+  const picks = probeBacked.slice(0, maxCombos - verified.length);
   const now = Date.now();
   const staleFirst = [...picks]
     .filter((c) => c.statIds && now - (c.fetchedAt ?? 0) > PROBE_STALE_MS)
@@ -524,6 +528,8 @@ interface GetOpportunitiesOpts {
   minConfidence?: MinConfidence;
   maxBatchCostExalted?: number | null;
   holdingCostPerDay?: number;
+  maxCombosToSolve?: number;
+  probeVerifyBudget?: number;
   /** Live step reporting for the UI (optional). */
   onProgress?: (
     text: string,
@@ -607,6 +613,7 @@ async function computeOpportunities(
 ): Promise<OpportunityResult> {
   const report = opts.onProgress ?? (() => {});
   const itemLevel = opts.itemLevel ?? 82;
+  const maxCombos = opts.maxCombosToSolve ?? MAX_COMBOS_TO_SOLVE;
 
   // Class-wide stat <-> group mapping + display labels.
   report(`Loading ${opts.itemClass} mod pools and trade-stat mappings…`);
@@ -650,6 +657,8 @@ async function computeOpportunities(
     itemClass: opts.itemClass,
     candidates,
     onProgress: report,
+    maxCombosToSolve: maxCombos,
+    probeVerifyBudget: opts.probeVerifyBudget,
   });
 
   const baseQuoteCache = new Map<string, number | null>();
@@ -657,7 +666,7 @@ async function computeOpportunities(
 
   const toSolve = selected
     .filter((c) => c.saleExalted > 0) // unpriced meta combos can't be ranked
-    .slice(0, MAX_COMBOS_TO_SOLVE);
+    .slice(0, maxCombos);
   for (let ci = 0; ci < toSolve.length; ci++) {
     const cand = toSolve[ci];
     report(
@@ -934,3 +943,5 @@ async function computeOpportunities(
     unmappedCombos,
   };
 }
+
+export { computeOpportunities };

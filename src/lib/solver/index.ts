@@ -13,6 +13,11 @@ import { withTimeout } from "@/lib/trade/client";
 import { estimateSaleValue, velocityAdjustedSale } from "@/lib/market/analytics";
 import { estimateSinglePlanProfit } from "@/lib/market/profitEngine";
 import {
+  parseMethodSort,
+  sortMethods,
+  type MethodSortMode,
+} from "./methodSort";
+import {
   essenceReachesTarget,
   resolveDeterminism,
   type EssenceGuarantee,
@@ -2553,6 +2558,7 @@ export async function solveFromBase(
   baseId: string,
   itemLevel: number,
   desiredGroups: string[],
+  opts?: { methodSort?: MethodSortMode },
 ): Promise<CraftPlan | null> {
   let priceMap: Map<string, number>;
   let divinePriceExalted = FALLBACK_PRICE.divine;
@@ -2597,7 +2603,8 @@ export async function solveFromBase(
     }
   }
 
-  const methods = (feasible ? buildMethods(inputs) : []).map((m) => {
+  const methodSort = opts?.methodSort ?? "cost";
+  const methodsRaw = (feasible ? buildMethods(inputs) : []).map((m) => {
     let expectedProfitExalted: number | null = null;
     let roiPercent: number | null = null;
     let profitPerHour: number | null = null;
@@ -2630,6 +2637,7 @@ export async function solveFromBase(
       profitPerHour,
     };
   });
+  const methods = sortMethods(methodsRaw, methodSort);
   const cheapest = methods[0];
 
   // 0.5 league-system alternatives (Genesis Tree, Liquid Emotions,
@@ -2658,7 +2666,15 @@ export async function solveFromBase(
     steps: cheapest?.steps ?? [],
     overallOdds: cheapest?.overallOdds ?? 0,
     divinePriceExalted,
-    estimatedSale,
+    estimatedSale: estimatedSale
+      ? {
+          priceExalted: estimatedSale.priceExalted,
+          sampleCount: estimatedSale.sampleCount,
+          source: estimatedSale.source,
+          timeToSellDays: estimatedSale.timeToSellDays ?? null,
+        }
+      : null,
+    methodSort,
   };
 }
 
@@ -2738,10 +2754,49 @@ export async function recommendBases(
   itemLevel: number,
   desiredGroups: string[],
   limit = 8,
+  opts?: { league?: string; useMarketScore?: boolean },
 ): Promise<BaseRecommendation[]> {
   if (desiredGroups.length === 0) return [];
   const bases = await searchBases({ itemClass, limit: 500 });
   const priceMap = await getPriceByApiId();
+
+  let classSale: {
+    priceExalted: number;
+    source: "probe" | "trade" | "manual" | "mixed";
+  } | null = null;
+  if (opts?.useMarketScore && opts.league) {
+    try {
+      const tagSet = new Set<string>();
+      for (const b of bases) for (const t of b.tags) tagSet.add(t);
+      const classMods = await getEligibleMods([...tagSet], itemLevel);
+      const statMap = await buildModStatMap(classMods);
+      const minLevelPerGroup = new Map<string, number>();
+      for (const raw of desiredGroups) {
+        const at = raw.indexOf("@");
+        if (at > 0) {
+          const level = Number.parseInt(raw.slice(at + 1), 10);
+          if (Number.isFinite(level)) {
+            minLevelPerGroup.set(raw.slice(0, at), level);
+          }
+        }
+      }
+      const plainGroups = desiredGroups.map((g) =>
+        g.includes("@") ? g.slice(0, g.indexOf("@")) : g,
+      );
+      const sale = await estimateSaleValue({
+        league: opts.league,
+        itemClass,
+        groups: plainGroups,
+        statIdsPerGroup: statMap.groupToStats,
+        minLevelPerGroup,
+      });
+      if (sale) {
+        classSale = { priceExalted: sale.priceExalted, source: sale.source };
+      }
+    } catch {
+      /* market score optional */
+    }
+  }
 
   const recs: BaseRecommendation[] = [];
   for (const b of bases) {
@@ -2795,13 +2850,43 @@ export async function recommendBases(
       missing,
       cheapestCostExalted,
       cheapestMethod,
+      estimatedSaleExalted: classSale?.priceExalted ?? null,
+      expectedProfitExalted:
+        classSale && cheapestCostExalted != null
+          ? Math.round(classSale.priceExalted - cheapestCostExalted)
+          : null,
+      saleConfidence: classSale
+        ? classSale.source === "probe"
+          ? "high"
+          : "medium"
+        : null,
     });
   }
 
-  recs.sort((a, b) => {
-    if (a.missing.length !== b.missing.length)
-      return a.missing.length - b.missing.length;
-    return b.score - a.score;
-  });
+  if (classSale) {
+    const maxProfit = Math.max(
+      ...recs.map((r) => r.expectedProfitExalted ?? -Infinity),
+    );
+    recs.sort((a, b) => {
+      if (a.missing.length !== b.missing.length)
+        return a.missing.length - b.missing.length;
+      const profitA = a.expectedProfitExalted ?? -Infinity;
+      const profitB = b.expectedProfitExalted ?? -Infinity;
+      const compositeA =
+        Math.log(Math.max(a.score, 1e-8)) * 0.35 +
+        (maxProfit > 0 ? (profitA / maxProfit) * 0.65 : 0);
+      const compositeB =
+        Math.log(Math.max(b.score, 1e-8)) * 0.35 +
+        (maxProfit > 0 ? (profitB / maxProfit) * 0.65 : 0);
+      if (compositeA !== compositeB) return compositeB - compositeA;
+      return b.score - a.score;
+    });
+  } else {
+    recs.sort((a, b) => {
+      if (a.missing.length !== b.missing.length)
+        return a.missing.length - b.missing.length;
+      return b.score - a.score;
+    });
+  }
   return recs.slice(0, limit);
 }
