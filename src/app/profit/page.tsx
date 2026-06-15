@@ -12,7 +12,6 @@ import { listManualSales } from "@/lib/market/manual";
 import { getOpportunities } from "@/lib/market/opportunities";
 import { getProbes, type ComboProbe } from "@/lib/market/probes";
 import { parseRankMode } from "@/lib/market/profitPrefs";
-import { getRunicRecipeEV, type RunicRecipeEV } from "@/lib/market/runes";
 import { formatCost } from "@/lib/pricing/format";
 import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
 import { oppsProgressId } from "@/lib/progressId";
@@ -214,7 +213,6 @@ export default async function ProfitPage({
   let combosBySize = new Map<number, ComboStat[]>();
   let probes: ComboProbe[] = [];
   let manualList = await listManualSales(league);
-  let runicRecipes: RunicRecipeEV[] = [];
   const craftLinks = new Map<string, string>();
 
   if (itemClass && (tab === "market" || tab === "manual")) {
@@ -258,12 +256,6 @@ export default async function ProfitPage({
     } catch {
       /* optional */
     }
-  }
-
-  try {
-    runicRecipes = (await getRunicRecipeEV(league)).recipes;
-  } catch {
-    /* optional */
   }
 
   return (
