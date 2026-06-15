@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export interface SpecSummary {
   id: number;
@@ -220,15 +221,25 @@ export function SnipeBuilder({
                   {s.mods.length} mods
                 </span>
               </div>
-              <div className="flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  className="rounded border border-forge-gold/40 px-2 py-0.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
-                  disabled={scanning}
-                  onClick={() => onScan(s.id)}
+              <div className="flex shrink-0 flex-wrap gap-1.5">
+                <ActionWithInfo
+                  label="Scan"
+                  summary="Runs the snipe scanner for this saved target spec."
+                  detail={[
+                    "Uses the saved mod groups and base from the spec.",
+                    "Queries live trade and ranks partial items.",
+                    "Requires a saved spec — use Save & scan to create and run.",
+                  ]}
                 >
-                  Scan
-                </button>
+                  <button
+                    type="button"
+                    className="rounded border border-forge-gold/40 px-2 py-0.5 text-xs text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
+                    disabled={scanning}
+                    onClick={() => onScan(s.id)}
+                  >
+                    Scan
+                  </button>
+                </ActionWithInfo>
                 <button
                   type="button"
                   className="rounded border border-forge-rust/40 px-2 py-0.5 text-xs text-forge-rust/80 transition-colors hover:bg-forge-rust/10"
@@ -373,14 +384,24 @@ export function SnipeBuilder({
                   onChange={(e) => setName(e.target.value)}
                 />
               </label>
-              <button
-                type="button"
-                className="rounded border border-forge-gold/40 px-3 py-1.5 text-sm text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
-                disabled={saving || scanning || selected.length < 2}
-                onClick={() => save(true)}
+              <ActionWithInfo
+                label="Save & scan"
+                summary="Saves the target spec and immediately runs the snipe scanner."
+                detail={[
+                  "Persists mod groups, base, and name to the snipe specs table.",
+                  "Starts a live trade scan right after saving.",
+                  "Pick at least two mods before saving.",
+                ]}
               >
-                {saving ? "Saving…" : "Save & scan"}
-              </button>
+                <button
+                  type="button"
+                  className="rounded border border-forge-gold/40 px-3 py-1.5 text-sm text-forge-gold transition-colors hover:bg-forge-panel2 hover:text-forge-goldbright disabled:opacity-50"
+                  disabled={saving || scanning || selected.length < 2}
+                  onClick={() => save(true)}
+                >
+                  {saving ? "Saving…" : "Save & scan"}
+                </button>
+              </ActionWithInfo>
               <button
                 type="button"
                 className="rounded border border-forge-border px-3 py-1.5 text-sm text-forge-gold/70 transition-colors hover:bg-forge-panel2 disabled:opacity-50"

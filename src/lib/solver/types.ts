@@ -110,7 +110,11 @@ export interface CraftPlan {
     priceExalted: number;
     sampleCount: number;
     source: "probe" | "trade" | "manual" | "mixed";
+    /** Rough days to sell when probe-backed supply data exists. */
+    timeToSellDays?: number | null;
   } | null;
+  /** How methods are ordered in `methods`. */
+  methodSort?: "cost" | "profit" | "roi";
 }
 
 export interface GroupChoice {
@@ -142,4 +146,10 @@ export interface BaseRecommendation {
   cheapestCostExalted: number | null;
   /** Name of that cheapest method. */
   cheapestMethod: string | null;
+  /** Estimated sale price of the finished item on this base (class-wide). */
+  estimatedSaleExalted?: number | null;
+  /** Expected profit using cheapest method and estimated sale. */
+  expectedProfitExalted?: number | null;
+  /** Sale-data confidence when market estimate exists. */
+  saleConfidence?: "high" | "medium" | "low" | null;
 }

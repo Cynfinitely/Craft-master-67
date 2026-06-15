@@ -32,7 +32,7 @@ body {
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-forge-border bg-forge-panel2 px-3 py-1.5 text-sm font-medium text-forge-gold transition-colors hover:border-forge-gold/60 hover:text-forge-goldbright disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-forge-border bg-forge-panel2 px-3 py-1.5 text-sm font-medium text-forge-gold transition-colors hover:border-forge-gold/60 hover:text-forge-goldbright disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-[2.5rem];
   }
 
   .btn-primary {
@@ -45,6 +45,18 @@ body {
 
   .tag-chip {
     @apply inline-flex items-center rounded-full border border-forge-border bg-forge-panel2 px-2 py-0.5 text-xs text-forge-gold/80;
+  }
+
+  .combobox-panel {
+    @apply rounded-md border border-forge-border bg-forge-panel shadow-lg;
+  }
+
+  .nav-drawer {
+    @apply bg-forge-panel;
+  }
+
+  .table-scroll {
+    @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
   }
 }
 

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import {
   getModPool,
@@ -6,6 +5,8 @@ import {
   listCraftableCategories,
   searchBases,
 } from "@/lib/data";
+import { BasePickerPanel } from "@/components/bases/BasePickerPanel";
+import { SelectedBaseCard } from "@/components/bases/SelectedBaseCard";
 import { groupByModGroup, modLabel, tierValue } from "@/lib/data/format";
 import { notableTags } from "@/lib/data/tags";
 import {
@@ -14,8 +15,9 @@ import {
   solveFromBase,
 } from "@/lib/solver";
 import { planMassCraft } from "@/lib/solver/massCraft";
+import { parseMethodSort } from "@/lib/solver/methodSort";
 import type { SimMethodId } from "@/lib/solver/simulate";
-import { getPrices } from "@/lib/pricing/poe2scout";
+import { getPrices, getCurrentLeagueName } from "@/lib/pricing/poe2scout";
 import { CraftControls } from "@/components/craft/CraftControls";
 import {
   GroupSelector,
@@ -39,6 +41,20 @@ function parseGroups(raw: string | undefined): string[] {
   return (raw ?? "").split(",").filter(Boolean);
 }
 
+function buildCraftFilterParams(
+  mode: "base" | "mass",
+  q?: string,
+  itemClass?: string,
+  itemLevel?: number,
+): URLSearchParams {
+  const p = new URLSearchParams();
+  p.set("mode", mode);
+  if (q) p.set("q", q);
+  if (itemClass) p.set("class", itemClass);
+  if (itemLevel != null) p.set("ilvl", String(itemLevel));
+  return p;
+}
+
 export default async function CraftPage({
   searchParams,
 }: {
@@ -52,6 +68,7 @@ export default async function CraftPage({
     method?: string;
     n?: string;
     chaos?: string;
+    msort?: string;
   };
 }) {
   const mode =
@@ -92,6 +109,7 @@ export default async function CraftPage({
             baseId={searchParams.base}
             itemLevel={itemLevel}
             selectedGroups={selectedGroups}
+            methodSort={searchParams.msort}
           />
         </Suspense>
       ) : mode === "mass" ? (
@@ -136,7 +154,7 @@ function SectionSkeleton({ label }: { label: string }) {
   );
 }
 
-async function BasePicker({
+async function CraftBasePicker({
   q,
   itemClass,
   itemLevel,
@@ -151,67 +169,32 @@ async function BasePicker({
   const results = filterActive
     ? await searchBases({ q, itemClass })
     : [];
-  const buildHref = (id: string) => {
-    const p = new URLSearchParams();
-    p.set("mode", mode);
-    if (q) p.set("q", q);
-    if (itemClass) p.set("class", itemClass);
-    p.set("ilvl", String(itemLevel));
+
+  const buildBaseHref = (id: string) => {
+    const p = buildCraftFilterParams(mode, q, itemClass, itemLevel);
     p.set("base", id);
     return `/craft?${p.toString()}`;
   };
+
+  const buildClearBaseHref = () =>
+    `/craft?${buildCraftFilterParams(mode, q, itemClass, itemLevel).toString()}`;
+
   return (
-    <div className="space-y-3">
-      <div className="panel-inset flex items-center gap-2 px-3 py-2 text-xs text-forge-gold/55">
-        <span className="font-semibold text-forge-gold/75">1. Filter</span>
-        <span className="text-forge-gold/30">→</span>
-        <span className="font-semibold text-forge-gold/75">2. Select base</span>
-      </div>
-      <div className="panel max-h-[60vh] overflow-y-auto">
-        {!filterActive ? (
-          <div className="p-6 text-center text-sm text-forge-gold/50">
-            <p className="font-medium text-forge-gold/70">
-              Step 1: Filter bases
-            </p>
-            <p className="mt-2">
-              Choose an item class or search for a base name (min. 2 characters)
-              above, then pick a base from the list.
-            </p>
-          </div>
-        ) : results.length === 0 ? (
-          <p className="p-4 text-sm text-forge-gold/50">No bases found.</p>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2 border-b border-forge-border/50 px-4 py-2">
-              <span className="text-xs text-forge-gold/50">
-                {results.length} base{results.length === 1 ? "" : "s"}
-              </span>
-              {itemClass ? (
-                <span className="tag-chip">{itemClass}</span>
-              ) : null}
-              {q?.trim() ? (
-                <span className="tag-chip">&ldquo;{q.trim()}&rdquo;</span>
-              ) : null}
-            </div>
-            <ul className="divide-y divide-forge-border/50">
-              {results.map((b) => (
-                <li key={b.id}>
-                  <Link
-                    href={buildHref(b.id)}
-                    className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-forge-gold/80 transition-colors hover:bg-forge-panel2/60"
-                  >
-                    <span>{b.name}</span>
-                    <span className="text-[11px] text-forge-gold/40">
-                      {b.itemClass}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    </div>
+    <BasePickerPanel
+      filterActive={filterActive}
+      results={results}
+      itemClass={itemClass}
+      query={q}
+      itemLevel={itemLevel}
+      buildBaseHref={buildBaseHref}
+      buildClearBaseHref={buildClearBaseHref}
+      maxHeight="60vh"
+      steps={[
+        { label: "1. Filter" },
+        { label: "2. Select base", active: true },
+      ]}
+      emptyHint="Choose an item class or search for a base name (min. 2 characters) above, then pick a base from the list."
+    />
   );
 }
 
@@ -221,16 +204,18 @@ async function BaseMode({
   baseId,
   itemLevel,
   selectedGroups,
+  methodSort,
 }: {
   q?: string;
   itemClass?: string;
   baseId?: string;
   itemLevel: number;
   selectedGroups: string[];
+  methodSort?: string;
 }) {
   if (!baseId) {
     return (
-      <BasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="base" />
+      <CraftBasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="base" />
     );
   }
 
@@ -263,27 +248,29 @@ async function BaseMode({
   const suffixes = toSel(pool.suffixes, pool.suffixTotalWeight, "suffix");
 
   const plan = selectedGroups.length
-    ? await solveFromBase(baseId, itemLevel, selectedGroups)
+    ? await solveFromBase(baseId, itemLevel, selectedGroups, {
+        methodSort: parseMethodSort(methodSort),
+      })
     : null;
+
+  const changeBaseHref = `/craft?${buildCraftFilterParams("base", q, itemClass, itemLevel).toString()}`;
+
+  const buildSortHref = (msort: string) => {
+    const p = buildCraftFilterParams("base", q, itemClass, itemLevel);
+    p.set("base", baseId);
+    p.set("groups", selectedGroups.join(","));
+    if (msort !== "cost") p.set("msort", msort);
+    return `/craft?${p.toString()}`;
+  };
 
   return (
     <div className="space-y-4">
-      <div className="panel flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <div>
-          <span className="text-base font-semibold text-rarity-normal">
-            {pool.base.name}
-          </span>
-          <span className="ml-2 text-sm text-forge-gold/50">
-            {pool.base.itemClass} · iLvl {itemLevel}
-          </span>
-        </div>
-        <Link
-          href={`/craft?mode=base&ilvl=${itemLevel}${itemClass ? `&class=${encodeURIComponent(itemClass)}` : ""}`}
-          className="btn"
-        >
-          Change base
-        </Link>
-      </div>
+      <SelectedBaseCard
+        name={pool.base.name}
+        itemClass={pool.base.itemClass}
+        itemLevel={itemLevel}
+        changeHref={changeBaseHref}
+      />
 
       <div>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
@@ -297,7 +284,14 @@ async function BaseMode({
       </div>
 
       {plan ? (
-        <PlanView plan={plan} />
+        <PlanView
+          plan={plan}
+          sortLinks={{
+            cost: buildSortHref("cost"),
+            profit: buildSortHref("profit"),
+            roi: buildSortHref("roi"),
+          }}
+        />
       ) : (
         <div className="panel p-6 text-center text-forge-gold/50">
           Tick one or more modifiers above, then press “Build crafting plan”.
@@ -336,7 +330,7 @@ async function MassMode({
 }) {
   if (!baseId) {
     return (
-      <BasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="mass" />
+      <CraftBasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="mass" />
     );
   }
 
@@ -383,24 +377,16 @@ async function MassMode({
       })
     : null;
 
+  const changeBaseHref = `/craft?${buildCraftFilterParams("mass", q, itemClass, itemLevel).toString()}`;
+
   return (
     <div className="space-y-4">
-      <div className="panel flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <div>
-          <span className="text-base font-semibold text-rarity-normal">
-            {pool.base.name}
-          </span>
-          <span className="ml-2 text-sm text-forge-gold/50">
-            {pool.base.itemClass} · iLvl {itemLevel}
-          </span>
-        </div>
-        <Link
-          href={`/craft?mode=mass&ilvl=${itemLevel}${itemClass ? `&class=${encodeURIComponent(itemClass)}` : ""}`}
-          className="btn"
-        >
-          Change base
-        </Link>
-      </div>
+      <SelectedBaseCard
+        name={pool.base.name}
+        itemClass={pool.base.itemClass}
+        itemLevel={itemLevel}
+        changeHref={changeBaseHref}
+      />
 
       <div className="panel p-4">
         <MassControls />
@@ -468,7 +454,10 @@ async function RecommendMode({
   }));
 
   const recs = selectedGroups.length
-    ? await recommendBases(itemClass, itemLevel, selectedGroups)
+    ? await recommendBases(itemClass, itemLevel, selectedGroups, 8, {
+        league: await getCurrentLeagueName().catch(() => undefined),
+        useMarketScore: true,
+      })
     : [];
 
   let divinePriceExalted = 0;

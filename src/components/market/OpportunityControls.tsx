@@ -3,6 +3,8 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { LiveProgress } from "@/components/LiveProgress";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
+import { ToolbarGroup } from "@/components/ui/ToolbarGroup";
 import { oppsProgressId } from "@/lib/progressId";
 
 export function OpportunityControls({
@@ -11,7 +13,6 @@ export function OpportunityControls({
   league,
 }: {
   classes: { category: string; classes: string[] }[];
-  /** Bases of the selected class (empty until a class is chosen). */
   bases: { id: string; name: string }[];
   league: string;
 }) {
@@ -20,6 +21,8 @@ export function OpportunityControls({
   const params = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [jobId, setJobId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
 
   const itemClass = params.get("class") ?? "";
   const baseId = params.get("base") ?? "";
@@ -61,11 +64,45 @@ export function OpportunityControls({
     push({ run: "1" }, { triggerBuild: true });
   };
 
+  const deepScan = async () => {
+    if (!itemClass || scanning) return;
+    setScanning(true);
+    setScanMessage(null);
+    const id = oppsProgressId(league, itemClass, ilvl, baseId || undefined);
+    setJobId(id);
+    try {
+      const res = await fetch("/api/jobs/enqueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "scan:class",
+          payload: {
+            league,
+            itemClass,
+            itemLevel: Number.parseInt(ilvl, 10) || 82,
+          },
+          id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to enqueue scan");
+      setScanMessage(
+        "Deep scan queued — run `npm run market:worker` locally, or wait if a worker is already running.",
+      );
+    } catch (err) {
+      setScanMessage(
+        err instanceof Error ? err.message : "Failed to enqueue scan.",
+      );
+    } finally {
+      setScanning(false);
+    }
+  };
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+    <div className="space-y-3">
+      <ToolbarGroup className="w-full">
         <select
-          className="input"
+          className="input min-w-0 flex-1 md:max-w-xs"
           value={itemClass}
           onChange={(e) =>
             push({ class: e.target.value || null, base: null, run: null })
@@ -84,7 +121,7 @@ export function OpportunityControls({
         </select>
         {itemClass ? (
           <select
-            className="input"
+            className="input min-w-0 flex-1 md:max-w-xs"
             value={baseId}
             onChange={(e) => push({ base: e.target.value || null, run: null })}
             title="Pin the search to one base, or let the planner pick the best base per combo"
@@ -118,21 +155,56 @@ export function OpportunityControls({
             }}
           />
         </div>
-        {view === "crafts" ? (
-          <button
-            type="button"
-            className="btn btn-primary shrink-0 disabled:opacity-50"
-            disabled={!itemClass || isPending}
-            onClick={rank}
-          >
-            {isPending && isRunning
-              ? "Ranking…"
-              : "Rank craft opportunities"}
-          </button>
-        ) : null}
         <span className="text-xs text-forge-gold/50">league: {league}</span>
-      </div>
-      <LiveProgress jobId={jobId} active={isPending} showLog={3} />
+      </ToolbarGroup>
+
+      {view === "crafts" ? (
+        <ToolbarGroup>
+          <ActionWithInfo
+            label="Rank live (quick)"
+            summary="Builds profit-ranked craft opportunities now from existing market data."
+            detail={[
+              "Uses samples and probes already stored from the Market page.",
+              "Runs Monte Carlo + planner for up to ~6 combos per build.",
+              "Results appear immediately but are not persisted after refresh.",
+              "Best when Market data is fresh — no new tier enumeration.",
+            ]}
+          >
+            <button
+              type="button"
+              className="btn btn-primary disabled:opacity-50 max-sm:w-full"
+              disabled={!itemClass || isPending}
+              onClick={rank}
+            >
+              {isPending && isRunning ? "Ranking…" : "Rank live (quick)"}
+            </button>
+          </ActionWithInfo>
+          <ActionWithInfo
+            label="Deep scan"
+            summary="Queues a thorough background scan with tier combos and stored rankings."
+            detail={[
+              "Enqueues a scan:class job via the durable worker queue.",
+              "Requires npm run market:worker running locally.",
+              "Probes up to ~30 tier-aware combos and simulates up to ~20.",
+              "Writes market_scan_results — page loads rankings instantly later.",
+            ]}
+          >
+            <button
+              type="button"
+              className="btn disabled:opacity-50 max-sm:w-full"
+              disabled={!itemClass || scanning}
+              onClick={deepScan}
+            >
+              {scanning ? "Queueing…" : "Deep scan"}
+            </button>
+          </ActionWithInfo>
+        </ToolbarGroup>
+      ) : null}
+
+      <LiveProgress jobId={jobId} active={isPending || scanning} showLog={3} />
+      {scanMessage ? (
+        <p className="text-xs text-forge-gold/60">{scanMessage}</p>
+      ) : null}
     </div>
   );
 }

@@ -40,7 +40,7 @@ export function InfoTip({
         ?
       </button>
       {open ? (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-md border border-forge-border bg-forge-panel p-3 shadow-lg">
+        <div className="absolute left-0 right-auto top-full z-50 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-md border border-forge-border bg-forge-panel p-3 shadow-lg sm:left-0 sm:right-auto">
           <p className="text-xs font-semibold text-forge-goldbright">{label}</p>
           <p className="mt-1 text-[11px] text-forge-gold/75">{summary}</p>
           <ul className="mt-2 list-inside list-disc space-y-1 text-[11px] text-forge-gold/60">

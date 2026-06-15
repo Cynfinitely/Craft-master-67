@@ -12,6 +12,7 @@ import { listManualSales } from "@/lib/market/manual";
 import { getProbes, type ComboProbe } from "@/lib/market/probes";
 import { formatCost } from "@/lib/pricing/format";
 import { listMetaItems } from "@/lib/market/meta";
+import { resolveCraftPlanHref } from "@/lib/market/craftLinks";
 import { InfoTip } from "@/components/InfoTip";
 import { MarketControls } from "@/components/market/MarketControls";
 import { ManualSales } from "@/components/market/ManualSales";
@@ -107,10 +108,12 @@ function ProbeTable({
   probes,
   itemClass,
   divinePrice,
+  craftHrefById,
 }: {
   probes: ComboProbe[];
   itemClass: string;
   divinePrice: number;
+  craftHrefById: Map<string, string>;
 }) {
   if (probes.length === 0) return null;
   return (
@@ -137,7 +140,7 @@ function ProbeTable({
       </div>
       <ul className="divide-y divide-forge-border/40">
         {probes.map((p) => {
-          const craftHref = `/craft?mode=recommend&class=${encodeURIComponent(itemClass)}&ilvl=82&groups=${encodeURIComponent(p.groups.join(","))}`;
+          const craftHref = craftHrefById.get(p.id);
           const saturated = p.listingCount >= 200;
           return (
             <li key={p.id} className="px-4 py-2.5">
@@ -185,14 +188,23 @@ function ProbeTable({
                   </div>
                   <div className="text-[11px] text-forge-gold/45">
                     median of cheapest asks
+                    {p.medianAskExalted != null ? (
+                      <>
+                        {" "}
+                        · est. sale{" "}
+                        {formatCost(p.medianAskExalted, divinePrice)}
+                      </>
+                    ) : null}
                   </div>
                   <div className="mt-1 flex justify-end gap-2 text-[11px]">
-                    <Link
-                      href={craftHref}
-                      className="text-forge-gold/70 underline hover:text-forge-goldbright"
-                    >
-                      plan craft →
-                    </Link>
+                    {craftHref ? (
+                      <Link
+                        href={craftHref}
+                        className="text-forge-gold/70 underline hover:text-forge-goldbright"
+                      >
+                        plan craft →
+                      </Link>
+                    ) : null}
                     {p.tradeUrl ? (
                       <a
                         href={p.tradeUrl}
@@ -261,6 +273,7 @@ export default async function MarketPage({
 
   // Map combo stat-ids back to mod groups so combos can link to the planner.
   const craftLinks = new Map<string, string>();
+  const probeCraftLinks = new Map<string, string>();
   if (itemClass && combosBySize.size > 0) {
     try {
       const bases = await searchBases({ itemClass, limit: 500 });
@@ -283,13 +296,34 @@ export default async function MarketPage({
           if (ok && groups.length > 0) {
             craftLinks.set(
               c.key,
-              `/craft?mode=recommend&class=${encodeURIComponent(itemClass)}&ilvl=82&groups=${encodeURIComponent(groups.join(","))}`,
+              await resolveCraftPlanHref({
+                itemClass,
+                groups,
+                league,
+              }),
             );
           }
         }
       }
     } catch {
       /* links are optional */
+    }
+  }
+
+  if (itemClass && probes.length > 0) {
+    for (const p of probes) {
+      try {
+        probeCraftLinks.set(
+          p.id,
+          await resolveCraftPlanHref({
+            itemClass,
+            groups: p.groups,
+            league,
+          }),
+        );
+      } catch {
+        /* optional */
+      }
     }
   }
 
@@ -337,6 +371,7 @@ export default async function MarketPage({
             probes={probes}
             itemClass={itemClass}
             divinePrice={divinePrice}
+            craftHrefById={probeCraftLinks}
           />
           {probes.length === 0 ? (
             <div className="panel px-4 py-3 text-sm text-forge-gold/55">

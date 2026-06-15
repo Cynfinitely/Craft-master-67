@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type { MaterialTier } from "@/lib/materials/source";
 import {
   CurrencyTierTable,
@@ -55,10 +56,10 @@ export interface MaterialsCatalog {
 
 type TabId = "essentials" | "league" | "gems";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "essentials", label: "Crafting essentials" },
-  { id: "league", label: "League materials" },
-  { id: "gems", label: "Gems & other" },
+const TABS: { value: TabId; label: string }[] = [
+  { value: "essentials", label: "Crafting essentials" },
+  { value: "league", label: "League materials" },
+  { value: "gems", label: "Gems & other" },
 ];
 
 function matchesSearch(m: MaterialView, needle: string): boolean {
@@ -161,20 +162,6 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
     return filtered.gemsGroups.reduce((n, g) => n + g.items.length, 0);
   }, [filtered, tab]);
 
-  const tabBtn = (id: TabId, label: string) => (
-    <button
-      type="button"
-      onClick={() => setTab(id)}
-      className={`flex-1 rounded px-3 py-1.5 text-sm transition-colors ${
-        tab === id
-          ? "bg-forge-rust/30 text-forge-goldbright"
-          : "text-forge-gold/70 hover:text-forge-goldbright"
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="space-y-4">
       <div className="panel flex flex-col gap-2 p-4 sm:flex-row">
@@ -186,9 +173,16 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
         />
       </div>
 
-      <div className="flex gap-1 rounded-md border border-forge-border bg-forge-panel2 p-1">
-        {TABS.map((t) => tabBtn(t.id, t.label))}
-      </div>
+      <SegmentedControl
+        value={tab}
+        onChange={setTab}
+        options={TABS}
+        shortLabels={{
+          essentials: "Essentials",
+          league: "League",
+          gems: "Gems",
+        }}
+      />
 
       <p className="text-xs text-forge-gold/40">{tabCount} materials in view</p>
 

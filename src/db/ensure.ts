@@ -91,6 +91,46 @@ CREATE TABLE IF NOT EXISTS meta_items (
   added_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS meta_items_class_idx ON meta_items(league, item_class);
+CREATE TABLE IF NOT EXISTS market_jobs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  log TEXT NOT NULL DEFAULT '[]',
+  current INTEGER,
+  total INTEGER,
+  run_at INTEGER NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS market_jobs_status_run_idx ON market_jobs(status, run_at);
+CREATE INDEX IF NOT EXISTS market_jobs_kind_idx ON market_jobs(kind);
+CREATE TABLE IF NOT EXISTS market_scan_results (
+  id TEXT PRIMARY KEY,
+  league TEXT NOT NULL,
+  item_class TEXT NOT NULL,
+  combo_key TEXT NOT NULL,
+  groups TEXT NOT NULL,
+  tier_groups TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  confidence TEXT NOT NULL,
+  profit_p50_exalted REAL NOT NULL,
+  scanned_at INTEGER NOT NULL,
+  base_id TEXT
+);
+CREATE INDEX IF NOT EXISTS market_scan_results_class_idx ON market_scan_results(league, item_class);
+CREATE INDEX IF NOT EXISTS market_scan_results_scanned_idx ON market_scan_results(scanned_at);
+CREATE INDEX IF NOT EXISTS market_scan_results_profit_idx ON market_scan_results(league, item_class, profit_p50_exalted);
+CREATE TABLE IF NOT EXISTS trade_rate_state (
+  key TEXT PRIMARY KEY,
+  next_allowed_at INTEGER NOT NULL,
+  payload TEXT,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 /** Columns added to existing tables after they shipped (idempotent ALTERs —

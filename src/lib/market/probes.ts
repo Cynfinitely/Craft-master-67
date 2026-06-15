@@ -50,9 +50,8 @@ export interface ComboProbe {
   fetchedAt: number;
 }
 
-/** Meta archetype templates (repoe mod-group names, verified against the DB).
- * Templates not fully present in a class's pool are skipped automatically. */
-const META_TEMPLATES: string[][] = [
+/** Meta archetype templates (repoe mod-group names, verified against the DB). */
+export const META_TEMPLATES: string[][] = [
   // Armour / jewellery staples
   ["IncreasedLife", "FireResistance"],
   ["IncreasedLife", "ColdResistance"],

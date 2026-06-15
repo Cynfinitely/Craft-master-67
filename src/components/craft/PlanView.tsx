@@ -1,6 +1,11 @@
 import Link from "next/link";
 import type { CraftMethod, CraftPlan } from "@/lib/solver/types";
 import { formatCost } from "@/lib/pricing/format";
+import {
+  methodSortLabel,
+  topMethodBadge,
+  type MethodSortMode,
+} from "@/lib/solver/methodSort";
 import { SavePlanButton } from "./SavePlanButton";
 
 function oddsLabel(odds?: number): string {
@@ -17,10 +22,12 @@ function MethodCard({
   method,
   rank,
   divinePriceExalted,
+  sortMode,
 }: {
   method: CraftMethod;
   rank: number;
   divinePriceExalted: number;
+  sortMode: MethodSortMode;
 }) {
   return (
     <div className="panel p-4">
@@ -29,7 +36,7 @@ function MethodCard({
           <h3 className="flex items-center gap-2 font-semibold text-forge-goldbright">
             {rank === 0 ? (
               <span className="rounded bg-rarity-currency/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rarity-currency">
-                cheapest
+                {topMethodBadge(sortMode)}
               </span>
             ) : null}
             {method.name}
@@ -167,7 +174,15 @@ function MethodCard({
   );
 }
 
-export function PlanView({ plan }: { plan: CraftPlan }) {
+export function PlanView({
+  plan,
+  sortLinks,
+}: {
+  plan: CraftPlan;
+  /** hrefs for method sort toggles (cost / profit / roi). */
+  sortLinks?: Partial<Record<MethodSortMode, string>>;
+}) {
+  const sortMode = plan.methodSort ?? "cost";
   return (
     <div className="space-y-4">
       {plan.warnings.length > 0 ? (
@@ -206,7 +221,11 @@ export function PlanView({ plan }: { plan: CraftPlan }) {
                 </span>{" "}
                 <span className="text-xs text-forge-gold/50">
                   {plan.estimatedSale.source === "probe"
-                    ? `(exact combo probe — ${plan.estimatedSale.sampleCount} listed on trade)`
+                    ? `(exact combo probe — ${plan.estimatedSale.sampleCount} listed on trade${
+                        plan.estimatedSale.timeToSellDays != null
+                          ? ` · ~${plan.estimatedSale.timeToSellDays}d to sell`
+                          : ""
+                      })`
                     : `(median of ${plan.estimatedSale.sampleCount} ${
                         plan.estimatedSale.source === "manual"
                           ? "manual sale"
@@ -251,15 +270,35 @@ export function PlanView({ plan }: { plan: CraftPlan }) {
         </div>
       ) : (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-            Crafting methods (cheapest first)
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+              Crafting methods ({methodSortLabel(sortMode)})
+            </h3>
+            {sortLinks && plan.estimatedSale ? (
+              <div className="flex flex-wrap gap-1">
+                {(["cost", "profit", "roi"] as const).map((mode) => (
+                  <Link
+                    key={mode}
+                    href={sortLinks[mode] ?? "#"}
+                    className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                      sortMode === mode
+                        ? "bg-forge-gold/20 font-semibold text-forge-goldbright"
+                        : "text-forge-gold/55 hover:text-forge-gold"
+                    }`}
+                  >
+                    {mode === "cost" ? "Cost" : mode === "profit" ? "Profit" : "ROI"}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
           {plan.methods.map((m, i) => (
             <MethodCard
               key={m.id}
               method={m}
               rank={i}
               divinePriceExalted={plan.divinePriceExalted ?? 0}
+              sortMode={sortMode}
             />
           ))}
         </div>

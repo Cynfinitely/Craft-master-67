@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PlanCraftLink } from "@/components/items/PlanCraftLink";
 import {
   getModPool,
   getModTexts,
@@ -6,6 +6,7 @@ import {
   listCraftableCategories,
   searchBases,
 } from "@/lib/data";
+import { BasePickerPanel } from "@/components/bases/BasePickerPanel";
 import { ItemControls } from "@/components/items/ItemControls";
 import { BaseHeader } from "@/components/items/BaseHeader";
 import { ModColumn } from "@/components/items/ModColumn";
@@ -24,6 +25,24 @@ function clampIlvl(raw: string | undefined): number {
   const n = Number.parseInt(raw ?? "82", 10);
   if (Number.isNaN(n)) return 82;
   return Math.min(100, Math.max(1, n));
+}
+
+function buildFilterParams(
+  searchParams: {
+    q?: string;
+    class?: string;
+    ilvl?: string;
+    tag?: string;
+  },
+  itemLevel: number,
+  tag: string,
+): URLSearchParams {
+  const p = new URLSearchParams();
+  if (searchParams.q) p.set("q", searchParams.q);
+  if (searchParams.class) p.set("class", searchParams.class);
+  if (tag) p.set("tag", tag);
+  p.set("ilvl", String(itemLevel));
+  return p;
 }
 
 export default async function ItemsPage({
@@ -57,7 +76,6 @@ export default async function ItemsPage({
     : undefined;
   const favorited = pool ? await isFavorite(pool.base.id) : false;
 
-  // Essence-guaranteeable groups and optional tag filtering of the pool.
   const tag = searchParams.tag?.trim() || "";
   const guaranteed = pool
     ? guaranteedGroups(pool.base.itemClass, [
@@ -69,16 +87,29 @@ export default async function ItemsPage({
   const prefixes = pool ? pool.prefixes.filter(tagFilter) : [];
   const suffixes = pool ? pool.suffixes.filter(tagFilter) : [];
 
-  // Build hrefs that preserve current filters while selecting a base.
   const buildBaseHref = (baseId: string) => {
-    const p = new URLSearchParams();
-    if (searchParams.q) p.set("q", searchParams.q);
-    if (searchParams.class) p.set("class", searchParams.class);
-    if (tag) p.set("tag", tag);
-    p.set("ilvl", String(itemLevel));
+    const p = buildFilterParams(searchParams, itemLevel, tag);
     p.set("base", baseId);
     return `/items?${p.toString()}`;
   };
+
+  const buildClearBaseHref = () => {
+    const p = buildFilterParams(searchParams, itemLevel, tag);
+    return `/items?${p.toString()}`;
+  };
+
+  const steps = pool
+    ? [
+        { label: "1. Filter" },
+        { label: "2. Select base" },
+        { label: "3. Explore mods", active: true },
+      ]
+    : filterActive
+      ? [
+          { label: "1. Filter" },
+          { label: "2. Select base", active: true },
+        ]
+      : [{ label: "1. Filter", active: true }];
 
   return (
     <div className="space-y-5">
@@ -92,69 +123,28 @@ export default async function ItemsPage({
         </p>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr] xl:grid-cols-[minmax(320px,400px)_1fr_1fr]">
         <div className="space-y-3">
           <div className="panel p-4">
             <ItemControls classes={categories} tags={[...NOTABLE_TAGS]} />
           </div>
-          <div className="panel max-h-[70vh] overflow-y-auto">
-            {!filterActive ? (
-              <div className="p-6 text-center text-sm text-forge-gold/50">
-                <p className="font-medium text-forge-gold/70">
-                  Step 1: Filter bases
-                </p>
-                <p className="mt-2">
-                  Choose an item class or search for a base name (min. 2
-                  characters).
-                </p>
-              </div>
-            ) : results.length === 0 ? (
-              <p className="p-4 text-sm text-forge-gold/50">
-                No bases match your search.
-              </p>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2 border-b border-forge-border/50 px-4 py-2">
-                  <span className="text-xs text-forge-gold/50">
-                    {results.length} base{results.length === 1 ? "" : "s"}
-                  </span>
-                  {searchParams.class ? (
-                    <span className="tag-chip">{searchParams.class}</span>
-                  ) : null}
-                  {searchParams.q?.trim() ? (
-                    <span className="tag-chip">
-                      &ldquo;{searchParams.q.trim()}&rdquo;
-                    </span>
-                  ) : null}
-                </div>
-                <ul className="divide-y divide-forge-border/50">
-                {results.map((b) => {
-                  const active = b.id === searchParams.base;
-                  return (
-                    <li key={b.id}>
-                      <Link
-                        href={buildBaseHref(b.id)}
-                        className={`flex items-center justify-between gap-2 px-4 py-2 text-sm transition-colors ${
-                          active
-                            ? "bg-forge-panel2 text-forge-goldbright"
-                            : "text-forge-gold/80 hover:bg-forge-panel2/60"
-                        }`}
-                      >
-                        <span>{b.name}</span>
-                        <span className="shrink-0 text-[11px] text-forge-gold/40">
-                          {b.itemClass}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-                </ul>
-              </>
-            )}
-          </div>
+          <BasePickerPanel
+            filterActive={filterActive}
+            results={results}
+            selectedBase={pool?.base}
+            selectedBaseId={searchParams.base}
+            itemClass={searchParams.class}
+            query={searchParams.q}
+            itemLevel={itemLevel}
+            buildBaseHref={buildBaseHref}
+            buildClearBaseHref={buildClearBaseHref}
+            maxHeight="70vh"
+            steps={steps}
+            emptyHint="Choose an item class or search for a base name (min. 2 characters) above."
+          />
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 xl:col-span-2">
           {!pool ? (
             <div className="panel p-10 text-center text-forge-gold/50">
               Select a base item from the list to view its modifier pool.
@@ -166,14 +156,11 @@ export default async function ItemsPage({
                 implicitTexts={implicitTexts}
                 itemLevel={pool.itemLevel}
               >
-                <div className="flex shrink-0 gap-2">
+                <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto">
                   <FavoriteButton baseId={pool.base.id} initial={favorited} />
-                  <Link
+                  <PlanCraftLink
                     href={`/craft?base=${encodeURIComponent(pool.base.id)}&ilvl=${pool.itemLevel}`}
-                    className="btn btn-primary"
-                  >
-                    Plan a craft
-                  </Link>
+                  />
                 </div>
               </BaseHeader>
               <div className="grid gap-4 md:grid-cols-2">

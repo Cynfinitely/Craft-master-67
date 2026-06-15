@@ -3,6 +3,7 @@ import { listCraftableCategories, searchBases } from "@/lib/data";
 import { getCurrentLeagueName, getPrices } from "@/lib/pricing/poe2scout";
 import { getOpportunities } from "@/lib/market/opportunities";
 import { getSampleSummary } from "@/lib/market/analytics";
+import { getStoredOpportunities } from "@/lib/market/scanResults";
 import { formatCost } from "@/lib/pricing/format";
 import { OpportunityControls } from "@/components/market/OpportunityControls";
 import { SnipePanel } from "@/components/market/SnipePanel";
@@ -10,6 +11,15 @@ import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
 import { oppsProgressId } from "@/lib/progressId";
 
 export const dynamic = "force-dynamic";
+
+function timeAgo(ts: number): string {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 export default async function OpportunitiesPage({
   searchParams,
@@ -38,6 +48,12 @@ export default async function OpportunitiesPage({
   const view = searchParams.view === "snipes" ? "snipes" : "crafts";
   const shouldBuild =
     !!itemClass && view === "crafts" && searchParams.run === "1";
+
+  const stored =
+    itemClass && view === "crafts" && !shouldBuild
+      ? await getStoredOpportunities({ league, itemClass })
+      : null;
+
   const initialSpecId = Number.parseInt(searchParams.spec ?? "", 10);
   const itemLevel = Math.min(
     100,
@@ -53,10 +69,8 @@ export default async function OpportunitiesPage({
   const pinnedBaseName =
     classBases.find((b) => b.id === baseId)?.name ?? null;
 
-  // Crafts-view-only data: skip entirely on the snipes tab so switching
-  // tabs stays cheap (the SnipePanel fetches its own data client-side).
   let divinePrice = 0;
-  if (shouldBuild) {
+  if (itemClass && view === "crafts") {
     try {
       divinePrice = (await getPrices(league)).divinePrice;
     } catch {
@@ -67,7 +81,16 @@ export default async function OpportunitiesPage({
   const summary = shouldBuild
     ? await getSampleSummary({ league, itemClass: itemClass! })
     : null;
-  let result = { opportunities: [] as Awaited<ReturnType<typeof getOpportunities>>["opportunities"], unmappedCombos: 0 };
+  let result = {
+    opportunities: [] as Awaited<
+      ReturnType<typeof getOpportunities>
+    >["opportunities"],
+    unmappedCombos: 0,
+  };
+  let dataSource: "stored" | "live" | null = stored?.opportunities.length
+    ? "stored"
+    : null;
+
   if (shouldBuild) {
     // Deterministic job id: the still-mounted controls on the OLD page poll
     // this id during navigation and show what the build is doing live.
@@ -97,8 +120,15 @@ export default async function OpportunitiesPage({
       );
       throw err;
     }
+    dataSource = "live";
+  } else if (stored && stored.opportunities.length > 0) {
+    result = {
+      opportunities: stored.opportunities,
+      unmappedCombos: 0,
+    };
   }
   const { opportunities, unmappedCombos } = result;
+  const scanSummary = stored?.summary ?? null;
 
   const tabHref = (v: string) => {
     const next = new URLSearchParams();
@@ -133,7 +163,7 @@ export default async function OpportunitiesPage({
         />
       </div>
 
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5 overflow-x-auto">
         {[
           { id: "crafts", label: "Craft from scratch" },
           { id: "snipes", label: "Snipe & finish" },
@@ -157,7 +187,7 @@ export default async function OpportunitiesPage({
           Choose an item class to rank its{" "}
           {view === "snipes" ? "snipe-and-finish" : "craft"} opportunities.
         </div>
-      ) : view === "crafts" && !shouldBuild ? (
+      ) : view === "crafts" && !shouldBuild && opportunities.length === 0 ? (
         <div className="panel p-8 text-center text-forge-gold/50">
           <p>
             Options set for{" "}
@@ -169,8 +199,13 @@ export default async function OpportunitiesPage({
             .
           </p>
           <p className="mt-2">
-            Click <span className="font-semibold text-forge-gold/75">Rank craft opportunities</span>{" "}
-            above to build the ranking.
+            Precomputed rankings appear here after a{" "}
+            <span className="font-semibold text-forge-gold/75">Deep scan</span>{" "}
+            (worker), or click{" "}
+            <span className="font-semibold text-forge-gold/75">
+              Rank live (quick)
+            </span>{" "}
+            for an on-demand build.
           </p>
         </div>
       ) : view === "snipes" ? (
@@ -214,6 +249,22 @@ export default async function OpportunitiesPage({
         </div>
       ) : (
         <div className="space-y-3">
+          {dataSource === "stored" && scanSummary?.newestScannedAt ? (
+            <div className="panel flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-xs text-forge-gold/60">
+              <span>
+                Precomputed ranking · scanned{" "}
+                {timeAgo(scanSummary.newestScannedAt)}
+              </span>
+              <span>{scanSummary.resultCount} opportunities stored</span>
+              <Link
+                href={`/opportunities?class=${encodeURIComponent(itemClass!)}&run=1${baseId ? `&base=${encodeURIComponent(baseId)}` : ""}&ilvl=${itemLevel}`}
+                className="text-forge-gold underline hover:text-forge-goldbright"
+              >
+                Rebuild live →
+              </Link>
+            </div>
+          ) : null}
+          <div className="grid gap-3 xl:grid-cols-2">
           {opportunities.map((o, rank) => (
             <div key={o.key} className="panel p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -361,6 +412,7 @@ export default async function OpportunitiesPage({
               </div>
             </div>
           ))}
+          </div>
           <p className="text-xs text-forge-gold/40">
             Profit = batch hits × median ask + near-miss resale − batch cost
             (Monte Carlo hit rates × live prices). p10/p50/p90 span the

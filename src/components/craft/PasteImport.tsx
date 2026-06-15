@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CraftPlan } from "@/lib/solver/types";
+import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 import { PlanView } from "./PlanView";
 
 interface ResolvedMod {
@@ -98,15 +99,26 @@ export function PasteImport() {
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="button"
-            className="btn"
-            onClick={submit}
-            disabled={loading || !text.trim()}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <ActionWithInfo
+            label="Find crafting paths"
+            summary="Parses clipboard item text and builds a tier-accurate plan."
+            detail={[
+              "Matches base type and modifier groups from in-game paste.",
+              "Resolves tier labels and desecrated/runeforged requirements.",
+              "Calls the planner API — may take a few seconds.",
+              "Use Ctrl+C on an item in-game, then paste here.",
+            ]}
           >
-            {loading ? "Analyzing…" : "Find crafting paths"}
-          </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={submit}
+              disabled={loading || !text.trim()}
+            >
+              {loading ? "Analyzing…" : "Find crafting paths"}
+            </button>
+          </ActionWithInfo>
           {resolved?.baseName ? (
             <span className="text-sm text-forge-gold/60">
               Matched base:{" "}

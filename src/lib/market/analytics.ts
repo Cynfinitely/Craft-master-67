@@ -218,6 +218,8 @@ export interface SaleEstimate {
   source: "probe" | "trade" | "manual" | "mixed";
   /** Measured demand (items/day) when the backing probe has snapshot data. */
   sellThroughPerDay?: number | null;
+  /** Rough days to sell when probe-backed supply data exists. */
+  timeToSellDays?: number | null;
 }
 
 export interface VelocityAdjustment {
@@ -305,11 +307,18 @@ export async function estimateSaleValue(opts: {
         statIdsPerGroup: opts.statIdsPerGroup,
       });
       if (probe && probe.medianAskExalted != null && probe.listingCount > 0) {
+        const velAdj = velocityAdjustedSale(
+          probe.medianAskExalted,
+          probe.listingCount,
+          probe.recentCount,
+          probe.sellThroughPerDay,
+        );
         return {
           priceExalted: probe.medianAskExalted,
           sampleCount: probe.listingCount,
           source: "probe",
           sellThroughPerDay: probe.sellThroughPerDay,
+          timeToSellDays: velAdj.timeToSellDays,
         };
       }
     } catch {

@@ -2,6 +2,9 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { InfoTip } from "@/components/InfoTip";
+import { ClassCombobox } from "@/components/ui/ClassCombobox";
+import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
 
 export function ItemControls({
   classes,
@@ -26,14 +29,13 @@ export function ItemControls({
     router.push(`${pathname}?${next.toString()}`);
   };
 
-  // Debounce the free-text search.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
     const handle = setTimeout(() => {
-      setParam({ q: q || null });
+      setParam({ q: q || null, base: null });
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -45,29 +47,33 @@ export function ItemControls({
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-forge-gold/50">
+          Filters
+        </span>
+        <InfoTip
+          label="How to browse items"
+          summary="Filter bases, pick one, then explore its modifier pool."
+          detail={[
+            "Choose an item class or type at least 2 characters in search.",
+            "Pick a base from the list — the list collapses to your selection.",
+            "Use “Change base” to browse again without losing your filters.",
+            "Tag filter narrows the prefix/suffix columns on the right.",
+          ]}
+        />
+      </div>
       <input
         className="input"
         placeholder="Search base items (e.g. Sapphire Ring)"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
-      <div className="flex gap-2">
-        <select
-          className="input"
+      <FilterFieldRow>
+        <ClassCombobox
+          categories={classes}
           value={itemClass}
-          onChange={(e) => setParam({ class: e.target.value || null })}
-        >
-          <option value="">Choose an item class…</option>
-          {classes.map((cat) => (
-            <optgroup key={cat.category} label={cat.category}>
-              {cat.classes.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+          onChange={(v) => setParam({ class: v || null, base: null })}
+        />
         <div className="flex shrink-0 items-center gap-1.5">
           <label className="text-xs text-forge-gold/60">iLvl</label>
           <input
@@ -79,7 +85,7 @@ export function ItemControls({
             onChange={(e) => setParam({ ilvl: e.target.value || "82" })}
           />
         </div>
-      </div>
+      </FilterFieldRow>
       <select
         className="input"
         value={tag}

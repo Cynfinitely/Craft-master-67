@@ -45,17 +45,17 @@ export default function HomePage() {
           the modifier pools of any item, learn what crafting materials do, plan
           a path to the item you want, and estimate the cost.
         </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Link href="/items" className="btn btn-primary">
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Link href="/items" className="btn btn-primary w-full sm:w-auto">
             Browse items &amp; mods
           </Link>
-          <Link href="/craft" className="btn">
+          <Link href="/craft" className="btn w-full sm:w-auto">
             Plan a craft
           </Link>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {FEATURES.map((f) => (
           <Link
             key={f.href}

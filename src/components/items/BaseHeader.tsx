@@ -17,8 +17,8 @@ export function BaseHeader({
 
   return (
     <div className="panel p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold text-rarity-normal">
             {base.name}
           </h2>
