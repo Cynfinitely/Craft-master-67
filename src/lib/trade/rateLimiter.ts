@@ -4,7 +4,10 @@ import { ensureAppTables } from "@/db/ensure";
 import { tradeRateState } from "@/db/schema";
 
 const STATE_KEY = "default";
-const MIN_SPACING_MS = 1500;
+export const MIN_SPACING_MS = 2800;
+/** Hard ceiling on any single cooldown — guards against a poisoned/stale
+ * persisted backoff (e.g. an oversized header window) stalling work forever. */
+const MAX_COOLDOWN_MS = 5 * 60 * 1000;
 
 export interface TradeRateLimiterState {
   nextAllowedAt: number;
@@ -29,11 +32,9 @@ export function createTradeRateLimiter(opts?: {
   const minSpacingMs = opts?.minSpacingMs ?? MIN_SPACING_MS;
   let queueTail: Promise<unknown> = Promise.resolve();
   let nextAllowedAt = 0;
-  let loaded = false;
 
-  async function loadPersisted(): Promise<void> {
-    if (loaded || opts?.persist === false) return;
-    loaded = true;
+  async function reloadPersisted(): Promise<void> {
+    if (opts?.persist === false) return;
     try {
       await ensureAppTables();
       const db = getDb();
@@ -43,7 +44,11 @@ export function createTradeRateLimiter(opts?: {
         .where(eq(tradeRateState.key, STATE_KEY))
         .limit(1);
       if (rows[0]) {
-        nextAllowedAt = Math.max(nextAllowedAt, rows[0].nextAllowedAt);
+        const capped = Math.min(
+          rows[0].nextAllowedAt,
+          Date.now() + MAX_COOLDOWN_MS,
+        );
+        nextAllowedAt = Math.max(nextAllowedAt, capped);
       }
     } catch {
       /* persistence optional */
@@ -80,12 +85,15 @@ export function createTradeRateLimiter(opts?: {
   return {
     schedule<T>(fn: () => Promise<T>): Promise<T> {
       const run = async () => {
-        await loadPersisted();
+        await reloadPersisted();
         const now = Date.now();
         if (now < nextAllowedAt) await sleep(nextAllowedAt - now);
-        nextAllowedAt = Date.now() + minSpacingMs;
-        await persistNextAllowedAt(nextAllowedAt);
-        return fn();
+        try {
+          return await fn();
+        } finally {
+          nextAllowedAt = Math.max(nextAllowedAt, Date.now() + minSpacingMs);
+          await persistNextAllowedAt(nextAllowedAt);
+        }
       };
       const p = queueTail.then(run, run);
       queueTail = p.catch(() => {});
@@ -114,6 +122,39 @@ export function setTradeRateLimiter(limiter: TradeRateLimiter | null): void {
   sharedLimiter = limiter;
 }
 
+/**
+ * Remaining shared trade cooldown in ms (from DB + in-memory), without
+ * blocking. Callers can decide whether to wait inline or reschedule.
+ */
+export async function getTradeCooldownMs(): Promise<number> {
+  const limiter = getTradeRateLimiter();
+  let nextAt = limiter.getState().nextAllowedAt;
+  try {
+    await ensureAppTables();
+    const rows = await getDb()
+      .select()
+      .from(tradeRateState)
+      .where(eq(tradeRateState.key, STATE_KEY))
+      .limit(1);
+    if (rows[0]) nextAt = Math.max(nextAt, rows[0].nextAllowedAt);
+  } catch {
+    /* optional */
+  }
+  return Math.min(MAX_COOLDOWN_MS, Math.max(0, nextAt - Date.now()));
+}
+
+/**
+ * Blocks until the shared trade cooldown (from DB + in-memory) elapses.
+ */
+export async function waitForTradeCooldown(): Promise<void> {
+  const waitMs = await getTradeCooldownMs();
+  if (waitMs > 0) await sleep(waitMs);
+}
+
+/** Upper bound on a proactive header-derived wait; longer backoffs are handled
+ * by rescheduling the job (so the claim never blocks for minutes silently). */
+const MAX_HEADER_WAIT_MS = 60_000;
+
 export function rateHeaderWaitMs(res: Response): number {
   const limits = res.headers.get("x-rate-limit-ip");
   const state = res.headers.get("x-rate-limit-ip-state");
@@ -125,9 +166,17 @@ export function rateHeaderWaitMs(res: Response): number {
     const [max, period] = lim[i];
     const [current] = st[i];
     if (!max || !period) continue;
-    if (current >= max) wait = Math.max(wait, period * 1000);
-    else if (current >= max - 1) wait = Math.max(wait, (period * 1000) / 2);
-    else if (current >= max - 2) wait = Math.max(wait, (period * 1000) / max);
+    const periodMs = period * 1000;
+    if (current >= max) wait = Math.max(wait, periodMs);
+    else if (current >= max - 1) wait = Math.max(wait, periodMs / 2);
+    else if (current >= max - 2) wait = Math.max(wait, periodMs / max);
   }
-  return wait;
+  return Math.min(wait, MAX_HEADER_WAIT_MS);
+}
+
+/** Parse Retry-After header into milliseconds (default 12s). */
+export function parseRetryAfterMs(res: Response, defaultSec = 12): number {
+  const retryAfter = Number(res.headers.get("retry-after") ?? String(defaultSec));
+  const sec = Number.isFinite(retryAfter) ? retryAfter + 1 : defaultSec + 1;
+  return sec * 1000;
 }

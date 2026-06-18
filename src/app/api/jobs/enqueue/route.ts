@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { triggerQueuePump } from "@/lib/jobs/pump";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  kind: z.enum(["scan:class", "sample:class", "probe:class"]),
+  kind: z.enum(["scan:class", "sample:class", "probe:class", "scan:gems"]),
   payload: z.record(z.unknown()),
   id: z.string().max(80).optional(),
   runAt: z.number().int().optional(),
@@ -20,6 +21,8 @@ export async function POST(request: Request) {
       payload: body.payload,
       runAt: body.runAt,
     });
+    // Drain the queue inside this process — no separate worker terminal needed.
+    triggerQueuePump();
     return NextResponse.json({ id, kind: body.kind });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Enqueue failed";

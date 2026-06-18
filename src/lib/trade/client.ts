@@ -20,13 +20,15 @@ import { tradeCache } from "@/db/schema";
 const TRADE_BASE = "https://www.pathofexile.com/api/trade2";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-const MIN_SPACING_MS = 1500;
 const MAX_FETCH_IDS = 10;
+const MAX_429_ATTEMPTS = 6;
+const GEM_INTERNAL_GAP_MS = 2000;
 
 export class TradeApiError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "TradeApiError";
@@ -35,13 +37,19 @@ export class TradeApiError extends Error {
 
 import {
   getTradeRateLimiter,
+  parseRetryAfterMs,
   rateHeaderWaitMs,
 } from "@/lib/trade/rateLimiter";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /* ----------------------------- request queue ----------------------------- */
 
 async function executeRequest(path: string, init: RequestInit): Promise<unknown> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  let lastRetryAfterMs = 12_000;
+  for (let attempt = 0; attempt < MAX_429_ATTEMPTS; attempt++) {
     const res = await fetch(`${TRADE_BASE}${path}`, {
       ...init,
       headers: {
@@ -59,10 +67,10 @@ async function executeRequest(path: string, init: RequestInit): Promise<unknown>
     }
 
     if (res.status === 429) {
-      const retryAfter = Number(res.headers.get("retry-after") ?? "10");
-      await new Promise((r) =>
-        setTimeout(r, (Number.isFinite(retryAfter) ? retryAfter + 1 : 11) * 1000),
-      );
+      lastRetryAfterMs = parseRetryAfterMs(res);
+      const limiter = getTradeRateLimiter();
+      await limiter.persistNextAllowedAt(Date.now() + lastRetryAfterMs);
+      await sleep(lastRetryAfterMs);
       continue;
     }
     if (!res.ok) {
@@ -77,7 +85,11 @@ async function executeRequest(path: string, init: RequestInit): Promise<unknown>
     }
     return res.json();
   }
-  throw new TradeApiError(`trade2 rate-limited for ${path} (gave up)`, 429);
+  throw new TradeApiError(
+    `trade2 rate-limited for ${path} (gave up)`,
+    429,
+    lastRetryAfterMs,
+  );
 }
 
 /** Serializes all trade requests through the shared rate limiter. */
@@ -343,6 +355,70 @@ export async function searchAndFetch(
   }
 }
 
+/**
+ * Gem-scan path: one rate-limited slot for search + internal gap + fetch.
+ * Avoids nested enqueue bursts that trip GGG's IP window.
+ */
+export async function searchAndFetchForGem(
+  league: string,
+  query: Record<string, unknown>,
+  opts: { maxListings?: number; ttlMs?: number } = {},
+): Promise<SearchAndFetchResult> {
+  const maxListings = Math.min(100, opts.maxListings ?? 20);
+  const ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
+  const key = `saf:${league}:${maxListings}:${hashKey(query)}`;
+
+  const cached = await readCache(key);
+  if (cached && Date.now() - cached.fetchedAt < ttlMs) {
+    return cached.payload as SearchAndFetchResult;
+  }
+
+  const runLive = async (): Promise<SearchAndFetchResult> => {
+    const searchPath = `/search/poe2/${encodeURIComponent(league)}`;
+    const rawSearch = (await executeRequest(searchPath, {
+      method: "POST",
+      body: JSON.stringify(query),
+    })) as { id?: string; total?: number; result?: string[] };
+    if (!rawSearch?.id || !Array.isArray(rawSearch.result)) {
+      throw new TradeApiError("trade2 search returned an unexpected shape");
+    }
+
+    await sleep(GEM_INTERNAL_GAP_MS);
+
+    const hashes = rawSearch.result.slice(0, maxListings);
+    const listings: TradeListing[] = [];
+    for (let i = 0; i < hashes.length; i += MAX_FETCH_IDS) {
+      if (i > 0) await sleep(GEM_INTERNAL_GAP_MS);
+      const chunk = hashes.slice(i, i + MAX_FETCH_IDS);
+      const rawFetch = (await executeRequest(
+        `/fetch/${chunk.join(",")}?query=${encodeURIComponent(rawSearch.id)}`,
+        { method: "GET" },
+      )) as { result?: (RawListing | null)[] };
+      for (const r of rawFetch?.result ?? []) {
+        if (!r) continue;
+        const parsed = parseListing(r);
+        if (parsed) listings.push(parsed);
+      }
+    }
+
+    return {
+      queryId: rawSearch.id,
+      total: rawSearch.total ?? rawSearch.result.length,
+      listings,
+      tradeUrl: tradeSiteUrl(league, rawSearch.id),
+    };
+  };
+
+  try {
+    const result = await getTradeRateLimiter().schedule(runLive);
+    await writeCache(key, result);
+    return result;
+  } catch (err) {
+    if (cached) return cached.payload as SearchAndFetchResult;
+    throw err;
+  }
+}
+
 export interface TradeStatEntry {
   id: string;
   text: string;
@@ -368,6 +444,37 @@ export async function fetchTradeStatCatalog(): Promise<TradeStatEntry[]> {
   return out;
 }
 
+export interface GemCatalogEntry {
+  /** Exact gem base type used as the trade query `type` (e.g. "Fireball"). */
+  type: string;
+  /** Display text (usually identical to `type`). */
+  text: string;
+}
+
+/**
+ * The "gem" section of `/api/trade2/data/items` — every tradeable gem base
+ * type (skill, support, spirit, meta, Vaal). Entries carry no active/support
+ * flag, so callers that only want corruptable skill gems should drive
+ * discovery off an actual `gem_level >= 21` market search (supports have no
+ * level) and use this catalog only to validate/normalize names. Cached 24h.
+ */
+export async function fetchGemItemCatalog(): Promise<GemCatalogEntry[]> {
+  const raw = (await cachedRequest({
+    key: "data:items:gems",
+    ttlMs: 24 * 60 * 60 * 1000,
+    path: "/data/items",
+  })) as {
+    result?: { id?: string; entries?: { type?: string; text?: string }[] }[];
+  };
+  const section = raw?.result?.find((s) => s.id === "gem");
+  const out: GemCatalogEntry[] = [];
+  for (const e of section?.entries ?? []) {
+    if (!e.type) continue;
+    out.push({ type: e.type, text: e.text ?? e.type });
+  }
+  return out;
+}
+
 /** Browser URL of a search on the official PoE2 trade site. */
 export function tradeSiteUrl(league: string, queryId: string): string {
   return `https://www.pathofexile.com/trade2/search/poe2/${encodeURIComponent(league)}/${queryId}`;
@@ -381,6 +488,26 @@ export async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | nul
   });
   try {
     return await Promise.race([p.catch(() => null), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export class TradeTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`trade request timed out after ${ms}ms`);
+    this.name = "TradeTimeoutError";
+  }
+}
+
+/** Like `withTimeout`, but re-throws errors (including 429) and throws on timeout. */
+export async function withTimeoutStrict<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new TradeTimeoutError(ms)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
   } finally {
     clearTimeout(timer);
   }

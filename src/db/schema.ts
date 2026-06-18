@@ -385,6 +385,50 @@ export const marketScanResults = sqliteTable(
 );
 
 /**
+ * Level-21 / 20%-quality corrupted gem floor prices from trade scans.
+ * One row per (league, gem) — upserted during `scan:gems` worker batches.
+ */
+export const gemCorruptionResults = sqliteTable(
+  "gem_corruption_results",
+  {
+    id: text("id").primaryKey(), // `${league}|${gemType}`
+    league: text("league").notNull(),
+    gemType: text("gem_type").notNull(),
+    /** Cheapest ask among the sampled 21/20 listings, in Exalted. */
+    floorPriceExalted: real("floor_price_exalted"),
+    /** Median of the cheapest sampled listings (stability vs one troll). */
+    medianPriceExalted: real("median_price_exalted"),
+    /** Total online listings matching 21/20 corrupted. */
+    listingCount: integer("listing_count"),
+    /** How many cheapest listings were used for floor/median (5–10). */
+    sampleCount: integer("sample_count"),
+    /** priced | no_listings | error */
+    status: text("status").notNull().default("priced"),
+    /** Human-readable reason when status is error (or last failure before retry). */
+    errorMessage: text("error_message"),
+    tradeUrl: text("trade_url"),
+    fetchedAt: integer("fetched_at").notNull(),
+    // Legacy columns (nullable, no longer written):
+    basePriceExalted: real("base_price_exalted"),
+    corruptedPriceExalted: real("corrupted_price_exalted"),
+    baseListings: integer("base_listings"),
+    corruptedListings: integer("corrupted_listings"),
+    plusOneChance: real("plus_one_chance"),
+    evPerAttempt: real("ev_per_attempt"),
+    profitIfHit: real("profit_if_hit"),
+    vaalCostExalted: real("vaal_cost_exalted"),
+    omenCostExalted: real("omen_cost_exalted"),
+    useOmen: integer("use_omen"),
+    tradeUrlBase: text("trade_url_base"),
+    tradeUrlCorrupted: text("trade_url_corrupted"),
+  },
+  (t) => ({
+    leagueIdx: index("gem_corruption_league_idx").on(t.league),
+    floorIdx: index("gem_corruption_floor_idx").on(t.league, t.floorPriceExalted),
+  }),
+);
+
+/**
  * Persisted trade API rate-limit state (survives worker restarts).
  */
 export const tradeRateState = sqliteTable("trade_rate_state", {
@@ -396,6 +440,7 @@ export const tradeRateState = sqliteTable("trade_rate_state", {
 
 export type MarketJobRow = typeof marketJobs.$inferSelect;
 export type MarketScanResultRow = typeof marketScanResults.$inferSelect;
+export type GemCorruptionResultRow = typeof gemCorruptionResults.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;
 export type SavedPlanRow = typeof savedPlans.$inferSelect;

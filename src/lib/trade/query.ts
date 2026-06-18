@@ -83,6 +83,12 @@ export interface TradeQueryOpts {
   charmSlotsMin?: number;
   /** Minimum augmentable (rune) sockets. */
   runeSocketsMin?: number;
+  /** Gem level bounds (skill/support gems) — emitted into misc_filters. */
+  gemLevelMin?: number;
+  gemLevelMax?: number;
+  /** Quality bounds (gems/gear) — emitted into misc_filters. */
+  qualityMin?: number;
+  qualityMax?: number;
   fractured?: boolean;
   corrupted?: boolean;
   desecrated?: boolean;
@@ -159,6 +165,18 @@ export function buildTradeQuery(opts: TradeQueryOpts): Record<string, unknown> {
   }
 
   const miscFilters: Record<string, unknown> = {};
+  if (opts.gemLevelMin != null || opts.gemLevelMax != null) {
+    miscFilters.gem_level = {
+      ...(opts.gemLevelMin != null ? { min: opts.gemLevelMin } : {}),
+      ...(opts.gemLevelMax != null ? { max: opts.gemLevelMax } : {}),
+    };
+  }
+  if (opts.qualityMin != null || opts.qualityMax != null) {
+    miscFilters.quality = {
+      ...(opts.qualityMin != null ? { min: opts.qualityMin } : {}),
+      ...(opts.qualityMax != null ? { max: opts.qualityMax } : {}),
+    };
+  }
   if (opts.fractured != null) miscFilters.fractured_item = boolOpt(opts.fractured);
   if (opts.corrupted != null) miscFilters.corrupted = boolOpt(opts.corrupted);
   if (opts.desecrated != null) miscFilters.desecrated = boolOpt(opts.desecrated);

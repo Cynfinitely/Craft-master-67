@@ -47,6 +47,20 @@ async function loop(): Promise<void> {
 
 async function main() {
   const itemClass = arg("class");
+  const scanGems = process.argv.includes("--gems");
+  if (scanGems) {
+    const { enqueueJob } = await import("../src/lib/jobs/queue");
+    const league = arg("league") ?? (await resolveLeague());
+    const id = await enqueueJob({
+      kind: "scan:gems",
+      payload: { league, scanStartedAt: Date.now() },
+    });
+    console.log(`Enqueued scan:gems ${id} for ${league}`);
+    if (once) {
+      await loop();
+    }
+    return;
+  }
   if (itemClass) {
     const { enqueueJob } = await import("../src/lib/jobs/queue");
     const league = arg("league") ?? (await resolveLeague());

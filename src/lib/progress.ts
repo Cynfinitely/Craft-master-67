@@ -16,7 +16,7 @@ export interface ProgressEvent {
 export interface ProgressJob {
   id: string;
   kind: string;
-  status: "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error";
   /** Latest one-line status. */
   message: string;
   /** Recent step log (newest last, capped). */

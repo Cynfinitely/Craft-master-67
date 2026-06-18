@@ -142,12 +142,45 @@ CREATE TABLE IF NOT EXISTS trade_rate_state (
   payload TEXT,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS gem_corruption_results (
+  id TEXT PRIMARY KEY,
+  league TEXT NOT NULL,
+  gem_type TEXT NOT NULL,
+  floor_price_exalted REAL,
+  median_price_exalted REAL,
+  listing_count INTEGER,
+  sample_count INTEGER,
+  status TEXT DEFAULT 'priced',
+  trade_url TEXT,
+  fetched_at INTEGER NOT NULL,
+  base_price_exalted REAL,
+  corrupted_price_exalted REAL,
+  base_listings INTEGER,
+  corrupted_listings INTEGER,
+  plus_one_chance REAL,
+  ev_per_attempt REAL,
+  profit_if_hit REAL,
+  vaal_cost_exalted REAL,
+  omen_cost_exalted REAL,
+  use_omen INTEGER DEFAULT 0,
+  trade_url_base TEXT,
+  trade_url_corrupted TEXT
+);
+CREATE INDEX IF NOT EXISTS gem_corruption_league_idx ON gem_corruption_results(league);
 `;
 
 /** Columns added to existing tables after they shipped (idempotent ALTERs —
  * each runs in its own statement and "duplicate column" errors are ignored). */
 const COLUMN_MIGRATIONS = [
   "ALTER TABLE combo_probes ADD COLUMN sell_through_per_day REAL",
+  "ALTER TABLE gem_corruption_results ADD COLUMN floor_price_exalted REAL",
+  "ALTER TABLE gem_corruption_results ADD COLUMN median_price_exalted REAL",
+  "ALTER TABLE gem_corruption_results ADD COLUMN listing_count INTEGER",
+  "ALTER TABLE gem_corruption_results ADD COLUMN sample_count INTEGER",
+  "ALTER TABLE gem_corruption_results ADD COLUMN status TEXT DEFAULT 'priced'",
+  "ALTER TABLE gem_corruption_results ADD COLUMN trade_url TEXT",
+  "ALTER TABLE gem_corruption_results ADD COLUMN error_message TEXT",
+  "CREATE INDEX IF NOT EXISTS gem_corruption_floor_idx ON gem_corruption_results(league, floor_price_exalted)",
 ];
 
 let ensured: Promise<void> | null = null;
