@@ -431,6 +431,40 @@ export const gemCorruptionResults = sqliteTable(
 /**
  * Persisted trade API rate-limit state (survives worker restarts).
  */
+/**
+ * 2-prefix + 2-suffix tablet combinations found by sampling expensive rares.
+ * Sample-complete markers use combo_key `__sample__`.
+ */
+export const tabletComboResults = sqliteTable(
+  "tablet_combo_results",
+  {
+    id: text("id").primaryKey(), // `${league}|${tablet}|${comboKey}`
+    league: text("league").notNull(),
+    tablet: text("tablet").notNull(),
+    comboKey: text("combo_key").notNull(),
+    /** JSON: { prefixes: ComboMod[], suffixes: ComboMod[] } */
+    mods: text("mods").notNull(),
+    sampledMinExalted: real("sampled_min_exalted"),
+    sampledMaxExalted: real("sampled_max_exalted"),
+    floorPriceExalted: real("floor_price_exalted"),
+    medianPriceExalted: real("median_price_exalted"),
+    listingCount: integer("listing_count"),
+    sampleCount: integer("sample_count"),
+    /** pending_floor | priced | no_listings | error | sampled */
+    status: text("status").notNull().default("pending_floor"),
+    tradeUrl: text("trade_url"),
+    /** JSON string[] of trade stat ids required for the floor search. */
+    statIds: text("stat_ids").notNull().default("[]"),
+    errorMessage: text("error_message"),
+    fetchedAt: integer("fetched_at").notNull(),
+    scanStartedAt: integer("scan_started_at").notNull(),
+  },
+  (t) => ({
+    leagueIdx: index("tablet_combo_league_idx").on(t.league, t.tablet),
+    floorIdx: index("tablet_combo_floor_idx").on(t.league, t.floorPriceExalted),
+  }),
+);
+
 export const tradeRateState = sqliteTable("trade_rate_state", {
   key: text("key").primaryKey(),
   nextAllowedAt: integer("next_allowed_at").notNull(),
@@ -441,6 +475,7 @@ export const tradeRateState = sqliteTable("trade_rate_state", {
 export type MarketJobRow = typeof marketJobs.$inferSelect;
 export type MarketScanResultRow = typeof marketScanResults.$inferSelect;
 export type GemCorruptionResultRow = typeof gemCorruptionResults.$inferSelect;
+export type TabletComboResultRow = typeof tabletComboResults.$inferSelect;
 export type ModRow = typeof mods.$inferSelect;
 export type SpawnWeightRow = typeof modSpawnWeights.$inferSelect;
 export type SavedPlanRow = typeof savedPlans.$inferSelect;

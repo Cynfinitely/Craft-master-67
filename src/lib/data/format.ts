@@ -6,8 +6,9 @@ import type { EligibleMod, ModStat } from "./types";
  * the pipe is the display text. Plain "[text]" is shown as-is.
  */
 export function cleanModText(text: string | null | undefined): string {
-  if (!text) return "";
-  return text.replace(/\[([^\]]+)\]/g, (_m, inner: string) => {
+  if (text == null || text === "") return "";
+  const raw = typeof text === "string" ? text : String(text);
+  return raw.replace(/\[([^\]]+)\]/g, (_m, inner: string) => {
     const pipe = inner.indexOf("|");
     if (pipe < 0) return inner;
     const before = inner.slice(0, pipe);

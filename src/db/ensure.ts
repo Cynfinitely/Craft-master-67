@@ -167,6 +167,27 @@ CREATE TABLE IF NOT EXISTS gem_corruption_results (
   trade_url_corrupted TEXT
 );
 CREATE INDEX IF NOT EXISTS gem_corruption_league_idx ON gem_corruption_results(league);
+CREATE TABLE IF NOT EXISTS tablet_combo_results (
+  id TEXT PRIMARY KEY,
+  league TEXT NOT NULL,
+  tablet TEXT NOT NULL,
+  combo_key TEXT NOT NULL,
+  mods TEXT NOT NULL,
+  sampled_min_exalted REAL,
+  sampled_max_exalted REAL,
+  floor_price_exalted REAL,
+  median_price_exalted REAL,
+  listing_count INTEGER,
+  sample_count INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending_floor',
+  trade_url TEXT,
+  stat_ids TEXT NOT NULL DEFAULT '[]',
+  error_message TEXT,
+  fetched_at INTEGER NOT NULL,
+  scan_started_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tablet_combo_league_idx ON tablet_combo_results(league, tablet);
+CREATE INDEX IF NOT EXISTS tablet_combo_floor_idx ON tablet_combo_results(league, floor_price_exalted);
 `;
 
 /** Columns added to existing tables after they shipped (idempotent ALTERs —

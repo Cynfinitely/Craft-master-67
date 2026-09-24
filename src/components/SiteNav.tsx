@@ -25,6 +25,7 @@ const NAV_GROUPS = [
       { href: "/profit", label: "Profit" },
       { href: "/price", label: "Price Check" },
       { href: "/gems", label: "Gem Corruption" },
+      { href: "/tablets", label: "Tablets" },
     ],
   },
 ];

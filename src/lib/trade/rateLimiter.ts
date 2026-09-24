@@ -7,7 +7,7 @@ const STATE_KEY = "default";
 export const MIN_SPACING_MS = 2800;
 /** Hard ceiling on any single cooldown — guards against a poisoned/stale
  * persisted backoff (e.g. an oversized header window) stalling work forever. */
-const MAX_COOLDOWN_MS = 5 * 60 * 1000;
+const MAX_COOLDOWN_MS = 15 * 60 * 1000;
 
 export interface TradeRateLimiterState {
   nextAllowedAt: number;

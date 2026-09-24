@@ -16,7 +16,7 @@ import { priceCache } from "@/db/schema";
  * Divine Orb price for the league lets us also show Divine-equivalent values.
  */
 
-const BASE_URL = "https://poe2scout.com/api/poe2";
+const BASE_URL = "https://api.poe2scout.com/poe2";
 const USER_AGENT =
   "poe2-crafting-helper/0.1 (local-first dev tool; contact: set-your-email@example.com)";
 const CACHE_TTL_MS = 60 * 60 * 1000; // poe2scout updates ~hourly

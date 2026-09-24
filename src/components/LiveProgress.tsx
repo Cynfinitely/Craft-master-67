@@ -35,6 +35,7 @@ function gemScanPhase(message: string): string | null {
     return "Rate limit";
   if (m.includes("fetching trade") || m.includes("priced") || m.includes("floor"))
     return "Pricing";
+  if (m.includes("tablet")) return "Tablets";
   if (m.includes("done")) return "Complete";
   return null;
 }
@@ -175,7 +176,9 @@ export function LiveProgress({
     elapsed > 20 &&
     (pct == null || pct >= 100);
   const phase =
-    job.kind === "scan:gems" ? gemScanPhase(job.message) : null;
+    job.kind === "scan:gems" || job.kind === "scan:tablets"
+      ? gemScanPhase(job.message)
+      : null;
   const counterLabel =
     job.current != null && job.total != null && job.total > 0
       ? `${job.current} / ${job.total} gems`

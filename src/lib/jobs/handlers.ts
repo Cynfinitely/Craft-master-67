@@ -6,6 +6,7 @@ import { searchBases } from "@/lib/data";
 import { getEligibleMods } from "@/lib/data/queries";
 import { getPrices } from "@/lib/pricing/poe2scout";
 import { runGem2120Batch } from "@/lib/market/gemCorruption";
+import { runTabletScanBatch } from "@/lib/tablets/scan";
 import { TradeApiError } from "@/lib/trade/client";
 import {
   completeJob,
@@ -134,6 +135,44 @@ export async function handleMarketJob(job: MarketJobRow): Promise<void> {
           await completeJob(
             job.id,
             `Done — ${res.priced}/${res.total} gems priced.`,
+          );
+        }
+        return;
+      }
+      case "scan:tablets": {
+        const league = String(payload.league ?? "");
+        if (!league) throw new Error("Missing league");
+        const scanStartedAt = Number(payload.scanStartedAt ?? Date.now());
+        report(`Scanning tablet combinations for ${league}…`);
+        await getPrices(league).catch(() => null);
+
+        const res = await runTabletScanBatch({
+          league,
+          scanStartedAt,
+          onProgress: report,
+        });
+
+        if (res.stoppedForRateLimit) {
+          const retryMs = Math.min(
+            15 * 60 * 1000,
+            Math.max(8000, res.rateLimitRetryMs ?? 60_000),
+          );
+          const retrySec = Math.round(retryMs / 1000);
+          await rescheduleJob(
+            job.id,
+            Date.now() + retryMs,
+            `Rate limited — ${res.priced} priced, retrying in ${retrySec}s.`,
+          );
+        } else if (!res.done) {
+          await rescheduleJob(
+            job.id,
+            Date.now() + 4000,
+            `Tablet scan ${res.priced} priced — continuing…`,
+          );
+        } else {
+          await completeJob(
+            job.id,
+            `Done — ${res.priced} tablet combinations priced.`,
           );
         }
         return;

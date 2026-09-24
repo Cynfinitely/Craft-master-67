@@ -41,10 +41,10 @@ export async function enqueueJob(opts: EnqueueJobOpts): Promise<string> {
   const db = getDb();
   const now = Date.now();
 
-  if (opts.kind === "scan:gems") {
+  if (opts.kind === "scan:gems" || opts.kind === "scan:tablets") {
     const league = String(opts.payload.league ?? "");
     if (league) {
-      const existing = await findActiveGemScanJob(league);
+      const existing = await findActiveScanJob(opts.kind, league);
       if (existing) return existing.id;
     }
   }
@@ -53,7 +53,9 @@ export async function enqueueJob(opts: EnqueueJobOpts): Promise<string> {
   const initialMessage =
     opts.kind === "scan:gems"
       ? "Starting scan — discovering valuable 21/20 gems…"
-      : "Queued";
+      : opts.kind === "scan:tablets"
+        ? "Starting tablet scan — sampling expensive rares…"
+        : "Queued";
   await db.insert(marketJobs).values({
     id,
     kind: opts.kind,
@@ -77,10 +79,19 @@ export async function enqueueJob(opts: EnqueueJobOpts): Promise<string> {
 export async function getActiveGemScanJob(
   league: string,
 ): Promise<MarketJobRow | null> {
-  return findActiveGemScanJob(league);
+  return findActiveScanJob("scan:gems", league);
 }
 
-async function findActiveGemScanJob(league: string): Promise<MarketJobRow | null> {
+export async function getActiveTabletScanJob(
+  league: string,
+): Promise<MarketJobRow | null> {
+  return findActiveScanJob("scan:tablets", league);
+}
+
+async function findActiveScanJob(
+  kind: string,
+  league: string,
+): Promise<MarketJobRow | null> {
   await ensureAppTables();
   const db = getDb();
   const rows = await db
@@ -88,7 +99,7 @@ async function findActiveGemScanJob(league: string): Promise<MarketJobRow | null
     .from(marketJobs)
     .where(
       and(
-        eq(marketJobs.kind, "scan:gems"),
+        eq(marketJobs.kind, kind),
         inArray(marketJobs.status, ["pending", "running"]),
       ),
     );

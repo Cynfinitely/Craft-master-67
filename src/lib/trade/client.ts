@@ -22,7 +22,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const MAX_FETCH_IDS = 10;
 const MAX_429_ATTEMPTS = 6;
-const GEM_INTERNAL_GAP_MS = 2000;
+const GEM_INTERNAL_GAP_MS = 2800;
 
 export class TradeApiError extends Error {
   constructor(
@@ -47,9 +47,14 @@ function sleep(ms: number): Promise<void> {
 
 /* ----------------------------- request queue ----------------------------- */
 
-async function executeRequest(path: string, init: RequestInit): Promise<unknown> {
+async function executeRequest(
+  path: string,
+  init: RequestInit,
+  opts?: { failFast429?: boolean },
+): Promise<unknown> {
   let lastRetryAfterMs = 12_000;
-  for (let attempt = 0; attempt < MAX_429_ATTEMPTS; attempt++) {
+  const maxAttempts = opts?.failFast429 ? 1 : MAX_429_ATTEMPTS;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await fetch(`${TRADE_BASE}${path}`, {
       ...init,
       headers: {
@@ -70,6 +75,15 @@ async function executeRequest(path: string, init: RequestInit): Promise<unknown>
       lastRetryAfterMs = parseRetryAfterMs(res);
       const limiter = getTradeRateLimiter();
       await limiter.persistNextAllowedAt(Date.now() + lastRetryAfterMs);
+      if (opts?.failFast429) {
+        const policy = res.headers.get("x-rate-limit-policy") ?? "unknown";
+        const state = res.headers.get("x-rate-limit-ip-state") ?? "";
+        throw new TradeApiError(
+          `trade2 rate-limited (${policy} ${state}, retry ${Math.round(lastRetryAfterMs / 1000)}s)`,
+          429,
+          lastRetryAfterMs,
+        );
+      }
       await sleep(lastRetryAfterMs);
       continue;
     }
@@ -202,6 +216,8 @@ export interface TradeListing {
   rarity: string | null;
   ilvl: number | null;
   explicitStats: ListingStat[];
+  /** Raw explicit mod lines, used when the trade payload omits stat hashes. */
+  explicitModLines: string[];
 }
 
 interface RawListing {
@@ -216,6 +232,7 @@ interface RawListing {
     typeLine?: string;
     rarity?: string;
     ilvl?: number;
+    explicitMods?: unknown[];
     extended?: {
       mods?: {
         explicit?: {
@@ -229,6 +246,32 @@ interface RawListing {
   };
 }
 
+function explicitLines(raw: unknown[] | undefined, stats: ListingStat[]): string[] {
+  const lines: string[] = [];
+  for (const entry of raw ?? []) {
+    if (typeof entry === "string") {
+      if (entry.trim()) lines.push(entry);
+      continue;
+    }
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as { description?: unknown; hash?: unknown };
+    const description = typeof row.description === "string" ? row.description : "";
+    const hash = typeof row.hash === "string" ? row.hash : "";
+    if (description) lines.push(description);
+    if (hash && !stats.some((s) => s.hash === hash)) {
+      stats.push({
+        hash,
+        name: null,
+        tier: null,
+        level: null,
+        min: null,
+        max: null,
+      });
+    }
+  }
+  return lines;
+}
+
 function toNum(v: string | number | null | undefined): number | null {
   if (v == null) return null;
   const n = Number(v);
@@ -240,10 +283,21 @@ function parseListing(raw: RawListing): TradeListing | null {
   if (!raw.id || !item?.baseType) return null;
   const stats: ListingStat[] = [];
   for (const mod of item.extended?.mods?.explicit ?? []) {
-    for (const mag of mod.magnitudes ?? []) {
-      if (!mag?.hash) continue;
+    const mags = (mod.magnitudes ?? []).filter((mag) => mag?.hash);
+    if (mags.length === 0) {
       stats.push({
-        hash: mag.hash,
+        hash: "",
+        name: mod.name ?? null,
+        tier: mod.tier ?? null,
+        level: mod.level ?? null,
+        min: null,
+        max: null,
+      });
+      continue;
+    }
+    for (const mag of mags) {
+      stats.push({
+        hash: mag.hash ?? "",
         name: mod.name ?? null,
         tier: mod.tier ?? null,
         level: mod.level ?? null,
@@ -265,6 +319,7 @@ function parseListing(raw: RawListing): TradeListing | null {
     rarity: item.rarity ?? null,
     ilvl: item.ilvl ?? null,
     explicitStats: stats,
+    explicitModLines: explicitLines(item.explicitMods, stats),
   };
 }
 
@@ -375,10 +430,14 @@ export async function searchAndFetchForGem(
 
   const runLive = async (): Promise<SearchAndFetchResult> => {
     const searchPath = `/search/poe2/${encodeURIComponent(league)}`;
-    const rawSearch = (await executeRequest(searchPath, {
-      method: "POST",
-      body: JSON.stringify(query),
-    })) as { id?: string; total?: number; result?: string[] };
+    const rawSearch = (await executeRequest(
+      searchPath,
+      {
+        method: "POST",
+        body: JSON.stringify(query),
+      },
+      { failFast429: true },
+    )) as { id?: string; total?: number; result?: string[] };
     if (!rawSearch?.id || !Array.isArray(rawSearch.result)) {
       throw new TradeApiError("trade2 search returned an unexpected shape");
     }
@@ -393,6 +452,7 @@ export async function searchAndFetchForGem(
       const rawFetch = (await executeRequest(
         `/fetch/${chunk.join(",")}?query=${encodeURIComponent(rawSearch.id)}`,
         { method: "GET" },
+        { failFast429: true },
       )) as { result?: (RawListing | null)[] };
       for (const r of rawFetch?.result ?? []) {
         if (!r) continue;

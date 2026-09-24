@@ -96,6 +96,11 @@ export interface TradeQueryOpts {
   unrevealed?: boolean;
   /** Buyout price ceiling, in Exalted Orbs (trade-side filter). */
   maxPriceExalted?: number;
+  /**
+   * Price ceiling across every listing currency, in the trade site's own
+   * exalted-equivalent units. `maxPriceExalted` only matches exalted listings.
+   */
+  maxPriceEquivalent?: number;
   sort?: Record<string, "asc" | "desc">;
 }
 
@@ -185,6 +190,8 @@ export function buildTradeQuery(opts: TradeQueryOpts): Record<string, unknown> {
   const tradeFilters: Record<string, unknown> = {};
   if (opts.maxPriceExalted != null) {
     tradeFilters.price = { option: "exalted", max: opts.maxPriceExalted };
+  } else if (opts.maxPriceEquivalent != null) {
+    tradeFilters.price = { max: opts.maxPriceEquivalent };
   }
 
   const filters: Record<string, unknown> = {};

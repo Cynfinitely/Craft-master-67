@@ -6,7 +6,13 @@ import { triggerQueuePump } from "@/lib/jobs/pump";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  kind: z.enum(["scan:class", "sample:class", "probe:class", "scan:gems"]),
+  kind: z.enum([
+    "scan:class",
+    "sample:class",
+    "probe:class",
+    "scan:gems",
+    "scan:tablets",
+  ]),
   payload: z.record(z.unknown()),
   id: z.string().max(80).optional(),
   runAt: z.number().int().optional(),

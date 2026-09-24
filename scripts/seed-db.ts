@@ -18,7 +18,7 @@ const DB_PATH = path.join(process.cwd(), "data", "poe2.db");
 
 // Mod domains relevant to item crafting. Other domains (monster, area, etc.)
 // are skipped to keep the database focused.
-const MOD_DOMAINS = new Set(["item", "crafted", "desecrated"]);
+const MOD_DOMAINS = new Set(["item", "crafted", "desecrated", "tablet"]);
 
 // Core equippable gear item classes (by item_classes.category_id). Anything
 // outside this set (currency, gems, maps, soul cores, etc.) is marked
