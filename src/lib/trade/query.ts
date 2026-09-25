@@ -61,7 +61,8 @@ export function weightedResistanceGroup(
 /* ----------------------------- query builder ----------------------------- */
 
 export interface TradeQueryOpts {
-  status?: "online" | "any";
+  /** "securable" is the site's Instant Buyout; "online" is In Person (Online). */
+  status?: "online" | "securable" | "any";
   /** Exact base type (e.g. "Heavy Belt"). */
   type?: string;
   /** Trade category option (e.g. "accessory.belt") — broader than `type`. */
@@ -101,6 +102,8 @@ export interface TradeQueryOpts {
    * exalted-equivalent units. `maxPriceExalted` only matches exalted listings.
    */
   maxPriceEquivalent?: number;
+  /** Price floor in the same exalted-equivalent units. */
+  minPriceEquivalent?: number;
   sort?: Record<string, "asc" | "desc">;
 }
 
@@ -190,8 +193,11 @@ export function buildTradeQuery(opts: TradeQueryOpts): Record<string, unknown> {
   const tradeFilters: Record<string, unknown> = {};
   if (opts.maxPriceExalted != null) {
     tradeFilters.price = { option: "exalted", max: opts.maxPriceExalted };
-  } else if (opts.maxPriceEquivalent != null) {
-    tradeFilters.price = { max: opts.maxPriceEquivalent };
+  } else if (opts.maxPriceEquivalent != null || opts.minPriceEquivalent != null) {
+    tradeFilters.price = {
+      ...(opts.minPriceEquivalent != null ? { min: opts.minPriceEquivalent } : {}),
+      ...(opts.maxPriceEquivalent != null ? { max: opts.maxPriceEquivalent } : {}),
+    };
   }
 
   const filters: Record<string, unknown> = {};

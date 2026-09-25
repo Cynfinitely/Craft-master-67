@@ -47,6 +47,8 @@ export interface ComboMod {
   group: string;
   side: "prefix" | "suffix";
   label: string;
+  /** Effect text used for the stash regex and trade stat match. */
+  text?: string;
 }
 
 export interface FourModCombo {
@@ -232,6 +234,55 @@ function corePhrase(norm: string): string {
     .trim();
 }
 
+function affixByNorm(affixes: TabletAffix[]): Map<string, TabletAffix> {
+  const byNorm = new Map<string, TabletAffix>();
+  for (const affix of affixes) {
+    for (const norm of affix.norms) {
+      if (!byNorm.has(norm)) byNorm.set(norm, affix);
+    }
+  }
+  return byNorm;
+}
+
+function findAffixByText(
+  text: string,
+  affixes: TabletAffix[],
+  byNorm: Map<string, TabletAffix>,
+): TabletAffix | undefined {
+  const norm = normalizeStat(text);
+  const exact = byNorm.get(norm);
+  if (exact) return exact;
+  const core = corePhrase(norm);
+  if (core.length < 8) return undefined;
+  for (const affix of affixes) {
+    for (const n of affix.norms) {
+      const other = corePhrase(n);
+      if (!other) continue;
+      if (other === core || other.includes(core) || core.includes(other)) return affix;
+    }
+  }
+  return undefined;
+}
+
+/** Maps modifier lines onto catalog affixes. One hit per mod group. */
+export function matchTextsToAffixes(texts: string[], affixes: TabletAffix[]): ComboMod[] {
+  const byNorm = affixByNorm(affixes);
+  const mods: ComboMod[] = [];
+  const seen = new Set<string>();
+  for (const text of texts) {
+    const affix = findAffixByText(text, affixes, byNorm);
+    if (!affix || seen.has(affix.group)) continue;
+    seen.add(affix.group);
+    mods.push({
+      group: affix.group,
+      side: affix.side,
+      label: affix.label,
+      text: affix.text || affix.label,
+    });
+  }
+  return mods;
+}
+
 function lineTextAndHash(line: unknown): { text: string; hash: string } {
   if (typeof line === "string") return { text: line, hash: "" };
   if (line && typeof line === "object") {
@@ -258,12 +309,7 @@ export function resolveListingMods(opts: {
   affixes: TabletAffix[];
   statText: Map<string, string>;
 }): { mods: ComboMod[]; statIds: string[] } {
-  const byNorm = new Map<string, TabletAffix>();
-  for (const affix of opts.affixes) {
-    for (const norm of affix.norms) {
-      if (!byNorm.has(norm)) byNorm.set(norm, affix);
-    }
-  }
+  const byNorm = affixByNorm(opts.affixes);
   const hashByNorm = new Map<string, string>();
   for (const [id, text] of opts.statText) {
     const norm = normalizeStat(text);
@@ -277,7 +323,12 @@ export function resolveListingMods(opts: {
   const push = (affix: TabletAffix) => {
     if (seen.has(affix.group)) return;
     seen.add(affix.group);
-    mods.push({ group: affix.group, side: affix.side, label: affix.label });
+    mods.push({
+      group: affix.group,
+      side: affix.side,
+      label: affix.label,
+      text: affix.text || affix.label,
+    });
   };
 
   for (const affix of matchListingAffixes(
@@ -288,26 +339,10 @@ export function resolveListingMods(opts: {
     const full = opts.affixes.find((a) => a.group === affix.group && a.side === affix.side);
     if (full) push(full);
   }
-  const findAffix = (text: string): TabletAffix | undefined => {
-    const norm = normalizeStat(text);
-    const exact = byNorm.get(norm);
-    if (exact) return exact;
-    const core = corePhrase(norm);
-    if (core.length < 8) return undefined;
-    for (const affix of opts.affixes) {
-      for (const n of affix.norms) {
-        const other = corePhrase(n);
-        if (!other) continue;
-        if (other === core || other.includes(core) || core.includes(other)) return affix;
-      }
-    }
-    return undefined;
-  };
-
   for (const line of opts.lines) {
     const parsed = lineTextAndHash(line);
     if (!parsed.text) continue;
-    const affix = findAffix(parsed.text);
+    const affix = findAffixByText(parsed.text, opts.affixes, byNorm);
     if (affix) push(affix);
     if (affix && parsed.hash) statIds.add(tradeExplicitId(parsed.hash));
   }
@@ -391,6 +426,257 @@ export function buildStashRegex(texts: string[]): string {
   const fragments = texts.map(stashFragment).filter(Boolean);
   if (fragments.length === 0) return "";
   return fragments.map((f) => `(?=.*${escapeRegex(f)})`).join("");
+}
+
+/**
+ * In-game search boxes are still 50 characters. 250 is the limit GGG has
+ * said will arrive later; packing to 50 keeps a paste that works today.
+ */
+export const STASH_REGEX_LIMIT = 50;
+
+const FRAGMENT_STOP = new Set([
+  "map", "has", "the", "of", "to", "in", "and", "your", "with", "from", "for",
+  "increased", "reduced", "chance", "contain", "additional", "more", "less",
+]);
+
+function fragmentWords(text: string): string[] {
+  return stashFragment(text)
+    .split(" ")
+    .filter((word) => word.length >= 3 && !FRAGMENT_STOP.has(word.toLowerCase()));
+}
+
+/**
+ * Shortest piece of a mod that does not appear on another mod in `pool`.
+ * Stash search is case-insensitive and matches substrings, so 3–5 letters
+ * are enough when they are unique.
+ */
+export function uniqueFragment(text: string, pool: string[]): string {
+  const mine = stashFragment(text);
+  const others = pool
+    .map((entry) => stashFragment(entry))
+    .filter((entry) => entry && entry.toLowerCase() !== mine.toLowerCase());
+  const words = fragmentWords(mine);
+  const candidates: string[] = [];
+  for (const word of words) {
+    const cap = Math.min(word.length, 5);
+    for (let n = 3; n <= cap; n++) candidates.push(word.slice(0, n));
+  }
+  for (const frag of candidates) {
+    if (!others.some((other) => other.toLowerCase().includes(frag.toLowerCase()))) return frag;
+  }
+  return (words[0] || mine).slice(0, 5);
+}
+
+/**
+ * OR of per-combo AND groups, highest-value first. Each mod is shortened to
+ * a unique fragment so several mods fit in the 50-character search box.
+ */
+export function packComboRegex(
+  combos: string[][],
+  limit = STASH_REGEX_LIMIT,
+  pool: string[] = combos.flat(),
+): { regex: string; included: number } {
+  let regex = "";
+  let included = 0;
+  for (const texts of combos) {
+    const parts = texts
+      .map((text) => uniqueFragment(text, pool))
+      .filter(Boolean)
+      .map((frag) => `(?=.*${escapeRegex(frag)})`);
+    if (parts.length === 0) continue;
+    const wrapped = `(${parts.join("")})`;
+    const next = regex ? `${regex}|${wrapped}` : wrapped;
+    if (next.length > limit) break;
+    regex = next;
+    included += 1;
+  }
+  return { regex, included };
+}
+
+/** A price needs this many live listings before it is shown. */
+export const MIN_CONFIRMED_LISTINGS = 3;
+
+export function comboIsConfirmed(status: string, listingCount: number | null): boolean {
+  return status === "priced" && (listingCount ?? 0) >= MIN_CONFIRMED_LISTINGS;
+}
+
+/* ----------------------------- confirm queue ----------------------------- */
+
+/** Confirm searches allowed per refresh, on top of one sample per tablet. */
+export const CONFIRM_BUDGET_PER_RUN = 20;
+/** Listings fetched from each tablet's single sample search (3 fetch calls). */
+export const TABLET_SAMPLE_LISTINGS = 30;
+/** Confirmed and too-few-listings rows are rechecked after this long. */
+export const CONFIRM_FRESH_MS = 6 * 60 * 60 * 1000;
+/** A tablet's listing sample is reread after this long. */
+export const SAMPLE_FRESH_MS = 60 * 60 * 1000;
+/** Each tablet gets this many confirms before any tablet gets more. */
+export const CONFIRM_TOP_PER_TABLET = 5;
+
+export interface ConfirmQueueRow {
+  id: string;
+  tablet: string;
+  status: string;
+  sampledMaxExalted: number | null;
+  sampleCount: number | null;
+  fetchedAt: number;
+}
+
+export function needsConfirm(row: ConfirmQueueRow, now: number): boolean {
+  if (row.status === "pending_floor") return true;
+  if (row.status === "priced" || row.status === "thin") {
+    return now - row.fetchedAt >= CONFIRM_FRESH_MS;
+  }
+  return false;
+}
+
+/** Sampled price weighted by how many sampled listings shared the combination. */
+export function confirmScore(row: ConfirmQueueRow): number {
+  return (row.sampledMaxExalted ?? 0) * Math.max(1, row.sampleCount ?? 1);
+}
+
+/**
+ * Rows to confirm, best first: the top few of every tablet by score, then the
+ * rest by score. Fresh rows are left out.
+ */
+export function orderConfirmQueue<T extends ConfirmQueueRow>(
+  rows: T[],
+  now: number,
+  topPerTablet = CONFIRM_TOP_PER_TABLET,
+): T[] {
+  const byTablet = new Map<string, T[]>();
+  for (const row of rows) {
+    if (!needsConfirm(row, now)) continue;
+    const list = byTablet.get(row.tablet) ?? [];
+    list.push(row);
+    byTablet.set(row.tablet, list);
+  }
+  const first: T[] = [];
+  const rest: T[] = [];
+  for (const list of byTablet.values()) {
+    list.sort((a, b) => confirmScore(b) - confirmScore(a));
+    first.push(...list.slice(0, topPerTablet));
+    rest.push(...list.slice(topPerTablet));
+  }
+  const byScore = (a: T, b: T) => confirmScore(b) - confirmScore(a);
+  return [...first.sort(byScore), ...rest.sort(byScore)];
+}
+
+/** The next row to confirm, or why there is none. */
+export function nextConfirm<T extends ConfirmQueueRow>(
+  rows: T[],
+  now: number,
+  spentThisRun: number,
+  budget = CONFIRM_BUDGET_PER_RUN,
+): { row: T | null; queued: number; budgetSpent: boolean } {
+  const queue = orderConfirmQueue(rows, now);
+  if (queue.length === 0) return { row: null, queued: 0, budgetSpent: false };
+  if (spentThisRun >= budget) return { row: null, queued: queue.length, budgetSpent: true };
+  return { row: queue[0], queued: queue.length, budgetSpent: false };
+}
+
+export interface ComboStatusCounts {
+  confirmed: number;
+  waiting: number;
+  thin: number;
+}
+
+export function comboStatusCounts(
+  rows: { status: string; listingCount: number | null }[],
+): ComboStatusCounts {
+  const counts = { confirmed: 0, waiting: 0, thin: 0 };
+  for (const row of rows) {
+    if (comboIsConfirmed(row.status, row.listingCount)) counts.confirmed++;
+    else if (row.status === "pending_floor") counts.waiting++;
+    else if (row.status === "thin" || row.status === "priced") counts.thin++;
+  }
+  return counts;
+}
+
+/** Listings above this many divines are treated as price-fixers. */
+export const MAX_TABLET_PRICE_DIVINE = 10;
+
+export interface TabletOverviewLine {
+  baseType: string;
+  /** Price in the overview's primary currency (divine for PoE 2 stash items). */
+  primaryValue: number;
+  listingCount: number;
+  explicitModifiers: { text: string }[];
+}
+
+export interface GroupedTabletCombo {
+  tablet: string;
+  key: string;
+  prefixes: ComboMod[];
+  suffixes: ComboMod[];
+  floorExalted: number;
+  medianExalted: number;
+  listingCount: number;
+  sampleCount: number;
+}
+
+/**
+ * Turns economy overview lines into 2-prefix + 2-suffix floors.
+ * Lines that are not exactly those four mods, or that cost more than 10 div,
+ * are ignored. `exaltedPerDivine` converts the overview's divine price.
+ */
+export function groupTabletOverview(
+  lines: TabletOverviewLine[],
+  catalog: TabletCatalogEntry[],
+  exaltedPerDivine: number,
+): GroupedTabletCombo[] {
+  if (!(exaltedPerDivine > 0)) return [];
+  const byName = new Map(catalog.map((t) => [t.name.toLowerCase(), t]));
+  interface Bucket {
+    tablet: string;
+    prefixes: ComboMod[];
+    suffixes: ComboMod[];
+    prices: number[];
+    listingCount: number;
+  }
+  const buckets = new Map<string, Bucket>();
+
+  for (const line of lines) {
+    if (!(line.primaryValue > 0) || line.primaryValue > MAX_TABLET_PRICE_DIVINE) continue;
+    const tablet = byName.get(line.baseType.trim().toLowerCase());
+    if (!tablet) continue;
+    const texts = line.explicitModifiers.map((m) => m.text).filter(Boolean);
+    const combo = extractFourModCombo(
+      matchTextsToAffixes(texts, [...tablet.prefixes, ...tablet.suffixes]),
+    );
+    if (!combo) continue;
+    const exalted = line.primaryValue * exaltedPerDivine;
+    const id = `${tablet.name}|${combo.key}`;
+    const prev = buckets.get(id);
+    if (!prev) {
+      buckets.set(id, {
+        tablet: tablet.name,
+        prefixes: combo.prefixes,
+        suffixes: combo.suffixes,
+        prices: [exalted],
+        listingCount: Math.max(0, line.listingCount || 0),
+      });
+    } else {
+      prev.prices.push(exalted);
+      prev.listingCount += Math.max(0, line.listingCount || 0);
+    }
+  }
+
+  return [...buckets.entries()]
+    .map(([id, bucket]) => {
+      const { floor, median } = floorAndMedian(bucket.prices);
+      return {
+        tablet: bucket.tablet,
+        key: id.slice(bucket.tablet.length + 1),
+        prefixes: bucket.prefixes,
+        suffixes: bucket.suffixes,
+        floorExalted: floor ?? bucket.prices[0],
+        medianExalted: median ?? bucket.prices[0],
+        listingCount: bucket.listingCount,
+        sampleCount: bucket.prices.length,
+      };
+    })
+    .sort((a, b) => b.floorExalted - a.floorExalted);
 }
 
 export interface RateLimitErrorLike {

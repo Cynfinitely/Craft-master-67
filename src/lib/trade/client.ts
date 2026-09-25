@@ -18,11 +18,11 @@ import { tradeCache } from "@/db/schema";
  */
 
 const TRADE_BASE = "https://www.pathofexile.com/api/trade2";
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+/** GGG requires apps to identify themselves as `OAuth {app}/{version} (contact: …)`. */
+const USER_AGENT = "OAuth craft-master-67/0.1.0 (contact: https://github.com/Cynfinitely)";
 const MAX_FETCH_IDS = 10;
-const MAX_429_ATTEMPTS = 6;
-const GEM_INTERNAL_GAP_MS = 2800;
+/** Documented API error code for "Rate limit exceeded". */
+const RATE_LIMIT_ERROR_CODE = 3;
 
 export class TradeApiError extends Error {
   constructor(
@@ -38,77 +38,73 @@ export class TradeApiError extends Error {
 import {
   getTradeRateLimiter,
   parseRetryAfterMs,
-  rateHeaderWaitMs,
+  type TradePolicy,
 } from "@/lib/trade/rateLimiter";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function policyFor(path: string): TradePolicy {
+  if (path.startsWith("/search") || path.startsWith("/exchange")) return "search";
+  if (path.startsWith("/fetch")) return "fetch";
+  return "data";
+}
+
 /* ----------------------------- request queue ----------------------------- */
 
+/**
+ * One paced trade request. Waits for room on the path's policy, records the
+ * response headers, and throws a 429 TradeApiError when the site locks us out
+ * for longer than a short inline retry.
+ */
 async function executeRequest(
   path: string,
   init: RequestInit,
-  opts?: { failFast429?: boolean },
+  opts?: { failFast429?: boolean; maxWaitMs?: number },
 ): Promise<unknown> {
-  let lastRetryAfterMs = 12_000;
-  const maxAttempts = opts?.failFast429 ? 1 : MAX_429_ATTEMPTS;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const res = await fetch(`${TRADE_BASE}${path}`, {
-      ...init,
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json",
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-      },
-      cache: "no-store",
-    });
+  const limiter = getTradeRateLimiter();
+  const policy = policyFor(path);
+  await limiter.acquire(policy, { maxWaitMs: opts?.maxWaitMs });
+  const res = await fetch(`${TRADE_BASE}${path}`, {
+    ...init,
+    headers: {
+      "User-Agent": USER_AGENT,
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+    cache: "no-store",
+  });
+  await limiter.observe(policy, res.headers, res.status);
+  if (res.ok) return res.json();
 
-    const extraWait = rateHeaderWaitMs(res);
-    if (extraWait > 0) {
-      const limiter = getTradeRateLimiter();
-      await limiter.persistNextAllowedAt(Date.now() + extraWait);
-    }
-
-    if (res.status === 429) {
-      lastRetryAfterMs = parseRetryAfterMs(res);
-      const limiter = getTradeRateLimiter();
-      await limiter.persistNextAllowedAt(Date.now() + lastRetryAfterMs);
-      if (opts?.failFast429) {
-        const policy = res.headers.get("x-rate-limit-policy") ?? "unknown";
-        const state = res.headers.get("x-rate-limit-ip-state") ?? "";
-        throw new TradeApiError(
-          `trade2 rate-limited (${policy} ${state}, retry ${Math.round(lastRetryAfterMs / 1000)}s)`,
-          429,
-          lastRetryAfterMs,
-        );
-      }
-      await sleep(lastRetryAfterMs);
-      continue;
-    }
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const body = (await res.json()) as { error?: { message?: string } };
-        detail = body?.error?.message ? `: ${body.error.message}` : "";
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new TradeApiError(`trade2 ${res.status} for ${path}${detail}`, res.status);
-    }
-    return res.json();
+  // Every 4xx (429 included) counts toward GGG's invalid-request threshold,
+  // so errors are never retried here; the caller backs off instead.
+  let code: number | undefined;
+  let detail = "";
+  try {
+    const body = (await res.json()) as { error?: { code?: number; message?: string } };
+    code = body?.error?.code;
+    detail = body?.error?.message ? `: ${body.error.message}` : "";
+  } catch {
+    /* non-JSON error body */
   }
-  throw new TradeApiError(
-    `trade2 rate-limited for ${path} (gave up)`,
-    429,
-    lastRetryAfterMs,
-  );
+  if (res.status === 429 || code === RATE_LIMIT_ERROR_CODE) {
+    const retryAfterMs = Math.max(parseRetryAfterMs(res), await limiter.waitMs(policy));
+    const header = res.headers.get("x-rate-limit-policy") ?? policy;
+    const state = res.headers.get("x-rate-limit-ip-state") ?? "";
+    throw new TradeApiError(
+      `trade2 rate-limited (${header} ${state}, retry ${Math.round(retryAfterMs / 1000)}s)`,
+      429,
+      retryAfterMs,
+    );
+  }
+  throw new TradeApiError(`trade2 ${res.status} for ${path}${detail}`, res.status);
 }
 
 /** Serializes all trade requests through the shared rate limiter. */
-function enqueue(path: string, init: RequestInit): Promise<unknown> {
-  return getTradeRateLimiter().schedule(() => executeRequest(path, init));
+function enqueue(path: string, init: RequestInit, maxWaitMs?: number): Promise<unknown> {
+  return getTradeRateLimiter().schedule(() => executeRequest(path, init, { maxWaitMs }));
 }
 
 /* ----------------------------- sqlite cache ----------------------------- */
@@ -164,14 +160,19 @@ async function cachedRequest(opts: {
   path: string;
   method?: "GET" | "POST";
   body?: unknown;
+  maxWaitMs?: number;
 }): Promise<unknown> {
   const cached = await readCache(opts.key);
   if (cached && Date.now() - cached.fetchedAt < opts.ttlMs) return cached.payload;
   try {
-    const fresh = await enqueue(opts.path, {
-      method: opts.method ?? "GET",
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
+    const fresh = await enqueue(
+      opts.path,
+      {
+        method: opts.method ?? "GET",
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      },
+      opts.maxWaitMs,
+    );
     await writeCache(opts.key, fresh);
     return fresh;
   } catch (err) {
@@ -327,7 +328,7 @@ function parseListing(raw: RawListing): TradeListing | null {
 export async function tradeSearch(
   league: string,
   query: Record<string, unknown>,
-  opts: { ttlMs?: number } = {},
+  opts: { ttlMs?: number; maxWaitMs?: number } = {},
 ): Promise<TradeSearchResult> {
   const raw = (await cachedRequest({
     key: `search:${league}:${hashKey(query)}`,
@@ -335,6 +336,7 @@ export async function tradeSearch(
     path: `/search/poe2/${encodeURIComponent(league)}`,
     method: "POST",
     body: query,
+    maxWaitMs: opts.maxWaitMs,
   })) as { id?: string; total?: number; result?: string[] };
   if (!raw?.id || !Array.isArray(raw.result)) {
     throw new TradeApiError("trade2 search returned an unexpected shape");
@@ -411,13 +413,13 @@ export async function searchAndFetch(
 }
 
 /**
- * Gem-scan path: one rate-limited slot for search + internal gap + fetch.
- * Avoids nested enqueue bursts that trip GGG's IP window.
+ * Scan path: search and its fetches run in one limiter slot, each paced by
+ * its own policy. `maxWaitMs` makes a long pacing wait throw instead of block.
  */
 export async function searchAndFetchForGem(
   league: string,
   query: Record<string, unknown>,
-  opts: { maxListings?: number; ttlMs?: number } = {},
+  opts: { maxListings?: number; ttlMs?: number; maxWaitMs?: number } = {},
 ): Promise<SearchAndFetchResult> {
   const maxListings = Math.min(100, opts.maxListings ?? 20);
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
@@ -436,23 +438,20 @@ export async function searchAndFetchForGem(
         method: "POST",
         body: JSON.stringify(query),
       },
-      { failFast429: true },
+      { failFast429: true, maxWaitMs: opts.maxWaitMs },
     )) as { id?: string; total?: number; result?: string[] };
     if (!rawSearch?.id || !Array.isArray(rawSearch.result)) {
       throw new TradeApiError("trade2 search returned an unexpected shape");
     }
 
-    await sleep(GEM_INTERNAL_GAP_MS);
-
     const hashes = rawSearch.result.slice(0, maxListings);
     const listings: TradeListing[] = [];
     for (let i = 0; i < hashes.length; i += MAX_FETCH_IDS) {
-      if (i > 0) await sleep(GEM_INTERNAL_GAP_MS);
       const chunk = hashes.slice(i, i + MAX_FETCH_IDS);
       const rawFetch = (await executeRequest(
         `/fetch/${chunk.join(",")}?query=${encodeURIComponent(rawSearch.id)}`,
         { method: "GET" },
-        { failFast429: true },
+        { failFast429: true, maxWaitMs: opts.maxWaitMs },
       )) as { result?: (RawListing | null)[] };
       for (const r of rawFetch?.result ?? []) {
         if (!r) continue;

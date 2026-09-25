@@ -9,19 +9,27 @@ export interface TabletComboView {
   listingCount: number | null;
   tradeUrl: string | null;
   errorMessage: string | null;
-  prefixes: { label: string }[];
-  suffixes: { label: string }[];
+  prefixes: { label: string; text: string }[];
+  suffixes: { label: string; text: string }[];
 }
 
-function parseMods(raw: string): { prefixes: { label: string }[]; suffixes: { label: string }[] } {
+function parseMods(raw: string): {
+  prefixes: { label: string; text: string }[];
+  suffixes: { label: string; text: string }[];
+} {
   try {
     const parsed = JSON.parse(raw) as {
-      prefixes?: { label: string }[];
-      suffixes?: { label: string }[];
+      prefixes?: { label?: string; text?: string }[];
+      suffixes?: { label?: string; text?: string }[];
     };
+    const side = (rows: { label?: string; text?: string }[] | undefined) =>
+      (rows ?? []).map((m) => ({
+        label: m.label ?? "",
+        text: m.text || m.label || "",
+      }));
     return {
-      prefixes: parsed.prefixes ?? [],
-      suffixes: parsed.suffixes ?? [],
+      prefixes: side(parsed.prefixes),
+      suffixes: side(parsed.suffixes),
     };
   } catch {
     return { prefixes: [], suffixes: [] };

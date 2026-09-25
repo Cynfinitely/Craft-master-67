@@ -1,50 +1,67 @@
 import "server-only";
-import { and, eq, gte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { ensureAppTables } from "@/db/ensure";
 import { tabletComboResults, type TabletComboResultRow } from "@/db/schema";
 import { getPrices } from "@/lib/pricing/poe2scout";
 import type { ProgressReporter } from "@/lib/progress";
+import { normalizeStat } from "@/lib/data/format";
 import { tradePriceToExalted } from "@/lib/trade/currency";
 import {
   searchAndFetchForGem,
-  TradeApiError,
+  tradeSearch,
+  tradeSiteUrl,
   TradeTimeoutError,
   withTimeoutStrict,
   type TradeListing,
 } from "@/lib/trade/client";
 import { buildTradeQuery } from "@/lib/trade/query";
-import { getTradeCooldownMs } from "@/lib/trade/rateLimiter";
+import { getTradeRateLimiter } from "@/lib/trade/rateLimiter";
 import { getTradeStats } from "@/lib/trade/stats";
 import { loadTabletCatalog } from "./catalog";
+import { fetchPrecursorOverview } from "./ninja";
 import {
+  comboStatusCounts,
+  CONFIRM_BUDGET_PER_RUN,
   extractFourModCombo,
   floorAndMedian,
+  groupTabletOverview,
   isRateLimitError,
+  MIN_CONFIRMED_LISTINGS,
+  nextConfirm,
+  orderConfirmQueue,
   resolveListingMods,
-  runRateLimitedBatch,
+  SAMPLE_FRESH_MS,
+  TABLET_SAMPLE_LISTINGS,
+  tradeExplicitId,
   type ComboMod,
+  type ComboStatusCounts,
   type TabletAffix,
   type TabletCatalogEntry,
 } from "./logic";
 
 /**
- * Samples the most expensive rare tablets, keeps real 2-prefix + 2-suffix
- * combinations, then re-queries the strongest ones for a floor price.
- * One tablet sample or a few floor checks per batch, then the job reschedules.
+ * Prices 2-prefix + 2-suffix tablet combinations with a small, fixed number
+ * of trade searches per refresh. Each batch runs one search step:
+ *   1. Sample: one search per tablet (expensive listings first, up to 30
+ *      fetched), grouped into candidate combinations. Reread after 1 hour.
+ *   2. Confirm: one search per candidate, best score first, at most
+ *      CONFIRM_BUDGET_PER_RUN per refresh. A floor is kept only when at
+ *      least 3 listings exist; results stay valid for 6 hours.
+ * Rows persist between refreshes, so the next refresh continues the queue.
  */
 
-const SAMPLE_LISTINGS = 40;
-/** Listings above this are almost always price-fixers, not real sales. */
-const MAX_PRICE_DIVINE = 10;
-const FALLBACK_DIVINE_EXALTED = 200;
+const SEARCH_TTL_MS = 30 * 60 * 1000;
 const FLOOR_LISTINGS = 10;
-const TOP_COMBOS_PER_TABLET = 25;
-const FLOOR_BATCH = 3;
-const SEARCH_TTL_MS = 5 * 60 * 1000;
+const MAX_PRICE_DIVINE = 10;
+/** Sample listings below this are not worth crafting for. */
+const SAMPLE_MIN_CHAOS = 5;
+const FALLBACK_DIVINE_EXALTED = 200;
 const SEARCH_TIMEOUT_MS = 180_000;
 const MAX_INLINE_WAIT_MS = 15_000;
 const SAMPLE_MARKER = "__sample__";
+/** Instant Buyout listings only, so prices are ones you can actually buy at. */
+const TABLET_TRADE_STATUS = "securable";
 
 export interface TabletScanBatchResult {
   league: string;
@@ -55,13 +72,19 @@ export interface TabletScanBatchResult {
   stoppedForRateLimit: boolean;
   batchProcessed: number;
   rateLimitRetryMs?: number;
+  fetchedAt: number;
+  counts: ComboStatusCounts;
+  /** Candidates still queued for a confirm search. */
+  remaining: number;
+  /** The run stopped because it used its confirm budget. */
+  budgetSpent: boolean;
+  /** Wait before the next search is allowed. */
+  nextWaitMs: number;
 }
 
 export interface TabletScanBatchInput {
   league: string;
   scanStartedAt: number;
-  /** How many strongest 2+2 combos per tablet get a floor search. */
-  maxCombosPerTablet?: number;
   onProgress?: ProgressReporter;
 }
 
@@ -74,40 +97,35 @@ function rowId(league: string, tablet: string, comboKey: string): string {
   return `${league}|${tablet}|${comboKey}`;
 }
 
-function parseMods(raw: string): ComboPayload {
-  try {
-    const parsed = JSON.parse(raw) as ComboPayload;
-    return {
-      prefixes: parsed.prefixes ?? [],
-      suffixes: parsed.suffixes ?? [],
-    };
-  } catch {
-    return { prefixes: [], suffixes: [] };
-  }
-}
-
-function listingExalted(
-  listing: TradeListing,
-  priceMap: Map<string, number>,
-): number | null {
-  if (!listing.price) return null;
-  return tradePriceToExalted(listing.price.amount, listing.price.currency, priceMap);
-}
-
-async function rowsForScan(
-  league: string,
-  scanStartedAt: number,
-): Promise<TabletComboResultRow[]> {
+async function leagueRows(league: string) {
   await ensureAppTables();
   return getDb()
     .select()
     .from(tabletComboResults)
-    .where(
-      and(
-        eq(tabletComboResults.league, league),
-        gte(tabletComboResults.scanStartedAt, scanStartedAt),
-      ),
-    );
+    .where(eq(tabletComboResults.league, league));
+}
+
+function priceMapFrom(items: { apiId: string; priceExalted: number }[], divine: number) {
+  const priceMap = new Map(items.map((i) => [i.apiId, i.priceExalted]));
+  if (divine > 0) priceMap.set("divine", divine);
+  return priceMap;
+}
+
+/** A scan step needs a search and its fetches, so it waits for both. */
+async function tradeWaitMs(): Promise<number> {
+  const limiter = getTradeRateLimiter();
+  return Math.max(await limiter.waitMs("search"), await limiter.waitMs("fetch"));
+}
+
+/** Confirm searches this refresh has already spent. */
+function confirmsSpent(rows: TabletComboResultRow[], scanStartedAt: number): number {
+  return rows.filter(
+    (r) =>
+      r.comboKey !== SAMPLE_MARKER &&
+      r.tradeUrl != null &&
+      (r.status === "priced" || r.status === "thin") &&
+      r.fetchedAt >= scanStartedAt,
+  ).length;
 }
 
 export async function runTabletScanBatch(
@@ -115,23 +133,7 @@ export async function runTabletScanBatch(
 ): Promise<TabletScanBatchResult> {
   const { league, scanStartedAt, onProgress } = input;
   const report: ProgressReporter = onProgress ?? (() => {});
-
-  const cooldownMs = await getTradeCooldownMs();
-  if (cooldownMs > MAX_INLINE_WAIT_MS) {
-    const existing = await rowsForScan(league, scanStartedAt);
-    const priced = existing.filter((r) => r.status === "priced").length;
-    report(`Rate limit cooldown ${Math.round(cooldownMs / 1000)}s — pausing.`);
-    return {
-      league,
-      scanStartedAt,
-      total: existing.filter((r) => r.comboKey !== SAMPLE_MARKER).length,
-      priced,
-      done: false,
-      stoppedForRateLimit: true,
-      batchProcessed: 0,
-      rateLimitRetryMs: cooldownMs,
-    };
-  }
+  const now = Date.now();
 
   const catalog = await loadTabletCatalog();
   if (catalog.length === 0) {
@@ -140,155 +142,238 @@ export async function runTabletScanBatch(
     );
   }
 
-  const existing = await rowsForScan(league, scanStartedAt);
-  const sampled = new Set(
-    existing.filter((r) => r.comboKey === SAMPLE_MARKER).map((r) => r.tablet),
-  );
-  const nextTablet = catalog.find((t) => !sampled.has(t.name));
-
-  if (nextTablet) {
-    report(`Sampling expensive ${nextTablet.name} listings…`, {
-      current: sampled.size,
-      total: catalog.length,
-    });
-    try {
-      await sampleTablet(
-        league,
-        scanStartedAt,
-        nextTablet,
-        input.maxCombosPerTablet ?? TOP_COMBOS_PER_TABLET,
-      );
-    } catch (err) {
-      if (isRateLimitError(err) || err instanceof TradeTimeoutError) {
-        const retryMs =
-          err instanceof TradeTimeoutError ? 15_000 : (err.retryAfterMs ?? 60_000);
-        report(`Pausing ${nextTablet.name} — ${err instanceof Error ? err.message : "retry"}`);
-        return {
-          league,
-          scanStartedAt,
-          total: catalog.length,
-          priced: 0,
-          done: false,
-          stoppedForRateLimit: true,
-          batchProcessed: 0,
-          rateLimitRetryMs: retryMs,
-        };
-      }
-      throw err;
-    }
-    const doneSampling = sampled.size + 1 >= catalog.length;
-    report(
-      doneSampling
-        ? `Sampled all ${catalog.length} tablets — pricing the best combinations…`
-        : `Sampled ${nextTablet.name} (${sampled.size + 1}/${catalog.length}).`,
-      { current: sampled.size + 1, total: catalog.length },
-    );
-    return {
-      league,
-      scanStartedAt,
-      total: catalog.length,
-      priced: 0,
-      done: false,
-      stoppedForRateLimit: false,
-      batchProcessed: 1,
-    };
-  }
-
-  const pending = existing
-    .filter((r) => r.status === "pending_floor" && r.comboKey !== SAMPLE_MARKER)
-    .sort((a, b) => (b.sampledMaxExalted ?? 0) - (a.sampledMaxExalted ?? 0))
-    .slice(0, FLOOR_BATCH);
-
-  const comboRows = existing.filter((r) => r.comboKey !== SAMPLE_MARKER);
-  const pricedSoFar = comboRows.filter(
-    (r) => r.status === "priced" || r.status === "no_listings",
-  ).length;
-
-  if (pending.length === 0) {
-    report(`Done — ${pricedSoFar} tablet combinations priced.`);
-    return {
-      league,
-      scanStartedAt,
-      total: comboRows.length,
-      priced: pricedSoFar,
-      done: true,
-      stoppedForRateLimit: false,
-      batchProcessed: 0,
-    };
-  }
-
   const priceData = await getPrices(league).catch(() => null);
-  const priceMap = new Map<string, number>(
-    (priceData?.items ?? []).map((i) => [i.apiId, i.priceExalted]),
-  );
-  if (priceData && priceData.divinePrice > 0) priceMap.set("divine", priceData.divinePrice);
+  const divine = priceData?.divinePrice ?? 0;
+  let rows = await leagueRows(league);
 
-  const batch = await runRateLimitedBatch({
-    tasks: pending,
-    maxInlineWaitMs: MAX_INLINE_WAIT_MS,
-    getCooldownMs: getTradeCooldownMs,
-    search: async (row) => {
-      report(`Pricing ${row.tablet} combination…`, {
-        current: pricedSoFar,
-        total: comboRows.length,
-      });
-      await priceCombo(league, row, priceMap);
-    },
+  if (rows.length === 0) {
+    report(`Fetching precursor tablet prices for ${league}…`);
+    const overview = await fetchPrecursorOverview(league);
+    const exaltedPerDivine = divine > 0 ? divine : overview.exaltedPerDivine;
+    const grouped =
+      exaltedPerDivine > 0
+        ? groupTabletOverview(overview.lines, catalog, exaltedPerDivine)
+        : [];
+    if (grouped.length > 0) {
+      await saveOverviewCombos(league, scanStartedAt, grouped, overview.fetchedAt);
+      report(`Done — ${grouped.length} tablet combinations priced.`);
+      rows = await leagueRows(league);
+      return summarize(league, scanStartedAt, rows, now, { done: true, batchProcessed: 1 });
+    }
+    report("Economy snapshot has no mod combinations — reading trade listings…");
+  }
+
+  const limiter = getTradeRateLimiter();
+  const cooldownMs = await tradeWaitMs();
+  if (cooldownMs > MAX_INLINE_WAIT_MS) {
+    report(`Trade limit reached — continuing in ${formatWait(cooldownMs)}.`);
+    return summarize(league, scanStartedAt, rows, now, {
+      stoppedForRateLimit: true,
+      rateLimitRetryMs: cooldownMs,
+    });
+  }
+
+  const priceMap = priceMapFrom(
+    priceData?.items ?? [],
+    divine > 0 ? divine : FALLBACK_DIVINE_EXALTED,
+  );
+  const markers = new Map(
+    rows.filter((r) => r.comboKey === SAMPLE_MARKER).map((r) => [r.tablet, r]),
+  );
+  const staleTablets = catalog.filter((t) => {
+    const marker = markers.get(t.name);
+    return !marker || now - marker.fetchedAt >= SAMPLE_FRESH_MS;
   });
 
-  if (batch.stoppedForRateLimit) {
-    const retrySec = Math.round((batch.rateLimitRetryMs ?? 60_000) / 1000);
-    report(`Rate limited — retrying in ${retrySec}s.`);
+  try {
+    if (staleTablets.length > 0) {
+      const tablet = staleTablets[0];
+      const index = catalog.length - staleTablets.length;
+      report(`Reading ${tablet.name} listings (${index + 1}/${catalog.length})…`, {
+        current: index,
+        total: catalog.length,
+      });
+      await sampleTablet(league, scanStartedAt, tablet, priceMap);
+      rows = await leagueRows(league);
+      return summarize(league, scanStartedAt, rows, Date.now(), { batchProcessed: 1 });
+    }
+
+    const combos = rows.filter((r) => r.comboKey !== SAMPLE_MARKER);
+    const spent = confirmsSpent(rows, scanStartedAt);
+    const { row, queued, budgetSpent } = nextConfirm(combos, now, spent);
+    if (!row) {
+      return summarize(league, scanStartedAt, rows, now, { done: true, budgetSpent });
+    }
+
+    const counts = comboStatusCounts(combos);
+    report(
+      `Checking ${row.tablet} (${spent + 1}/${CONFIRM_BUDGET_PER_RUN} this run · ${counts.confirmed} confirmed · ${queued} waiting)…`,
+      { current: spent, total: CONFIRM_BUDGET_PER_RUN },
+    );
+    await confirmCombo(row, priceMap);
+    rows = await leagueRows(league);
+    return summarize(league, scanStartedAt, rows, Date.now(), { batchProcessed: 1 });
+  } catch (err) {
+    if (err instanceof TradeTimeoutError || isRateLimitError(err)) {
+      const retryMs =
+        err instanceof TradeTimeoutError
+          ? 15_000
+          : Math.max((err as { retryAfterMs?: number }).retryAfterMs ?? 0, await tradeWaitMs(), 15_000);
+      report(`Trade limit reached — continuing in ${formatWait(retryMs)}.`);
+      return summarize(league, scanStartedAt, rows, Date.now(), {
+        stoppedForRateLimit: true,
+        rateLimitRetryMs: retryMs,
+      });
+    }
+    throw err;
   }
+}
 
-  const after = await rowsForScan(league, scanStartedAt);
-  const afterCombos = after.filter((r) => r.comboKey !== SAMPLE_MARKER);
-  const priced = afterCombos.filter(
-    (r) => r.status === "priced" || r.status === "no_listings",
-  ).length;
-  const stillPending = afterCombos.some((r) => r.status === "pending_floor");
-  const done = !stillPending && !batch.stoppedForRateLimit;
-  if (done) report(`Done — ${priced} tablet combinations priced.`);
+export function formatWait(ms: number): string {
+  const sec = Math.ceil(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  return `${Math.ceil(sec / 60)} min`;
+}
 
+async function summarize(
+  league: string,
+  scanStartedAt: number,
+  rows: TabletComboResultRow[],
+  now: number,
+  opts: {
+    done?: boolean;
+    stoppedForRateLimit?: boolean;
+    rateLimitRetryMs?: number;
+    budgetSpent?: boolean;
+    batchProcessed?: number;
+  },
+): Promise<TabletScanBatchResult> {
+  const combos = rows.filter((r) => r.comboKey !== SAMPLE_MARKER);
+  const counts = comboStatusCounts(combos);
+  const remaining = orderConfirmQueue(combos, now).length;
   return {
     league,
     scanStartedAt,
-    total: afterCombos.length,
-    priced,
-    done,
-    stoppedForRateLimit: batch.stoppedForRateLimit,
-    batchProcessed: batch.processed,
-    rateLimitRetryMs: batch.rateLimitRetryMs,
+    total: combos.length,
+    priced: counts.confirmed,
+    done: opts.done ?? false,
+    stoppedForRateLimit: opts.stoppedForRateLimit ?? false,
+    batchProcessed: opts.batchProcessed ?? 0,
+    rateLimitRetryMs: opts.rateLimitRetryMs,
+    fetchedAt: now,
+    counts,
+    remaining,
+    budgetSpent: opts.budgetSpent ?? false,
+    nextWaitMs: opts.rateLimitRetryMs ?? (await tradeWaitMs()),
   };
+}
+
+async function confirmCombo(
+  row: TabletComboResultRow,
+  priceMap: Map<string, number>,
+): Promise<void> {
+  const mods = [...parseMods(row.mods).prefixes, ...parseMods(row.mods).suffixes];
+  const stats = await getTradeStats();
+  const statIds = statIdsForMods(mods, new Map(stats.map((s) => [s.id, s.text])));
+  if (statIds.length < 2) {
+    await getDb()
+      .update(tabletComboResults)
+      .set({ status: "thin", listingCount: 0, errorMessage: "Could not match these mods on trade.", fetchedAt: Date.now() })
+      .where(eq(tabletComboResults.id, row.id));
+    return;
+  }
+
+  const result = await withTimeoutStrict(
+    searchAndFetchForGem(
+      row.league,
+      buildTradeQuery({
+        status: TABLET_TRADE_STATUS,
+        type: row.tablet,
+        rarity: "rare",
+        statIds,
+        sort: { price: "asc" },
+      }),
+      { maxListings: FLOOR_LISTINGS, ttlMs: SEARCH_TTL_MS, maxWaitMs: MAX_INLINE_WAIT_MS },
+    ),
+    SEARCH_TIMEOUT_MS,
+  );
+  const prices = result.listings
+    .map((listing) => listingExalted(listing, priceMap))
+    .filter((n): n is number => n != null && n > 0);
+  const { floor, median } = floorAndMedian(prices);
+  const count = result.total;
+  const confirmed = count >= MIN_CONFIRMED_LISTINGS && floor != null;
+  await getDb()
+    .update(tabletComboResults)
+    .set({
+      floorPriceExalted: floor,
+      medianPriceExalted: median,
+      listingCount: count,
+      status: confirmed ? "priced" : "thin",
+      tradeUrl: result.tradeUrl,
+      statIds: JSON.stringify(statIds),
+      errorMessage: confirmed ? null : "Fewer than 3 listings, so the price is not shown.",
+      fetchedAt: Date.now(),
+    })
+    .where(eq(tabletComboResults.id, row.id));
+}
+
+async function saveOverviewCombos(
+  league: string,
+  scanStartedAt: number,
+  grouped: ReturnType<typeof groupTabletOverview>,
+  fetchedAt: number,
+) {
+  const db = getDb();
+  await db.delete(tabletComboResults).where(eq(tabletComboResults.league, league));
+  for (const combo of grouped) {
+    await db.insert(tabletComboResults).values({
+      id: rowId(league, combo.tablet, combo.key),
+      league,
+      tablet: combo.tablet,
+      comboKey: combo.key,
+      mods: JSON.stringify({ prefixes: combo.prefixes, suffixes: combo.suffixes }),
+      sampledMinExalted: combo.floorExalted,
+      sampledMaxExalted: combo.medianExalted,
+      floorPriceExalted: combo.floorExalted,
+      medianPriceExalted: combo.medianExalted,
+      listingCount: combo.listingCount,
+      sampleCount: combo.sampleCount,
+      status: "priced",
+      tradeUrl: null,
+      statIds: "[]",
+      errorMessage: null,
+      fetchedAt,
+      scanStartedAt,
+    });
+  }
 }
 
 async function sampleTablet(
   league: string,
   scanStartedAt: number,
   tablet: TabletCatalogEntry,
-  maxCombos: number,
+  priceMap: Map<string, number>,
 ): Promise<void> {
-  const priceData = await getPrices(league).catch(() => null);
-  const priceMap = new Map<string, number>(
-    (priceData?.items ?? []).map((i) => [i.apiId, i.priceExalted]),
-  );
-  if (priceData && priceData.divinePrice > 0) priceMap.set("divine", priceData.divinePrice);
-
   const stats = await getTradeStats();
   const statText = new Map(stats.map((s) => [s.id, s.text]));
   const affixes: TabletAffix[] = [...tablet.prefixes, ...tablet.suffixes];
-
+  const divine = priceMap.get("divine") ?? FALLBACK_DIVINE_EXALTED;
+  const minExalted = tradePriceToExalted(SAMPLE_MIN_CHAOS, "chaos", priceMap);
   const result = await withTimeoutStrict(
     searchAndFetchForGem(
       league,
       buildTradeQuery({
-        status: "online",
+        status: TABLET_TRADE_STATUS,
         type: tablet.name,
         rarity: "rare",
-        maxPriceEquivalent: maxPriceExalted(priceMap),
+        maxPriceEquivalent: Math.round(divine * MAX_PRICE_DIVINE),
+        ...(minExalted != null && minExalted > 0
+          ? { minPriceEquivalent: Math.max(1, Math.floor(minExalted)) }
+          : {}),
         sort: { price: "desc" },
       }),
-      { maxListings: SAMPLE_LISTINGS, ttlMs: SEARCH_TTL_MS },
+      { maxListings: TABLET_SAMPLE_LISTINGS, ttlMs: SEARCH_TTL_MS, maxWaitMs: MAX_INLINE_WAIT_MS },
     ),
     SEARCH_TIMEOUT_MS,
   );
@@ -296,15 +381,12 @@ async function sampleTablet(
   interface Bucket {
     mods: ComboPayload;
     statIds: string[];
-    min: number;
-    max: number;
-    count: number;
+    prices: number[];
   }
   const buckets = new Map<string, Bucket>();
-
   for (const listing of result.listings) {
     const price = listingExalted(listing, priceMap);
-    if (price == null) continue;
+    if (price == null || price <= 0) continue;
     const resolved = resolveListingMods({
       stats: listing.explicitStats,
       lines: listing.explicitModLines ?? [],
@@ -313,34 +395,22 @@ async function sampleTablet(
     });
     const combo = extractFourModCombo(resolved.mods);
     if (!combo) continue;
-    const statIds = resolved.statIds;
     const prev = buckets.get(combo.key);
     if (!prev) {
       buckets.set(combo.key, {
         mods: { prefixes: combo.prefixes, suffixes: combo.suffixes },
-        statIds,
-        min: price,
-        max: price,
-        count: 1,
+        statIds: resolved.statIds,
+        prices: [price],
       });
     } else {
-      prev.count += 1;
-      prev.min = Math.min(prev.min, price);
-      if (price >= prev.max) {
-        prev.max = price;
-        prev.statIds = statIds;
-        prev.mods = { prefixes: combo.prefixes, suffixes: combo.suffixes };
-      }
+      prev.prices.push(price);
     }
   }
 
-  const top = [...buckets.entries()]
-    .sort((a, b) => b[1].max - a[1].max)
-    .slice(0, maxCombos);
-
   const now = Date.now();
   const db = getDb();
-  for (const [key, bucket] of top) {
+  for (const [key, bucket] of buckets) {
+    const { floor, median } = floorAndMedian(bucket.prices);
     await db
       .insert(tabletComboResults)
       .values({
@@ -349,12 +419,12 @@ async function sampleTablet(
         tablet: tablet.name,
         comboKey: key,
         mods: JSON.stringify(bucket.mods),
-        sampledMinExalted: bucket.min,
-        sampledMaxExalted: bucket.max,
+        sampledMinExalted: floor,
+        sampledMaxExalted: median,
         floorPriceExalted: null,
         medianPriceExalted: null,
-        listingCount: null,
-        sampleCount: bucket.count,
+        listingCount: bucket.prices.length,
+        sampleCount: bucket.prices.length,
         status: "pending_floor",
         tradeUrl: null,
         statIds: JSON.stringify(bucket.statIds),
@@ -366,15 +436,10 @@ async function sampleTablet(
         target: tabletComboResults.id,
         set: {
           mods: JSON.stringify(bucket.mods),
-          sampledMinExalted: bucket.min,
-          sampledMaxExalted: bucket.max,
-          sampleCount: bucket.count,
-          status: "pending_floor",
+          sampledMinExalted: floor,
+          sampledMaxExalted: median,
+          sampleCount: bucket.prices.length,
           statIds: JSON.stringify(bucket.statIds),
-          floorPriceExalted: null,
-          medianPriceExalted: null,
-          fetchedAt: now,
-          scanStartedAt,
         },
       });
   }
@@ -406,83 +471,84 @@ async function sampleTablet(
         status: "sampled",
         listingCount: result.total,
         sampleCount: result.listings.length,
-        tradeUrl: result.tradeUrl,
         fetchedAt: now,
         scanStartedAt,
       },
     });
 }
 
-async function priceCombo(
-  league: string,
-  row: TabletComboResultRow,
-  priceMap: Map<string, number>,
-): Promise<void> {
-  const statIds = (() => {
-    try {
-      const parsed = JSON.parse(row.statIds) as string[];
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-    } catch {
-      return [];
-    }
-  })();
-  const now = Date.now();
+function listingExalted(listing: TradeListing, priceMap: Map<string, number>): number | null {
+  if (!listing.price) return null;
+  return tradePriceToExalted(listing.price.amount, listing.price.currency, priceMap);
+}
+
+function parseMods(raw: string): ComboPayload {
   try {
-    const result = await withTimeoutStrict(
-      searchAndFetchForGem(
-        league,
-        buildTradeQuery({
-          status: "online",
-          type: row.tablet,
-          rarity: "rare",
-          statIds,
-          maxPriceEquivalent: maxPriceExalted(priceMap),
-          sort: { price: "asc" },
-        }),
-        { maxListings: FLOOR_LISTINGS, ttlMs: SEARCH_TTL_MS },
-      ),
-      SEARCH_TIMEOUT_MS,
-    );
-    const prices = result.listings
-      .map((l) => listingExalted(l, priceMap))
-      .filter((n): n is number => n != null);
-    const { floor, median } = floorAndMedian(prices);
-    const status = floor == null ? "no_listings" : "priced";
-    await getDb()
-      .update(tabletComboResults)
-      .set({
-        floorPriceExalted: floor,
-        medianPriceExalted: median,
-        listingCount: result.total,
-        status,
-        tradeUrl: result.tradeUrl,
-        errorMessage: null,
-        fetchedAt: now,
-      })
-      .where(eq(tabletComboResults.id, row.id));
-  } catch (err) {
-    if (isRateLimitError(err) || (err instanceof TradeApiError && err.status === 429)) {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : "Trade search failed";
-    await getDb()
-      .update(tabletComboResults)
-      .set({
-        status: "error",
-        errorMessage: message,
-        fetchedAt: now,
-      })
-      .where(eq(tabletComboResults.id, row.id));
+    const parsed = JSON.parse(raw) as ComboPayload;
+    return {
+      prefixes: parsed.prefixes ?? [],
+      suffixes: parsed.suffixes ?? [],
+    };
+  } catch {
+    return { prefixes: [], suffixes: [] };
   }
 }
 
-function maxPriceExalted(priceMap: Map<string, number>): number {
-  const divine = priceMap.get("divine") ?? FALLBACK_DIVINE_EXALTED;
-  return Math.round(divine * MAX_PRICE_DIVINE);
+function statIdsForMods(mods: ComboMod[], statText: Map<string, string>): string[] {
+  const hashByNorm = new Map<string, string>();
+  for (const [id, text] of statText) {
+    const norm = normalizeStat(text);
+    if (!norm || hashByNorm.has(norm)) continue;
+    hashByNorm.set(norm, tradeExplicitId(id));
+  }
+  const ids = new Set<string>();
+  for (const mod of mods) {
+    const id = hashByNorm.get(normalizeStat(mod.text || mod.label));
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+/**
+ * One cached trade search for a saved combination. Returns the official
+ * trade-site URL and stores it on the row.
+ */
+export async function openTabletTrade(rowIdValue: string): Promise<string> {
+  await ensureAppTables();
+  const rows = await getDb()
+    .select()
+    .from(tabletComboResults)
+    .where(eq(tabletComboResults.id, rowIdValue))
+    .limit(1);
+  const row = rows[0];
+  if (!row) throw new Error("That tablet combination is no longer saved.");
+  if (row.tradeUrl) return row.tradeUrl;
+
+  const mods = [...parseMods(row.mods).prefixes, ...parseMods(row.mods).suffixes];
+  const stats = await getTradeStats();
+  const statIds = statIdsForMods(
+    mods,
+    new Map(stats.map((s) => [s.id, s.text])),
+  );
+  const result = await tradeSearch(
+    row.league,
+    buildTradeQuery({
+      status: TABLET_TRADE_STATUS,
+      type: row.tablet,
+      rarity: "rare",
+      statIds,
+      sort: { price: "asc" },
+    }),
+    { ttlMs: SEARCH_TTL_MS, maxWaitMs: MAX_INLINE_WAIT_MS },
+  );
+  const url = tradeSiteUrl(row.league, result.id);
+  await getDb()
+    .update(tabletComboResults)
+    .set({ tradeUrl: url, statIds: JSON.stringify(statIds) })
+    .where(eq(tabletComboResults.id, row.id));
+  return url;
 }
 
 export function readComboMods(row: TabletComboResultRow): ComboPayload {
   return parseMods(row.mods);
 }
-
-export { SAMPLE_MARKER };

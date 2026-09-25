@@ -1,8 +1,5 @@
 /**
- * Seeds tablet combo prices for one league.
- *
- * Samples the expensive rare listings for every tablet, then floor-prices
- * the strongest 2-prefix + 2-suffix combinations. Pauses on trade rate limits.
+ * Seeds tablet combo prices for one league from the poe.ninja overview.
  *
  *   npx tsx --require ./scripts/shim-server-only.cjs scripts/seed-tablet-combos.ts "Forbidden Rites"
  */
@@ -13,7 +10,6 @@ import { tabletComboResults } from "../src/db/schema";
 import { runTabletScanBatch } from "../src/lib/tablets/scan";
 
 const league = process.argv[2] || "Forbidden Rites";
-const maxCombosPerTablet = Number(process.argv[3] ?? 5);
 const scanStartedAt = Date.now();
 
 function sleep(ms: number): Promise<void> {
@@ -21,18 +17,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main() {
-  console.log(
-    `Seeding up to ${maxCombosPerTablet} combos per tablet for "${league}"…`,
-  );
+  console.log(`Seeding tablet combinations for "${league}"…`);
   await ensureAppTables();
-  await getDb().delete(tabletComboResults).where(eq(tabletComboResults.league, league));
+  if (process.argv.includes("--reset")) {
+    await getDb().delete(tabletComboResults).where(eq(tabletComboResults.league, league));
+  }
   for (let step = 1; step < 400; step++) {
     let res;
     try {
       res = await runTabletScanBatch({
         league,
         scanStartedAt,
-        maxCombosPerTablet,
         onProgress: (text) => console.log(`  ${text}`),
       });
     } catch (err) {
@@ -45,12 +40,12 @@ async function main() {
       `step ${step}: priced ${res.priced}/${res.total} done=${res.done} rateLimit=${res.stoppedForRateLimit}`,
     );
     if (res.done) {
-      console.log(`Seed complete for ${league}.`);
+      console.log(
+        `Seed complete for ${league}: ${res.counts.confirmed} confirmed, ${res.remaining} waiting, ${res.counts.thin} too few listings.`,
+      );
       return;
     }
-    const wait = res.stoppedForRateLimit
-      ? Math.min(15 * 60 * 1000, Math.max(8_000, res.rateLimitRetryMs ?? 20_000))
-      : 2_000;
+    const wait = Math.max(1_000, res.rateLimitRetryMs ?? res.nextWaitMs);
     if (res.stoppedForRateLimit) {
       console.log(`Waiting ${Math.round(wait / 1000)}s for the trade rate limit…`);
     }

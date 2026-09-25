@@ -6,8 +6,9 @@ import { searchBases } from "@/lib/data";
 import { getEligibleMods } from "@/lib/data/queries";
 import { getPrices } from "@/lib/pricing/poe2scout";
 import { runGem2120Batch } from "@/lib/market/gemCorruption";
-import { runTabletScanBatch } from "@/lib/tablets/scan";
+import { formatWait, runTabletScanBatch } from "@/lib/tablets/scan";
 import { TradeApiError } from "@/lib/trade/client";
+import { getTradeRateLimiter } from "@/lib/trade/rateLimiter";
 import {
   completeJob,
   failDbJob,
@@ -16,6 +17,8 @@ import {
   rescheduleJob,
 } from "@/lib/jobs/queue";
 import type { MarketJobRow } from "@/db/schema";
+
+const loggedTradeLimits = new Set<number>();
 
 export async function handleMarketJob(job: MarketJobRow): Promise<void> {
   const report = jobReporter(job.id);
@@ -143,37 +146,44 @@ export async function handleMarketJob(job: MarketJobRow): Promise<void> {
         const league = String(payload.league ?? "");
         if (!league) throw new Error("Missing league");
         const scanStartedAt = Number(payload.scanStartedAt ?? Date.now());
-        report(`Scanning tablet combinations for ${league}…`);
-        await getPrices(league).catch(() => null);
-
         const res = await runTabletScanBatch({
           league,
           scanStartedAt,
           onProgress: report,
         });
 
+        const limiter = getTradeRateLimiter();
+        const seen = ["search", "fetch"]
+          .map((p) => {
+            const h = limiter.observedHeaders(p as "search" | "fetch");
+            return h ? `${p}: ${h}` : null;
+          })
+          .filter(Boolean)
+          .join(" | ");
+        if (seen && !loggedTradeLimits.has(scanStartedAt)) {
+          loggedTradeLimits.add(scanStartedAt);
+          report(`Trade limits seen — ${seen}`);
+        }
+
+        const { confirmed, thin } = res.counts;
+        const counts = `${confirmed} confirmed · ${res.remaining} waiting · ${thin} too few listings`;
         if (res.stoppedForRateLimit) {
-          const retryMs = Math.min(
-            15 * 60 * 1000,
-            Math.max(8000, res.rateLimitRetryMs ?? 60_000),
-          );
-          const retrySec = Math.round(retryMs / 1000);
+          const retryMs = Math.max(1000, res.rateLimitRetryMs ?? res.nextWaitMs);
           await rescheduleJob(
             job.id,
             Date.now() + retryMs,
-            `Rate limited — ${res.priced} priced, retrying in ${retrySec}s.`,
+            `Trade limit reached — continuing in ${formatWait(retryMs)} · ${counts}`,
           );
         } else if (!res.done) {
-          await rescheduleJob(
-            job.id,
-            Date.now() + 4000,
-            `Tablet scan ${res.priced} priced — continuing…`,
-          );
-        } else {
+          const waitMs = Math.max(1000, res.nextWaitMs);
+          await rescheduleJob(job.id, Date.now() + waitMs, `Checking prices · ${counts}`);
+        } else if (res.budgetSpent && res.remaining > 0) {
           await completeJob(
             job.id,
-            `Done — ${res.priced} tablet combinations priced.`,
+            `Priced ${confirmed} · ${res.remaining} left — refresh again later`,
           );
+        } else {
+          await completeJob(job.id, `Done — ${counts}`);
         }
         return;
       }
@@ -183,9 +193,10 @@ export async function handleMarketJob(job: MarketJobRow): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Job failed";
     if (message.includes("rate-limited") || message.includes("429")) {
+      const retryAfterMs = (err as { retryAfterMs?: number }).retryAfterMs;
       const retryMs =
-        err instanceof TradeApiError && err.retryAfterMs
-          ? Math.min(15 * 60 * 1000, Math.max(60_000, err.retryAfterMs))
+        err instanceof TradeApiError || retryAfterMs
+          ? Math.max(60_000, retryAfterMs ?? 0, await getTradeRateLimiter().waitMs("search"))
           : 60_000;
       const retrySec = Math.round(retryMs / 1000);
       await rescheduleJob(

@@ -8,18 +8,44 @@ import {
   type ProgressJob,
 } from "@/components/LiveProgress";
 
+function formatFetched(at: number | null): string {
+  if (!at) return "Prices have not been refreshed yet.";
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (mins < 1) return "Prices refreshed just now.";
+  if (mins < 60) return `Prices refreshed ${mins} min ago.`;
+  const hours = Math.round(mins / 60);
+  return `Prices refreshed ${hours} hour${hours === 1 ? "" : "s"} ago.`;
+}
+
+function formatWait(ms: number): string {
+  const sec = Math.ceil(ms / 1000);
+  return sec < 60 ? `${sec}s` : `${Math.ceil(sec / 60)} min`;
+}
+
+interface StatusCounts {
+  confirmed: number;
+  waiting: number;
+  thin: number;
+}
+
 export function TabletControls({
   league,
   leagues,
   tablet,
   tablets,
   activeJobId = null,
+  fetchedAt = null,
+  counts = { confirmed: 0, waiting: 0, thin: 0 },
+  tradeWaitMs = 0,
 }: {
   league: string;
   leagues: { value: string; label: string }[];
   tablet: string;
   tablets: string[];
   activeJobId?: string | null;
+  fetchedAt?: number | null;
+  counts?: StatusCounts;
+  tradeWaitMs?: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -111,14 +137,34 @@ export function TabletControls({
           disabled={scanning}
           onClick={runScan}
         >
-          {scanning ? "Scanning…" : "Scan tablet prices"}
+          {scanning ? "Refreshing…" : "Refresh prices"}
         </button>
         {!scanning ? (
-          <span className="text-[11px] text-forge-gold/40">
-            Samples the expensive rare tablets on trade, then prices the best
-            2-prefix + 2-suffix combinations. Respects the trade rate limit.
+          <span className="text-[11px] text-forge-gold/40">{formatFetched(fetchedAt)}</span>
+        ) : null}
+        {tradeWaitMs > 15_000 ? (
+          <span className="text-[11px] text-forge-rust/80">
+            Trade limit reached — {scanning ? "continuing" : "next search"} in{" "}
+            {formatWait(tradeWaitMs)}
           </span>
         ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2 text-[11px]">
+        <span className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-goldbright">
+          {counts.confirmed} confirmed
+        </span>
+        <span
+          className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-gold/70"
+          title="Combinations seen on expensive listings that still need a price check. Each refresh checks up to 20."
+        >
+          {counts.waiting} waiting to be checked
+        </span>
+        <span
+          className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-gold/50"
+          title="Fewer than 3 live listings, so the price is not trusted. Rechecked after 6 hours."
+        >
+          {counts.thin} too few listings
+        </span>
       </div>
       {scanning ? (
         <LiveProgress

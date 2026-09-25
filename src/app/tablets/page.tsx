@@ -10,6 +10,12 @@ import { getActiveTabletScanJob } from "@/lib/jobs/queue";
 import { triggerQueuePump } from "@/lib/jobs/pump";
 import { getCurrentLeagueName, getLeagues, getPrices } from "@/lib/pricing/poe2scout";
 import { loadTabletCatalog } from "@/lib/tablets/catalog";
+import {
+  comboStatusCounts,
+  orderConfirmQueue,
+  type ComboStatusCounts,
+} from "@/lib/tablets/logic";
+import { getTradeCooldownMs } from "@/lib/trade/rateLimiter";
 
 export const dynamic = "force-dynamic";
 
@@ -76,30 +82,39 @@ export default async function TabletsPage({
   const tablet = catalog.find((t) => t.name === tabletName) ?? null;
 
   let rows: ReturnType<typeof toComboView>[] = [];
+  let fetchedAt: number | null = null;
+  let counts: ComboStatusCounts = { confirmed: 0, waiting: 0, thin: 0 };
   if (league && tabletName) {
     try {
       await ensureAppTables();
-      const raw = await getDb()
+      const all = await getDb()
         .select()
         .from(tabletComboResults)
         .where(
           and(
             eq(tabletComboResults.league, league),
-            eq(tabletComboResults.tablet, tabletName),
             ne(tabletComboResults.comboKey, SAMPLE_MARKER),
           ),
         )
         .orderBy(desc(tabletComboResults.floorPriceExalted));
+      const raw = all.filter((r) => r.tablet === tabletName);
       rows = raw.map(toComboView);
+      fetchedAt = raw.reduce((max, r) => (r.fetchedAt > max ? r.fetchedAt : max), 0) || null;
+      counts = {
+        ...comboStatusCounts(all),
+        waiting: orderConfirmQueue(all, Date.now()).length,
+      };
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to load scan results.";
     }
   }
 
+  let tradeWaitMs = 0;
   try {
     if ((await countUnfinishedJobs()) > 0) triggerQueuePump();
     const active = await getActiveTabletScanJob(league);
     activeJobId = active?.id ?? null;
+    tradeWaitMs = await getTradeCooldownMs();
   } catch {
     /* best-effort */
   }
@@ -109,8 +124,8 @@ export default async function TabletsPage({
       <div>
         <h1 className="text-2xl font-bold text-forge-goldbright">Tablet crafting</h1>
         <p className="mt-1 text-sm text-forge-gold/60">
-          Prefixes and suffixes for each precursor tablet, the 2+2 combinations
-          that are actually selling, and a stash regex for the mods you want.
+          Precursor tablet combinations that are selling, filtered by price,
+          with a stash regex for the ones you keep.
         </p>
       </div>
 
@@ -121,6 +136,9 @@ export default async function TabletsPage({
           tablet={tabletName}
           tablets={catalog.map((t) => t.name)}
           activeJobId={activeJobId}
+          fetchedAt={fetchedAt}
+          counts={counts}
+          tradeWaitMs={tradeWaitMs}
         />
       </div>
 
