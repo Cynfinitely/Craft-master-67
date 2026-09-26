@@ -22,10 +22,10 @@ export function BaseHeader({
           <h2 className="text-xl font-semibold text-rarity-normal">
             {base.name}
           </h2>
-          <p className="text-sm text-forge-gold/60">
+          <p className="text-sm text-forge-gold/80">
             {base.itemClass}
             {itemLevel ? (
-              <span className="ml-2 text-forge-gold/40">
+              <span className="ml-2 text-forge-gold/80">
                 · item level {itemLevel}
               </span>
             ) : null}
@@ -45,7 +45,7 @@ export function BaseHeader({
       ) : null}
 
       {reqEntries.length > 0 ? (
-        <p className="mt-3 text-xs text-forge-gold/50">
+        <p className="mt-3 text-xs text-forge-gold/80">
           Requires{" "}
           {reqEntries
             .map(([k, v]) => `${v} ${k[0].toUpperCase()}${k.slice(1)}`)

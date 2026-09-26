@@ -252,14 +252,23 @@ async function runStatements(
 }
 
 async function main() {
-  // Start from a clean database file.
-  for (const suffix of ["", "-wal", "-shm", "-journal"]) {
-    const f = DB_PATH + suffix;
-    if (fs.existsSync(f)) fs.rmSync(f);
+  const remote = process.env.LIBSQL_URL;
+  if (!remote) {
+    // Start from a clean database file.
+    for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+      const f = DB_PATH + suffix;
+      if (fs.existsSync(f)) fs.rmSync(f);
+    }
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   }
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-  const client = createClient({ url: `file:${DB_PATH}` });
+  const client = remote
+    ? createClient({
+        url: remote,
+        authToken: process.env.LIBSQL_AUTH_TOKEN,
+      })
+    : createClient({ url: `file:${DB_PATH}` });
+  console.log(remote ? `Seeding ${remote}` : `Seeding file:${DB_PATH}`);
 
   console.log("Creating schema...");
   await client.executeMultiple(DDL);

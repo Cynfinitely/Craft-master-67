@@ -116,7 +116,16 @@ CREATE TABLE IF NOT EXISTS market_jobs (
   finished_at INTEGER,
   error TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  lane TEXT NOT NULL DEFAULT 'background',
+  dedupe_key TEXT,
+  parent_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  lease_owner TEXT,
+  lease_expires_at INTEGER,
+  result TEXT
 );
 CREATE INDEX IF NOT EXISTS market_jobs_status_run_idx ON market_jobs(status, run_at);
 CREATE INDEX IF NOT EXISTS market_jobs_kind_idx ON market_jobs(kind);
@@ -188,6 +197,33 @@ CREATE TABLE IF NOT EXISTS tablet_combo_results (
 );
 CREATE INDEX IF NOT EXISTS tablet_combo_league_idx ON tablet_combo_results(league, tablet);
 CREATE INDEX IF NOT EXISTS tablet_combo_floor_idx ON tablet_combo_results(league, floor_price_exalted);
+CREATE TABLE IF NOT EXISTS job_schedules (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL DEFAULT '{}',
+  interval_ms INTEGER NOT NULL,
+  next_run_at INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS job_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  stage TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL,
+  current INTEGER,
+  total INTEGER
+);
+CREATE INDEX IF NOT EXISTS job_events_job_idx ON job_events(job_id, at);
+CREATE TABLE IF NOT EXISTS worker_heartbeats (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  seen_at INTEGER NOT NULL,
+  current_job TEXT,
+  info TEXT
+);
 `;
 
 /** Columns added to existing tables after they shipped (idempotent ALTERs —
@@ -202,6 +238,27 @@ const COLUMN_MIGRATIONS = [
   "ALTER TABLE gem_corruption_results ADD COLUMN trade_url TEXT",
   "ALTER TABLE gem_corruption_results ADD COLUMN error_message TEXT",
   "CREATE INDEX IF NOT EXISTS gem_corruption_floor_idx ON gem_corruption_results(league, floor_price_exalted)",
+  "ALTER TABLE market_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE market_jobs ADD COLUMN lane TEXT NOT NULL DEFAULT 'background'",
+  "ALTER TABLE market_jobs ADD COLUMN dedupe_key TEXT",
+  "ALTER TABLE market_jobs ADD COLUMN parent_id TEXT",
+  "ALTER TABLE market_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE market_jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 5",
+  "ALTER TABLE market_jobs ADD COLUMN lease_owner TEXT",
+  "ALTER TABLE market_jobs ADD COLUMN lease_expires_at INTEGER",
+  "ALTER TABLE market_jobs ADD COLUMN result TEXT",
+  "CREATE INDEX IF NOT EXISTS market_jobs_claim_idx ON market_jobs(status, lane, priority, run_at)",
+  "CREATE INDEX IF NOT EXISTS market_jobs_parent_idx ON market_jobs(parent_id)",
+  // Jobs queued before dedupe existed can pile up; keep the running copy or the newest pending one.
+  `UPDATE market_jobs SET status = 'cancelled', message = 'Duplicate of another queued job', finished_at = updated_at
+     WHERE status = 'pending' AND parent_id IS NULL AND EXISTS (
+       SELECT 1 FROM market_jobs o WHERE o.kind = market_jobs.kind AND o.payload = market_jobs.payload
+         AND o.parent_id IS NULL AND o.rowid <> market_jobs.rowid
+         AND (o.status = 'running' OR (o.status = 'pending' AND o.rowid > market_jobs.rowid)))`,
+  // Older rows could share a key; keep only the newest active one before the unique index.
+  `UPDATE market_jobs SET dedupe_key = NULL WHERE dedupe_key IS NOT NULL AND status IN ('pending','running')
+     AND rowid NOT IN (SELECT MAX(rowid) FROM market_jobs WHERE dedupe_key IS NOT NULL AND status IN ('pending','running') GROUP BY dedupe_key)`,
+  "CREATE UNIQUE INDEX IF NOT EXISTS market_jobs_dedupe_active_idx ON market_jobs(dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('pending','running')",
 ];
 
 let ensured: Promise<void> | null = null;

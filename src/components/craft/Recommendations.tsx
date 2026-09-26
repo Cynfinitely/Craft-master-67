@@ -18,7 +18,7 @@ export function Recommendations({
 }) {
   if (recs.length === 0) {
     return (
-      <div className="panel p-8 text-center text-forge-gold/50">
+      <div className="panel p-8 text-center text-forge-gold/80">
         Select an item class and at least one desired modifier to get base
         recommendations.
       </div>
@@ -29,7 +29,7 @@ export function Recommendations({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-forge-gold/60">
+      <p className="text-sm text-forge-gold/80">
         Bases ranked by rollability and expected profit when market data
         exists (probe-backed sale estimates weighted heavily). Open one to
         build a full step-by-step plan.
@@ -47,7 +47,7 @@ export function Recommendations({
                   Cannot roll: {r.missing.join(", ")}
                 </p>
               ) : r.cheapestCostExalted != null ? (
-                <p className="mt-0.5 text-xs text-forge-gold/60">
+                <p className="mt-0.5 text-xs text-forge-gold/80">
                   Cheapest:{" "}
                   <span className="text-rarity-currency">
                     {formatCost(r.cheapestCostExalted, divinePriceExalted)}
@@ -60,7 +60,7 @@ export function Recommendations({
                       <span
                         className={
                           r.expectedProfitExalted >= 0
-                            ? "text-emerald-300"
+                            ? "text-emerald-800"
                             : "text-forge-rust"
                         }
                       >
@@ -68,7 +68,7 @@ export function Recommendations({
                         {formatCost(r.expectedProfitExalted, divinePriceExalted)}
                       </span>
                       {r.saleConfidence ? (
-                        <span className="text-forge-gold/45">
+                        <span className="text-forge-gold/80">
                           {" "}
                           ({r.saleConfidence} confidence)
                         </span>
@@ -100,7 +100,7 @@ export function Recommendations({
             {r.perGroup.map((g) => (
               <span key={g.group} className="tag-chip">
                 {g.label}
-                <span className="ml-1 text-forge-gold/40">
+                <span className="ml-1 text-forge-gold/80">
                   {(g.odds * 100).toFixed(1)}%
                 </span>
               </span>

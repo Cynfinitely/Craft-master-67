@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LiveProgress, newProgressId } from "@/components/LiveProgress";
+import { LiveProgress } from "@/components/LiveProgress";
+import { waitForJob } from "@/lib/jobs/clientWait";
 import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 import { SnipeBuilder, type SpecSummary } from "./SnipeBuilder";
 
@@ -101,20 +102,24 @@ export function SnipePanel({
       setScanning(key);
       setScan(null);
       setScanError(null);
-      const id = newProgressId();
-      setJobId(id);
+      setJobId(null);
       const target = params.template
         ? `&template=${encodeURIComponent(params.template)}`
         : `&spec=${params.spec}`;
       fetch(
-        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}${target}&progress=${encodeURIComponent(id)}`,
+        `/api/market/snipe?class=${encodeURIComponent(itemClass)}&league=${encodeURIComponent(league)}${target}`,
       )
         .then(async (r) => {
-          const body = await r.json();
-          if (!r.ok) setScanError(body.error ?? "Scan failed");
-          else setScan(body.scan as Scan);
+          const body = (await r.json()) as { jobId?: string; error?: string };
+          if (!r.ok || !body.jobId) throw new Error(body.error ?? "Scan failed");
+          setJobId(body.jobId);
+          const job = await waitForJob(body.jobId);
+          if (job.status !== "done") throw new Error(job.message || "Scan failed");
+          const result = job.result as { scan?: Scan | null } | undefined;
+          if (!result?.scan) throw new Error("Unknown template or spec.");
+          setScan(result.scan);
         })
-        .catch(() => setScanError("Scan failed"))
+        .catch((err) => setScanError(err instanceof Error ? err.message : "Scan failed"))
         .finally(() => setScanning(null));
     },
     [itemClass, league],
@@ -138,7 +143,7 @@ export function SnipePanel({
   }
   if (templates === null) {
     return (
-      <div className="panel p-6 text-sm text-forge-gold/50">
+      <div className="panel p-6 text-sm text-forge-gold/80">
         Loading snipe templates…
       </div>
     );
@@ -155,7 +160,7 @@ export function SnipePanel({
       />
 
       {templates.length === 0 ? (
-        <div className="panel p-6 text-sm text-forge-gold/50">
+        <div className="panel p-6 text-sm text-forge-gold/80">
           No snipe templates for {itemClass} yet. Build a custom target above,
           or probe combos on the Market page — high-value probes auto-generate
           &ldquo;one mod short&rdquo; templates.
@@ -171,14 +176,14 @@ export function SnipePanel({
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                     t.source === "recipe"
-                      ? "bg-emerald-900/50 text-emerald-300"
+                      ? "bg-emerald-100 text-emerald-800"
                       : "bg-indigo-900/40 text-indigo-300"
                   }`}
                 >
                   {t.source === "recipe" ? "known recipe" : "from probe"}
                 </span>
               </div>
-              <p className="flex-1 text-xs text-forge-gold/60">
+              <p className="flex-1 text-xs text-forge-gold/80">
                 {t.description}
               </p>
               <ActionWithInfo
@@ -215,7 +220,7 @@ export function SnipePanel({
 
       {scan ? (
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-forge-gold/60">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-forge-gold/80">
             <span className="font-semibold text-forge-goldbright">
               {scan.template.name}
             </span>
@@ -234,12 +239,12 @@ export function SnipePanel({
             </a>
           </div>
           {scan.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-300/80">
+            <p key={i} className="text-xs text-amber-900">
               {w}
             </p>
           ))}
           {scan.results.length === 0 ? (
-            <div className="panel p-6 text-sm text-forge-gold/50">
+            <div className="panel p-6 text-sm text-forge-gold/80">
               No evaluable listings right now — try again later or raise the
               price cap.
             </div>
@@ -252,7 +257,7 @@ export function SnipePanel({
                       <span className="font-semibold text-forge-goldbright">
                         {r.baseName}
                       </span>
-                      <span className="text-xs text-forge-gold/50">
+                      <span className="text-xs text-forge-gold/80">
                         iLvl {r.ilvl} · buy {r.priceText} (~{ex(r.buyExalted)})
                       </span>
                       {!r.feasible ? (
@@ -270,11 +275,11 @@ export function SnipePanel({
                           {label}
                         </span>
                       ))}
-                      <span className="rounded border border-emerald-700/60 bg-emerald-900/30 px-1.5 py-0.5 text-xs text-emerald-300">
+                      <span className="rounded border border-emerald-700 bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800">
                         + {r.targetLabel}
                       </span>
                     </div>
-                    <p className="mt-1.5 text-[11px] text-forge-gold/45">
+                    <p className="mt-1.5 text-[11px] text-forge-gold/80">
                       finish ~{ex(r.finishCostExalted)} ·{" "}
                       {Math.round(r.successRate * 1000) / 10}% success ·{" "}
                       {r.saleExalted != null
@@ -291,14 +296,14 @@ export function SnipePanel({
                     ) : null}
                     {r.steps[0] ? (
                       <p
-                        className="mt-0.5 text-[11px] text-forge-gold/45"
+                        className="mt-0.5 text-[11px] text-forge-gold/80"
                         title={r.steps[0].detail}
                       >
                         {r.steps[0].title}
                       </p>
                     ) : null}
                     {r.warnings.map((w, i) => (
-                      <p key={i} className="mt-0.5 text-[11px] text-amber-300/70">
+                      <p key={i} className="mt-0.5 text-[11px] text-amber-900">
                         {w}
                       </p>
                     ))}
@@ -307,7 +312,7 @@ export function SnipePanel({
                     <div
                       className={`text-lg font-bold ${
                         (r.evExalted ?? -1) >= 0
-                          ? "text-emerald-300"
+                          ? "text-emerald-800"
                           : "text-forge-rust"
                       }`}
                     >
@@ -323,7 +328,7 @@ export function SnipePanel({
               </div>
             ))
           )}
-          <p className="text-xs text-forge-gold/40">
+          <p className="text-xs text-forge-gold/80">
             EV = success% × predicted sale + miss% × half the buy price (a
             missed finish still resells) − (buy + expected finish cost). Sale
             prices are pinned to the expected tier outcome, not best-case

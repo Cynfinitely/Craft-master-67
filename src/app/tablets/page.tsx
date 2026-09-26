@@ -8,14 +8,16 @@ import { toComboView } from "@/lib/tablets/view";
 import { countUnfinishedJobs } from "@/lib/jobs/queue";
 import { getActiveTabletScanJob } from "@/lib/jobs/queue";
 import { triggerQueuePump } from "@/lib/jobs/pump";
-import { getCurrentLeagueName, getLeagues, getPrices } from "@/lib/pricing/poe2scout";
+import { getCollectorLeague } from "@/lib/jobs/schedules";
+import { getLeagues, getPrices } from "@/lib/pricing/poe2scout";
 import { loadTabletCatalog } from "@/lib/tablets/catalog";
 import {
   comboStatusCounts,
   orderConfirmQueue,
   type ComboStatusCounts,
 } from "@/lib/tablets/logic";
-import { getTradeCooldownMs } from "@/lib/trade/rateLimiter";
+import { tabletSampleAges } from "@/lib/tablets/scan";
+import { readSavedBudget } from "@/lib/trade/rateLimiter";
 
 export const dynamic = "force-dynamic";
 
@@ -50,11 +52,11 @@ export default async function TabletsPage({
     if (leagues.length === 0) {
       leagues = all.map((l) => ({ value: l.value, label: l.value }));
     }
-    if (!league) league = await getCurrentLeagueName();
+    if (!league) league = await getCollectorLeague();
   } catch (err) {
     error = err instanceof Error ? err.message : "Failed to load leagues.";
   }
-  if (!league) league = "Standard";
+  if (!league) league = "Forbidden Rites";
   if (!leagues.some((l) => l.value === league)) {
     leagues = [{ value: league, label: league }, ...leagues];
   }
@@ -110,11 +112,14 @@ export default async function TabletsPage({
   }
 
   let tradeWaitMs = 0;
+  let tabletAges: Record<string, number> = {};
   try {
     if ((await countUnfinishedJobs()) > 0) triggerQueuePump();
     const active = await getActiveTabletScanJob(league);
     activeJobId = active?.id ?? null;
-    tradeWaitMs = await getTradeCooldownMs();
+    const budget = await readSavedBudget();
+    tradeWaitMs = budget?.usage.find((p) => p.policy === "search")?.waitMs ?? 0;
+    tabletAges = await tabletSampleAges(league);
   } catch {
     /* best-effort */
   }
@@ -123,7 +128,7 @@ export default async function TabletsPage({
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-forge-goldbright">Tablet crafting</h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Precursor tablet combinations that are selling, filtered by price,
           with a stash regex for the ones you keep.
         </p>
@@ -135,6 +140,7 @@ export default async function TabletsPage({
           leagues={leagues}
           tablet={tabletName}
           tablets={catalog.map((t) => t.name)}
+          tabletAges={tabletAges}
           activeJobId={activeJobId}
           fetchedAt={fetchedAt}
           counts={counts}
@@ -147,7 +153,7 @@ export default async function TabletsPage({
       ) : null}
 
       {catalog.length === 0 ? (
-        <div className="panel p-4 text-sm text-forge-gold/60">
+        <div className="panel p-4 text-sm text-forge-gold/80">
           Tablet mods are not in the local database yet. Run{" "}
           <code className="text-forge-goldbright">npm run data:setup</code> and restart.
         </div>

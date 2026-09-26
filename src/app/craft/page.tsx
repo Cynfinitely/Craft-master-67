@@ -17,8 +17,10 @@ import {
 import { planMassCraft } from "@/lib/solver/massCraft";
 import { parseMethodSort } from "@/lib/solver/methodSort";
 import type { SimMethodId } from "@/lib/solver/simulate";
-import { getPrices, getCurrentLeagueName } from "@/lib/pricing/poe2scout";
+import { getPrices } from "@/lib/pricing/poe2scout";
+import { getCollectorLeague } from "@/lib/jobs/schedules";
 import { CraftControls } from "@/components/craft/CraftControls";
+import { FilterSheet } from "@/components/ui/FilterSheet";
 import {
   GroupSelector,
   type SelectableGroup,
@@ -89,15 +91,29 @@ export default async function CraftPage({
         <h1 className="text-2xl font-bold text-forge-goldbright">
           Crafting Planner
         </h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Pick a base and the modifiers you want for a step-by-step path with
           rough odds, or describe your goal and let the planner recommend a base.
         </p>
       </div>
 
-      <div className="panel p-4">
-        <CraftControls classes={categories} mode={mode} />
-      </div>
+      <FilterSheet
+        title="Planner settings"
+        summary={[
+          { base: "Base", mass: "Mass craft", recommend: "Recommend", paste: "Paste" }[mode],
+          searchParams.class,
+          `ilvl ${itemLevel}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        collapsed={
+          (mode === "base" || mode === "mass") ? !!searchParams.base : mode === "recommend" && !!searchParams.class
+        }
+      >
+        <div className="panel p-4">
+          <CraftControls classes={categories} mode={mode} />
+        </div>
+      </FilterSheet>
 
       {mode === "paste" ? (
         <PasteImport />
@@ -149,7 +165,7 @@ function SectionSkeleton({ label }: { label: string }) {
         <div className="h-4 w-1/2 rounded bg-forge-panel2" />
         <div className="h-4 w-3/5 rounded bg-forge-panel2" />
       </div>
-      <p className="text-center text-xs text-forge-gold/45">{label}</p>
+      <p className="text-center text-xs text-forge-gold/80">{label}</p>
     </div>
   );
 }
@@ -222,7 +238,7 @@ async function BaseMode({
   const pool = await getModPool(baseId, itemLevel);
   if (!pool) {
     return (
-      <div className="panel p-6 text-forge-gold/60">Base not found.</div>
+      <div className="panel p-6 text-forge-gold/80">Base not found.</div>
     );
   }
 
@@ -293,7 +309,7 @@ async function BaseMode({
           }}
         />
       ) : (
-        <div className="panel p-6 text-center text-forge-gold/50">
+        <div className="panel p-6 text-center text-forge-gold/80">
           Tick one or more modifiers above, then press “Build crafting plan”.
         </div>
       )}
@@ -336,7 +352,7 @@ async function MassMode({
 
   const pool = await getModPool(baseId, itemLevel);
   if (!pool) {
-    return <div className="panel p-6 text-forge-gold/60">Base not found.</div>;
+    return <div className="panel p-6 text-forge-gold/80">Base not found.</div>;
   }
 
   const toSel = (
@@ -406,7 +422,7 @@ async function MassMode({
       {plan ? (
         <MassResults plan={plan} />
       ) : (
-        <div className="panel p-6 text-center text-forge-gold/50">
+        <div className="panel p-6 text-center text-forge-gold/80">
           Tick one or more modifiers above, then press “Simulate the batch”.
         </div>
       )}
@@ -425,7 +441,7 @@ async function RecommendMode({
 }) {
   if (!itemClass) {
     return (
-      <div className="panel p-8 text-center text-forge-gold/50">
+      <div className="panel p-8 text-center text-forge-gold/80">
         Choose an item class above to see which modifiers are available and get
         base recommendations.
       </div>
@@ -455,21 +471,34 @@ async function RecommendMode({
 
   const recs = selectedGroups.length
     ? await recommendBases(itemClass, itemLevel, selectedGroups, 8, {
-        league: await getCurrentLeagueName().catch(() => undefined),
+        league: await getCollectorLeague().catch(() => undefined),
         useMarketScore: true,
       })
     : [];
 
   let divinePriceExalted = 0;
+  let pricesStale = false;
+  let priceFetchedAt = 0;
   try {
     const prices = await getPrices();
     divinePriceExalted = prices.divinePrice;
+    pricesStale = prices.stale || prices.fetchedAt === 0;
+    priceFetchedAt = prices.fetchedAt;
   } catch {
-    /* omit divine column when prices unavailable */
+    pricesStale = true;
   }
 
   return (
     <div className="space-y-4">
+      {pricesStale ? (
+        <div className="panel-inset p-3 text-xs text-forge-gold">
+          Currency prices are{" "}
+          {priceFetchedAt
+            ? `from ${new Date(priceFetchedAt).toLocaleString()} and due for a refresh`
+            : "not collected yet"}
+          . Costs stay on the last saved snapshot until the price job finishes.
+        </div>
+      ) : null}
       <div>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
           Desired modifiers for {itemClass}

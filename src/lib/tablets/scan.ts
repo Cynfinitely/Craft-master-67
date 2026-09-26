@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { ensureAppTables } from "@/db/ensure";
 import { tabletComboResults, type TabletComboResultRow } from "@/db/schema";
@@ -11,10 +11,12 @@ import {
   searchAndFetchForGem,
   tradeSearch,
   tradeSiteUrl,
+  TradeOwnerError,
   TradeTimeoutError,
   withTimeoutStrict,
   type TradeListing,
 } from "@/lib/trade/client";
+import { isTradeOwner } from "@/lib/trade/context";
 import { buildTradeQuery } from "@/lib/trade/query";
 import { getTradeRateLimiter } from "@/lib/trade/rateLimiter";
 import { getTradeStats } from "@/lib/trade/stats";
@@ -32,6 +34,7 @@ import {
   orderConfirmQueue,
   resolveListingMods,
   SAMPLE_FRESH_MS,
+  scopeCatalog,
   TABLET_SAMPLE_LISTINGS,
   tradeExplicitId,
   type ComboMod,
@@ -85,6 +88,10 @@ export interface TabletScanBatchResult {
 export interface TabletScanBatchInput {
   league: string;
   scanStartedAt: number;
+  /** Tablet base names to scan; all tablets when omitted. */
+  tablets?: string[];
+  /** Confirm searches allowed for this scope per refresh. */
+  confirmBudget?: number;
   onProgress?: ProgressReporter;
 }
 
@@ -97,12 +104,23 @@ function rowId(league: string, tablet: string, comboKey: string): string {
   return `${league}|${tablet}|${comboKey}`;
 }
 
-async function leagueRows(league: string) {
+async function leagueRows(league: string, tablets?: Set<string> | null) {
   await ensureAppTables();
-  return getDb()
+  const rows = await getDb()
     .select()
     .from(tabletComboResults)
     .where(eq(tabletComboResults.league, league));
+  return tablets ? rows.filter((r) => tablets.has(r.tablet)) : rows;
+}
+
+export { scopeCatalog };
+
+/** Last time each tablet's listings were sampled (for the scope chips). */
+export async function tabletSampleAges(league: string): Promise<Record<string, number>> {
+  const rows = await leagueRows(league);
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.tablet] = Math.max(out[r.tablet] ?? 0, r.fetchedAt);
+  return out;
 }
 
 function priceMapFrom(items: { apiId: string; priceExalted: number }[], divine: number) {
@@ -134,20 +152,24 @@ export async function runTabletScanBatch(
   const { league, scanStartedAt, onProgress } = input;
   const report: ProgressReporter = onProgress ?? (() => {});
   const now = Date.now();
+  const budget = input.confirmBudget ?? CONFIRM_BUDGET_PER_RUN;
 
-  const catalog = await loadTabletCatalog();
-  if (catalog.length === 0) {
+  const fullCatalog = await loadTabletCatalog();
+  if (fullCatalog.length === 0) {
     throw new Error(
       "No tablet mods in the local database. Run npm run data:setup and restart.",
     );
   }
+  const catalog = scopeCatalog(fullCatalog, input.tablets);
+  const scope = input.tablets?.length ? new Set(catalog.map((t) => t.name)) : null;
+  const scopeLabel = scope ? catalog.map((t) => t.name).join(", ") : "all tablets";
 
   const priceData = await getPrices(league).catch(() => null);
   const divine = priceData?.divinePrice ?? 0;
-  let rows = await leagueRows(league);
+  let rows = await leagueRows(league, scope);
 
   if (rows.length === 0) {
-    report(`Fetching precursor tablet prices for ${league}…`);
+    report(`Fetching precursor tablet prices for ${scopeLabel}…`);
     const overview = await fetchPrecursorOverview(league);
     const exaltedPerDivine = divine > 0 ? divine : overview.exaltedPerDivine;
     const grouped =
@@ -155,9 +177,9 @@ export async function runTabletScanBatch(
         ? groupTabletOverview(overview.lines, catalog, exaltedPerDivine)
         : [];
     if (grouped.length > 0) {
-      await saveOverviewCombos(league, scanStartedAt, grouped, overview.fetchedAt);
+      await saveOverviewCombos(league, scanStartedAt, grouped, overview.fetchedAt, scope);
       report(`Done — ${grouped.length} tablet combinations priced.`);
-      rows = await leagueRows(league);
+      rows = await leagueRows(league, scope);
       return summarize(league, scanStartedAt, rows, now, { done: true, batchProcessed: 1 });
     }
     report("Economy snapshot has no mod combinations — reading trade listings…");
@@ -194,24 +216,24 @@ export async function runTabletScanBatch(
         total: catalog.length,
       });
       await sampleTablet(league, scanStartedAt, tablet, priceMap);
-      rows = await leagueRows(league);
+      rows = await leagueRows(league, scope);
       return summarize(league, scanStartedAt, rows, Date.now(), { batchProcessed: 1 });
     }
 
     const combos = rows.filter((r) => r.comboKey !== SAMPLE_MARKER);
     const spent = confirmsSpent(rows, scanStartedAt);
-    const { row, queued, budgetSpent } = nextConfirm(combos, now, spent);
+    const { row, queued, budgetSpent } = nextConfirm(combos, now, spent, budget);
     if (!row) {
       return summarize(league, scanStartedAt, rows, now, { done: true, budgetSpent });
     }
 
     const counts = comboStatusCounts(combos);
     report(
-      `Checking ${row.tablet} (${spent + 1}/${CONFIRM_BUDGET_PER_RUN} this run · ${counts.confirmed} confirmed · ${queued} waiting)…`,
-      { current: spent, total: CONFIRM_BUDGET_PER_RUN },
+      `Checking ${row.tablet} (${spent + 1}/${budget} this run · ${counts.confirmed} confirmed · ${queued} waiting)…`,
+      { current: spent, total: budget },
     );
     await confirmCombo(row, priceMap);
-    rows = await leagueRows(league);
+    rows = await leagueRows(league, scope);
     return summarize(league, scanStartedAt, rows, Date.now(), { batchProcessed: 1 });
   } catch (err) {
     if (err instanceof TradeTimeoutError || isRateLimitError(err)) {
@@ -323,10 +345,20 @@ async function saveOverviewCombos(
   scanStartedAt: number,
   grouped: ReturnType<typeof groupTabletOverview>,
   fetchedAt: number,
+  scope: Set<string> | null,
 ) {
   const db = getDb();
-  await db.delete(tabletComboResults).where(eq(tabletComboResults.league, league));
+  if (scope) {
+    for (const tablet of scope) {
+      await db
+        .delete(tabletComboResults)
+        .where(and(eq(tabletComboResults.league, league), eq(tabletComboResults.tablet, tablet)));
+    }
+  } else {
+    await db.delete(tabletComboResults).where(eq(tabletComboResults.league, league));
+  }
   for (const combo of grouped) {
+    if (scope && !scope.has(combo.tablet)) continue;
     await db.insert(tabletComboResults).values({
       id: rowId(league, combo.tablet, combo.key),
       league,
@@ -523,6 +555,7 @@ export async function openTabletTrade(rowIdValue: string): Promise<string> {
   const row = rows[0];
   if (!row) throw new Error("That tablet combination is no longer saved.");
   if (row.tradeUrl) return row.tradeUrl;
+  if (!isTradeOwner()) throw new TradeOwnerError();
 
   const mods = [...parseMods(row.mods).prefixes, ...parseMods(row.mods).suffixes];
   const stats = await getTradeStats();

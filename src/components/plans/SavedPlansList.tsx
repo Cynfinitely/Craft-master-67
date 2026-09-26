@@ -40,7 +40,7 @@ export function SavedPlansList({
 
   if (plans.length === 0) {
     return (
-      <div className="panel p-8 text-center text-forge-gold/50">
+      <div className="panel p-8 text-center text-forge-gold/80">
         No saved plans yet. Build a plan in the Crafting Planner and click
         &ldquo;Save plan&rdquo;.
       </div>
@@ -54,7 +54,7 @@ export function SavedPlansList({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <h3 className="font-semibold text-forge-goldbright">{p.name}</h3>
-              <p className="text-sm text-forge-gold/60">
+              <p className="text-sm text-forge-gold/80">
                 {p.plan.baseName} · {p.plan.desiredPrefixes.length}p /{" "}
                 {p.plan.desiredSuffixes.length}s · iLvl {p.plan.itemLevel}
               </p>
@@ -73,7 +73,7 @@ export function SavedPlansList({
                         drift[p.id].savedCostExalted >
                       0
                         ? "text-forge-rust"
-                        : "text-emerald-300"
+                        : "text-emerald-800"
                     }
                   >
                     (

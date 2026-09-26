@@ -11,6 +11,8 @@ import {
   type PriceCurrency,
 } from "@/lib/tablets/logic";
 import type { TabletComboView } from "@/lib/tablets/view";
+import { ResponsiveTable } from "@/components/ui/ResponsiveTable";
+import { waitForJob } from "@/lib/jobs/clientWait";
 
 function fmtChaos(value: number | null, chaosExalted: number): string {
   if (value == null || chaosExalted <= 0) return "—";
@@ -123,19 +125,30 @@ export function TabletWorkspace({
     }
     setOpeningId(row.id);
     setTradeError(null);
+    // Browsers block pop-ups opened after an await, so open the tab during the click.
+    const tab = window.open("about:blank", "_blank");
     try {
       const res = await fetch("/api/tablets/trade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: row.id }),
       });
-      const data = (await res.json()) as { tradeUrl?: string; error?: string };
-      if (!res.ok || !data.tradeUrl) {
-        throw new Error(data.error ?? "Trade search failed");
+      const data = (await res.json()) as { tradeUrl?: string; jobId?: string; error?: string };
+      if (!res.ok && !data.jobId) throw new Error(data.error ?? "Trade search failed");
+      let url = data.tradeUrl;
+      if (!url && data.jobId) {
+        setTradeError("Trade search queued in the market worker…");
+        const job = await waitForJob(data.jobId);
+        url = (job.result as { tradeUrl?: string } | undefined)?.tradeUrl;
+        if (job.status !== "done" || !url) throw new Error(job.message || "Trade search failed");
+        setTradeError(null);
       }
-      setLinks((prev) => ({ ...prev, [row.id]: data.tradeUrl! }));
-      window.open(data.tradeUrl, "_blank", "noopener,noreferrer");
+      if (!url) throw new Error("Trade search failed");
+      setLinks((prev) => ({ ...prev, [row.id]: url! }));
+      if (tab) tab.location.href = url;
+      else window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
+      tab?.close();
       setTradeError(err instanceof Error ? err.message : "Trade search failed");
     } finally {
       setOpeningId(null);
@@ -146,7 +159,7 @@ export function TabletWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="panel sticky top-0 z-10 space-y-3 p-4">
+      <div className="panel space-y-3 p-3 sm:p-4 md:sticky md:top-[calc(var(--nav-height)+0.5rem)] md:z-10">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-forge-gold/70">Minimum</span>
           {PRESETS.map((p) => (
@@ -186,7 +199,7 @@ export function TabletWorkspace({
               </select>
             </>
           ) : null}
-          <span className="text-[11px] text-forge-gold/40">
+          <span className="text-[11px] text-forge-gold/80">
             {visible.length} combination{visible.length === 1 ? "" : "s"} on {tablet.name}
           </span>
         </div>
@@ -195,7 +208,7 @@ export function TabletWorkspace({
           <button type="button" className="btn btn-primary" disabled={!packed.regex} onClick={copy}>
             {copied ? "Copied" : "Copy regex"}
           </button>
-          <span className="text-[11px] text-forge-gold/50">
+          <span className="text-[11px] text-forge-gold/80">
             {packed.regex.length}/{STASH_REGEX_LIMIT}
             {selectedCount > 0
               ? ` · ${packed.included} of ${selectedCount} selected`
@@ -203,11 +216,11 @@ export function TabletWorkspace({
           </span>
         </div>
         {packed.regex ? (
-          <pre className="overflow-x-auto rounded bg-black/30 p-3 text-xs text-forge-goldbright">
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded border border-forge-border bg-forge-panel2 p-3 text-xs text-forge-goldbright">
             {packed.regex}
           </pre>
         ) : (
-          <p className="text-xs text-forge-gold/45">
+          <p className="text-xs text-forge-gold/80">
             Select combinations worth at least {minAmount || "0"} {currency}. The regex matches any of them in your stash.
           </p>
         )}
@@ -215,60 +228,98 @@ export function TabletWorkspace({
 
       <div className="panel p-4">
         {visible.length === 0 ? (
-          <p className="text-sm text-forge-gold/50">
+          <p className="text-sm text-forge-gold/80">
             No confirmed combinations for {tablet.name} at this price. A price is shown only after at least 3 listings agree. Refresh prices, or lower the minimum.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-[10px] uppercase tracking-wide text-forge-gold/40">
-                <tr>
-                  <th className="py-2 pr-2">
-                    <span className="sr-only">Include</span>
-                  </th>
-                  <th className="py-2 pr-3">Prefixes</th>
-                  <th className="py-2 pr-3">Suffixes</th>
-                  <th className="py-2 pr-3">Chaos</th>
-                  <th className="py-2 pr-3">Divine</th>
-                  <th className="py-2 pr-3">Listings</th>
-                  <th className="py-2">Trade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((row) => (
-                  <tr key={row.id} className="border-t border-forge-border/60">
-                    <td className="py-2 pr-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Include ${row.prefixes.map((m) => m.label).join(", ")}`}
-                        checked={selected.has(row.id)}
-                        onChange={() => toggle(row.id)}
-                      />
-                    </td>
-                    <td className="py-2 pr-3 text-forge-goldbright">
+          <ResponsiveTable<TabletComboView>
+            caption={`Confirmed combinations on ${tablet.name}`}
+            rows={visible}
+            rowKey={(row) => row.id}
+            columns={[
+              {
+                key: "card",
+                header: "Combination",
+                primary: true,
+                hideOnDesktop: true,
+                cell: (row) => (
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-5 w-5 shrink-0"
+                      checked={selected.has(row.id)}
+                      onChange={() => toggle(row.id)}
+                    />
+                    <span className="min-w-0">
                       {row.prefixes.map((m) => m.label).join(" · ") || "—"}
-                    </td>
-                    <td className="py-2 pr-3">
-                      {row.suffixes.map((m) => m.label).join(" · ") || "—"}
-                    </td>
-                    <td className="py-2 pr-3">{fmtChaos(row.floorPriceExalted, chaosExalted)}</td>
-                    <td className="py-2 pr-3">{fmtDiv(row.floorPriceExalted, divineExalted)}</td>
-                    <td className="py-2 pr-3">{row.listingCount ?? "—"}</td>
-                    <td className="py-2">
-                      <button
-                        type="button"
-                        className="text-forge-goldbright underline disabled:opacity-50"
-                        disabled={openingId === row.id}
-                        onClick={() => openTrade(row)}
-                      >
-                        {openingId === row.id ? "Opening…" : "Open"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <span className="block text-xs font-normal text-forge-gold/80">
+                        {row.suffixes.map((m) => m.label).join(" · ") || "—"}
+                      </span>
+                    </span>
+                  </label>
+                ),
+              },
+              {
+                key: "include",
+                header: <span className="sr-only">Include</span>,
+                hideOnMobile: true,
+                className: "w-8",
+                cell: (row) => (
+                  <input
+                    type="checkbox"
+                    aria-label={`Include ${row.prefixes.map((m) => m.label).join(", ")}`}
+                    checked={selected.has(row.id)}
+                    onChange={() => toggle(row.id)}
+                  />
+                ),
+              },
+              {
+                key: "prefixes",
+                header: "Prefixes",
+                hideOnMobile: true,
+                className: "text-forge-goldbright",
+                cell: (row) => row.prefixes.map((m) => m.label).join(" · ") || "—",
+              },
+              {
+                key: "suffixes",
+                header: "Suffixes",
+                hideOnMobile: true,
+                cell: (row) => row.suffixes.map((m) => m.label).join(" · ") || "—",
+              },
+              {
+                key: "chaos",
+                header: "Chaos",
+                align: "right",
+                cell: (row) => fmtChaos(row.floorPriceExalted, chaosExalted),
+              },
+              {
+                key: "divine",
+                header: "Divine",
+                align: "right",
+                cell: (row) => fmtDiv(row.floorPriceExalted, divineExalted),
+              },
+              {
+                key: "listings",
+                header: "Listings",
+                align: "right",
+                cell: (row) => row.listingCount ?? "—",
+              },
+              {
+                key: "trade",
+                header: "Trade",
+                cell: (row) => (
+                  <button
+                    type="button"
+                    className="tap text-forge-goldbright underline disabled:opacity-50"
+                    disabled={openingId === row.id}
+                    onClick={() => openTrade(row)}
+                  >
+                    {openingId === row.id ? "Opening…" : "Open"}
+                  </button>
+                ),
+              },
+            ]}
+          />
         )}
         {tradeError ? <p className="mt-2 text-xs text-forge-rust">{tradeError}</p> : null}
       </div>

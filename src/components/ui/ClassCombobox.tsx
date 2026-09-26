@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Popover } from "@/components/ui/Popover";
 
 export interface ClassCategory {
   category: string;
@@ -55,17 +56,10 @@ export function ClassCombobox({
     return [...map.entries()];
   }, [filtered]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [open]);
+  const dismiss = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+  }, []);
 
   useEffect(() => {
     setHighlight(0);
@@ -110,15 +104,15 @@ export function ClassCombobox({
   let flatIndex = -1;
 
   return (
-    <div ref={rootRef} className={`relative min-w-0 flex-1 ${className}`}>
-      <div className="relative">
+    <div className={`relative min-w-0 flex-1 ${className}`}>
+      <div ref={rootRef} className="relative">
         <input
           ref={inputRef}
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
-          className="input pr-8"
+          className="input pr-11"
           placeholder={value || placeholder}
           value={open ? query : value}
           onChange={(e) => {
@@ -134,7 +128,7 @@ export function ClassCombobox({
         {value ? (
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-forge-gold/40 hover:text-forge-goldbright"
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-lg text-forge-gold/80 hover:text-forge-goldbright"
             aria-label="Clear item class"
             onClick={clear}
           >
@@ -142,18 +136,14 @@ export function ClassCombobox({
           </button>
         ) : null}
       </div>
-      {open ? (
-        <ul
-          id={listId}
-          role="listbox"
-          className="combobox-panel absolute z-30 mt-1 max-h-60 w-full overflow-y-auto py-1"
-        >
+      <Popover open={open} onClose={dismiss} anchorRef={rootRef} matchWidth maxHeight={320}>
+        <ul id={listId} role="listbox" className="py-1">
           {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-forge-gold/50">No classes found.</li>
+            <li className="px-3 py-2 text-sm text-forge-gold/80">No classes found.</li>
           ) : (
             grouped.map(([category, classes]) => (
               <li key={category}>
-                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/40">
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80">
                   {category}
                 </div>
                 <ul>
@@ -165,7 +155,7 @@ export function ClassCombobox({
                       <li key={c} role="option" aria-selected={value === c}>
                         <button
                           type="button"
-                          className={`w-full px-3 py-1.5 text-left text-sm transition-colors ${
+                          className={`w-full px-3 py-1.5 text-left text-sm transition-colors max-md:py-2.5 ${
                             active || value === c
                               ? "bg-forge-panel2 text-forge-goldbright"
                               : "text-forge-gold/80 hover:bg-forge-panel2/60"
@@ -183,7 +173,7 @@ export function ClassCombobox({
             ))
           )}
         </ul>
-      ) : null}
+      </Popover>
     </div>
   );
 }

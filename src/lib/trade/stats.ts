@@ -1,7 +1,7 @@
 import { getClient, getDb } from "@/db";
 import { ensureAppTables } from "@/db/ensure";
 import { tradeStats } from "@/db/schema";
-import { fetchTradeStatCatalog, type TradeStatEntry } from "./client";
+import { fetchTradeStatCatalog, TradeOwnerError, type TradeStatEntry } from "./client";
 
 /**
  * Local mirror of the trade site's searchable stat catalog (`trade_stats`
@@ -48,7 +48,17 @@ export async function getTradeStats(): Promise<TradeStatEntry[]> {
   try {
     await syncTradeStats();
     return memo ?? [];
-  } catch {
+  } catch (err) {
+    if (err instanceof TradeOwnerError) {
+      const { enqueueJob } = await import("@/lib/jobs/queue");
+      await enqueueJob({
+        kind: "sync:trade-stats",
+        payload: {},
+        lane: "interactive",
+        dedupeKey: "sync:trade-stats",
+        message: "Queued trade stat catalog sync",
+      }).catch(() => {});
+    }
     return [];
   }
 }

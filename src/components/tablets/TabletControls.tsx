@@ -2,11 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  LiveProgress,
-  newProgressId,
-  type ProgressJob,
-} from "@/components/LiveProgress";
+import { LiveProgress, type ProgressJob } from "@/components/LiveProgress";
+import { ScopeChips } from "@/components/ui/ScopeChips";
 
 function formatFetched(at: number | null): string {
   if (!at) return "Prices have not been refreshed yet.";
@@ -33,6 +30,7 @@ export function TabletControls({
   leagues,
   tablet,
   tablets,
+  tabletAges = {},
   activeJobId = null,
   fetchedAt = null,
   counts = { confirmed: 0, waiting: 0, thin: 0 },
@@ -42,6 +40,8 @@ export function TabletControls({
   leagues: { value: string; label: string }[];
   tablet: string;
   tablets: string[];
+  /** Last scan time per tablet, for the scope chips. */
+  tabletAges?: Record<string, number>;
   activeJobId?: string | null;
   fetchedAt?: number | null;
   counts?: StatusCounts;
@@ -53,6 +53,7 @@ export function TabletControls({
   const [jobId, setJobId] = useState<string | null>(activeJobId);
   const [scanning, setScanning] = useState(!!activeJobId);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
+  const [scope, setScope] = useState<string[]>(tablet ? [tablet] : []);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -61,6 +62,10 @@ export function TabletControls({
       setScanning(true);
     }
   }, [activeJobId]);
+
+  useEffect(() => {
+    if (tablet) setScope([tablet]);
+  }, [tablet]);
 
   const setParam = useCallback(
     (key: string, value: string | null) => {
@@ -77,31 +82,41 @@ export function TabletControls({
     refreshTimer.current = setTimeout(() => router.refresh(), 800);
   }, [router]);
 
+  const all = scope.length === 0 || scope.length === tablets.length;
+
   const runScan = async () => {
     if (scanning) return;
     setScanning(true);
     setEnqueueError(null);
-    const id = newProgressId();
-    setJobId(id);
+    setJobId(null);
+    const selected = all ? undefined : [...scope].sort();
     try {
       const res = await fetch("/api/jobs/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "scan:tablets",
-          payload: { league, scanStartedAt: Date.now() },
-          id,
+          payload: {
+            league,
+            scanStartedAt: Date.now(),
+            ...(selected ? { tablets: selected, scopeKey: selected.join("|") } : {}),
+          },
         }),
       });
       const data = (await res.json()) as { id?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Failed to queue scan");
-      if (data.id && data.id !== id) setJobId(data.id);
+      if (!res.ok || !data.id) throw new Error(data.error ?? "Failed to queue scan");
+      setJobId(data.id);
     } catch (err) {
       setEnqueueError(err instanceof Error ? err.message : "Failed to queue scan.");
       setScanning(false);
-      setJobId(null);
     }
   };
+
+  const label = all
+    ? "Refresh all tablets"
+    : scope.length === 1
+      ? `Refresh ${scope[0]}`
+      : `Refresh ${scope.length} tablets`;
 
   return (
     <div className="space-y-4">
@@ -111,6 +126,7 @@ export function TabletControls({
           value={league}
           onChange={(e) => setParam("league", e.target.value || null)}
           disabled={scanning}
+          aria-label="League"
         >
           {leagues.map((l) => (
             <option key={l.value} value={l.value}>
@@ -122,6 +138,7 @@ export function TabletControls({
           className="input sm:w-56"
           value={tablet}
           onChange={(e) => setParam("tablet", e.target.value || null)}
+          aria-label="Tablet shown below"
         >
           {tablets.map((name) => (
             <option key={name} value={name}>
@@ -130,17 +147,26 @@ export function TabletControls({
           ))}
         </select>
       </div>
+
+      <ScopeChips
+        label="Scan"
+        options={tablets.map((name) => ({ id: name, label: name.replace(/ Tablet$/, ""), at: tabletAges[name] }))}
+        selected={scope}
+        onChange={setScope}
+        disabled={scanning}
+      />
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className="btn btn-primary shrink-0 disabled:opacity-50"
+          className="btn btn-primary tap shrink-0 disabled:opacity-50"
           disabled={scanning}
           onClick={runScan}
         >
-          {scanning ? "Refreshing…" : "Refresh prices"}
+          {scanning ? "Refreshing…" : label}
         </button>
         {!scanning ? (
-          <span className="text-[11px] text-forge-gold/40">{formatFetched(fetchedAt)}</span>
+          <span className="text-[11px] text-forge-gold/80">{formatFetched(fetchedAt)}</span>
         ) : null}
         {tradeWaitMs > 15_000 ? (
           <span className="text-[11px] text-forge-rust/80">
@@ -155,12 +181,12 @@ export function TabletControls({
         </span>
         <span
           className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-gold/70"
-          title="Combinations seen on expensive listings that still need a price check. Each refresh checks up to 20."
+          title="Combinations seen on expensive listings that still need a price check."
         >
           {counts.waiting} waiting to be checked
         </span>
         <span
-          className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-gold/50"
+          className="rounded border border-forge-gold/20 px-2 py-0.5 text-forge-gold/80"
           title="Fewer than 3 live listings, so the price is not trusted. Rechecked after 6 hours."
         >
           {counts.thin} too few listings

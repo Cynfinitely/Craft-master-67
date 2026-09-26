@@ -8,6 +8,7 @@ import {
 } from "@/lib/data";
 import { BasePickerPanel } from "@/components/bases/BasePickerPanel";
 import { ItemControls } from "@/components/items/ItemControls";
+import { FilterSheet } from "@/components/ui/FilterSheet";
 import { BaseHeader } from "@/components/items/BaseHeader";
 import { ModColumn } from "@/components/items/ModColumn";
 import { FavoriteButton } from "@/components/items/FavoriteButton";
@@ -117,7 +118,7 @@ export default async function ItemsPage({
         <h1 className="text-2xl font-bold text-forge-goldbright">
           Items &amp; Modifiers
         </h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Search any base item to see every prefix and suffix that can roll on
           it, grouped by mod group with tiers and spawn-weight odds.
         </p>
@@ -125,6 +126,15 @@ export default async function ItemsPage({
 
       <div className="grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr] xl:grid-cols-[minmax(320px,400px)_1fr_1fr]">
         <div className="space-y-3">
+          <FilterSheet
+            title="Filters & base"
+            summary={
+              pool
+                ? `${pool.base.name} · ilvl ${pool.itemLevel}${tag ? ` · ${tag}` : ""}`
+                : "Choose a base"
+            }
+            collapsed={!!pool}
+          >
           <div className="panel p-4">
             <ItemControls classes={categories} tags={[...NOTABLE_TAGS]} />
           </div>
@@ -142,11 +152,12 @@ export default async function ItemsPage({
             steps={steps}
             emptyHint="Choose an item class or search for a base name (min. 2 characters) above."
           />
+          </FilterSheet>
         </div>
 
         <div className="space-y-4 xl:col-span-2">
           {!pool ? (
-            <div className="panel p-10 text-center text-forge-gold/50">
+            <div className="panel p-6 text-center text-forge-gold/80 sm:p-10">
               Select a base item from the list to view its modifier pool.
             </div>
           ) : (

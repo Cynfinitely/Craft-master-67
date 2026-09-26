@@ -172,13 +172,13 @@ export function GroupSelector({
           >
             {title}
           </h3>
-          <span className="text-[11px] text-forge-gold/45">
+          <span className="text-[11px] text-forge-gold/80">
             {pickedCount > 0 ? `${pickedCount} selected · ` : ""}
             max 3
           </span>
         </div>
         {visible.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-forge-gold/50">
+          <p className="px-4 py-4 text-sm text-forge-gold/80">
             {items.length === 0 ? "None available." : "No match for the filter."}
           </p>
         ) : (
@@ -194,13 +194,13 @@ export function GroupSelector({
                   <button
                     type="button"
                     onClick={() => toggle(g.group)}
-                    className={`flex w-full items-center justify-between gap-3 text-left text-sm transition-colors ${
+                    className={`flex min-h-9 w-full items-center justify-between gap-3 text-left text-sm transition-colors ${
                       on ? "text-forge-goldbright" : "text-forge-gold/80"
                     }`}
                   >
-                    <span className="flex items-center gap-2">
+                    <span className="flex min-w-0 items-center gap-2">
                       <span
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                        className={`flex h-4 w-4 shrink-0 max-md:h-5 max-md:w-5 items-center justify-center rounded border text-[10px] ${
                           on
                             ? "border-forge-gold bg-forge-gold text-forge-bg"
                             : "border-forge-border"
@@ -210,7 +210,7 @@ export function GroupSelector({
                       </span>
                       {g.label}
                     </span>
-                    <span className="shrink-0 text-[11px] text-forge-gold/40">
+                    <span className="shrink-0 text-[11px] text-forge-gold/80">
                       {(g.odds * 100).toFixed(1)}%
                     </span>
                   </button>
@@ -231,13 +231,13 @@ export function GroupSelector({
                   {on ? (
                     <div className="mt-2 flex items-center gap-2 pl-6">
                       <label
-                        className="text-[11px] text-forge-gold/50"
+                        className="text-[11px] text-forge-gold/80"
                         title="Minimum acceptable tier — the plan counts this tier OR BETTER as a hit. 'Any tier' is the cheapest and usually still sells fine."
                       >
                         Min tier
                       </label>
                       <select
-                        className="input h-7 min-w-0 max-w-full py-0 text-xs"
+                        className="input h-7 min-w-0 max-w-full py-0 text-xs max-md:h-9"
                         value={tier ?? ""}
                         onChange={(e) =>
                           setTier(
@@ -257,7 +257,7 @@ export function GroupSelector({
                       </select>
                     </div>
                   ) : (
-                    <p className="mt-0.5 pl-6 text-[11px] text-forge-gold/35">
+                    <p className="mt-0.5 pl-6 text-[11px] text-forge-gold/80">
                       {g.tiers.length} tier{g.tiers.length === 1 ? "" : "s"} ·
                       best: {g.tiers[0]?.value}
                     </p>
@@ -309,7 +309,7 @@ export function GroupSelector({
                 className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors ${
                   dirty && !building
                     ? "bg-forge-gold text-forge-bg hover:bg-forge-goldbright"
-                    : "cursor-default bg-forge-panel2 text-forge-gold/40"
+                    : "cursor-default bg-forge-panel2 text-forge-gold/80"
                 }`}
               >
                 {building
@@ -331,13 +331,14 @@ export function GroupSelector({
               >
                 {labelOf.get(g) ?? g}
                 {l != null ? (
-                  <span className="text-forge-gold/50">lvl {l}+</span>
+                  <span className="text-forge-gold/80">lvl {l}+</span>
                 ) : null}
                 <button
                   type="button"
-                  className="ml-0.5 text-forge-gold/50 hover:text-forge-rust"
+                  className="-my-0.5 -mr-1 ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded text-forge-gold/80 hover:text-forge-rust max-md:min-h-8 max-md:min-w-8 max-md:text-base"
                   onClick={() => toggle(g)}
                   title="Remove"
+                  aria-label={`Remove ${labelOf.get(g) ?? g}`}
                 >
                   ×
                 </button>
@@ -350,7 +351,7 @@ export function GroupSelector({
             ) : null}
           </div>
         ) : (
-          <p className="text-[11px] text-forge-gold/40">
+          <p className="text-[11px] text-forge-gold/80">
             Tick modifiers below, set optional minimum tiers, then press “
             {actionLabel}”. Nothing recomputes until you do.
           </p>

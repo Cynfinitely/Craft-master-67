@@ -115,7 +115,7 @@ export function ManualSales({
       <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
         Manual sale records
       </h3>
-      <p className="mt-1 text-xs text-forge-gold/50">
+      <p className="mt-1 text-xs text-forge-gold/80">
         Record items you actually sold — realized prices feed the sale
         estimates and Opportunities ranking. Paste the in-game item text
         (Ctrl+C on the item) and the base + mods fill themselves.
@@ -190,20 +190,23 @@ export function ManualSales({
       {sales.length > 0 ? (
         <ul className="mt-3 divide-y divide-forge-border/40">
           {sales.slice(0, 20).map((s) => (
-            <li key={s.id} className="flex items-center justify-between gap-2 py-1.5 text-xs">
-              <span className="text-forge-gold/80">
+            <li
+              key={s.id}
+              className="flex flex-col gap-1 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:py-1.5"
+            >
+              <span className="min-w-0 break-words text-forge-gold/80">
                 {s.baseType}
-                <span className="ml-2 text-forge-gold/50">
+                <span className="block text-forge-gold/80 sm:ml-2 sm:inline">
                   {s.groups.join(", ")}
                 </span>
               </span>
-              <span className="flex shrink-0 items-center gap-3">
+              <span className="flex shrink-0 items-center justify-between gap-3">
                 <span className="font-semibold text-rarity-currency">
                   {s.priceExalted} ex
                 </span>
                 <button
                   type="button"
-                  className="text-forge-rust/80 hover:text-forge-rust"
+                  className="tap rounded px-2 text-forge-rust/80 hover:text-forge-rust"
                   onClick={() => remove(s.id)}
                 >
                   delete

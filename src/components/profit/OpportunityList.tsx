@@ -29,16 +29,16 @@ export function OpportunityList({
                 <span className="font-semibold text-forge-goldbright">
                   {o.baseName}
                 </span>
-                <span className="text-xs text-forge-gold/50">
+                <span className="text-xs text-forge-gold/80">
                   iLvl {itemLevel} · {o.methodName}
                 </span>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                     o.confidence === "high"
-                      ? "bg-emerald-900/50 text-emerald-300"
+                      ? "bg-emerald-100 text-emerald-800"
                       : o.confidence === "medium"
-                        ? "bg-amber-900/40 text-amber-300"
-                        : "bg-forge-panel2 text-forge-gold/50"
+                        ? "bg-amber-100 text-amber-900"
+                        : "bg-forge-panel2 text-forge-gold/80"
                   }`}
                 >
                   {o.confidence} confidence
@@ -76,14 +76,14 @@ export function OpportunityList({
                   {Math.round(o.sellableRate * 1000) / 10}% per base
                 </p>
               ) : null}
-              <p className="mt-1.5 text-[11px] text-forge-gold/45">
+              <p className="mt-1.5 text-[11px] text-forge-gold/80">
                 {Math.round(o.hitRate * 1000) / 10}% full-combo · batch of{" "}
                 {o.basesCount} ~{formatCost(o.totalCostExalted, divinePrice)}
                 {o.nearMissResaleExalted > 0
                   ? ` · near-misses ~${formatCost(o.nearMissResaleExalted, divinePrice)}`
                   : ""}
               </p>
-              <p className="mt-0.5 text-[11px] text-forge-gold/45">
+              <p className="mt-0.5 text-[11px] text-forge-gold/80">
                 sale {formatCost(o.saleExalted, divinePrice)}
                 {o.adjustedSaleExalted < o.saleExalted ? (
                   <>
@@ -101,7 +101,7 @@ export function OpportunityList({
               <div
                 className={`text-lg font-bold ${
                   o.profitP50Exalted >= 0
-                    ? "text-emerald-300"
+                    ? "text-emerald-800"
                     : "text-forge-rust"
                 }`}
               >
@@ -134,7 +134,7 @@ export function OpportunityList({
                 </Link>
                 <Link
                   href={o.craftHref}
-                  className="text-[11px] text-forge-gold/60 underline hover:text-forge-goldbright"
+                  className="text-[11px] text-forge-gold/80 underline hover:text-forge-goldbright"
                 >
                   single-item plan
                 </Link>
@@ -143,7 +143,7 @@ export function OpportunityList({
           </div>
         </div>
       ))}
-      <p className="text-xs text-forge-gold/40">
+      <p className="text-xs text-forge-gold/80">
         Profit uses sellable-rate EV × velocity-adjusted asks + near-miss
         resale − batch cost. Toggle rank mode above to sort by profit/hour,
         batch profit, or ROI.

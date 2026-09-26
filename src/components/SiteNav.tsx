@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Sheet } from "@/components/ui/Sheet";
 
 const NAV_GROUPS = [
   {
@@ -26,6 +27,7 @@ const NAV_GROUPS = [
       { href: "/price", label: "Price Check" },
       { href: "/gems", label: "Gem Corruption" },
       { href: "/tablets", label: "Tablets" },
+      { href: "/runs", label: "Runs" },
     ],
   },
 ];
@@ -53,8 +55,8 @@ function NavLink({
       onClick={onNavigate}
       className={`rounded-md px-3 py-1.5 text-sm transition-colors ${className} ${
         active
-          ? "bg-forge-panel2 text-forge-goldbright"
-          : "text-forge-gold/70 hover:bg-forge-panel2 hover:text-forge-goldbright"
+          ? "bg-forge-rust/15 text-forge-goldbright ring-1 ring-forge-rust/45"
+          : "text-forge-gold hover:bg-forge-panel2 hover:text-forge-goldbright"
       }`}
     >
       {label}
@@ -65,6 +67,7 @@ function NavLink({
 export function SiteNav() {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -72,18 +75,14 @@ export function SiteNav() {
 
   useEffect(() => {
     if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => mq.matches && setDrawerOpen(false);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, [drawerOpen]);
 
   return (
-    <header
-      className="border-b border-forge-border bg-forge-panel/80 backdrop-blur [--nav-height:3.25rem]"
-      style={{ minHeight: "var(--nav-height)" }}
-    >
+    <header className="sticky top-0 z-50 border-b border-forge-border bg-forge-panel shadow-sm">
       <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-3 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[1400px]">
         <Link
           href="/"
@@ -95,13 +94,13 @@ export function SiteNav() {
           </span>
         </Link>
 
-        <div className="hidden flex-1 flex-wrap items-center gap-1 md:flex xl:gap-x-4">
+        <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1 md:flex xl:gap-x-4">
           {NAV_GROUPS.map((group) => (
             <div
               key={group.label}
               className="flex flex-wrap items-center gap-1 xl:mr-1"
             >
-              <span className="hidden px-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/35 xl:inline">
+              <span className="hidden px-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80 xl:inline">
                 {group.label}
               </span>
               {group.links.map((link) => (
@@ -118,46 +117,44 @@ export function SiteNav() {
 
         <button
           type="button"
-          className="btn ml-auto md:hidden"
+          className="btn tap ml-auto md:hidden"
           aria-expanded={drawerOpen}
-          aria-label={drawerOpen ? "Close menu" : "Open menu"}
-          onClick={() => setDrawerOpen((o) => !o)}
+          aria-haspopup="dialog"
+          aria-label="Open menu"
+          onClick={() => setDrawerOpen(true)}
         >
-          {drawerOpen ? "Close" : "Menu"}
+          <span aria-hidden className="flex flex-col gap-[3px]">
+            <span className="block h-0.5 w-4 rounded bg-current" />
+            <span className="block h-0.5 w-4 rounded bg-current" />
+            <span className="block h-0.5 w-4 rounded bg-current" />
+          </span>
+          Menu
         </button>
       </nav>
 
-      {drawerOpen ? (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-40 bg-black/50 md:hidden"
-            aria-label="Close menu"
-            onClick={() => setDrawerOpen(false)}
-          />
-          <div className="nav-drawer fixed inset-x-0 top-[var(--nav-height)] z-50 max-h-[calc(100vh-var(--nav-height))] overflow-y-auto border-b border-forge-border md:hidden">
-            {NAV_GROUPS.map((group) => (
-              <div key={group.label} className="border-b border-forge-border/50 px-4 py-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/40">
-                  {group.label}
-                </p>
-                <div className="flex flex-col gap-1">
-                  {group.links.map((link) => (
-                    <NavLink
-                      key={link.href}
-                      href={link.href}
-                      label={link.label}
-                      active={isActive(pathname, link.href)}
-                      onNavigate={() => setDrawerOpen(false)}
-                      className="block w-full text-left"
-                    />
-                  ))}
-                </div>
+      <Sheet open={drawerOpen} onClose={closeDrawer} title="Menu" side="right">
+        <nav aria-label="Main">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="border-b border-forge-border/50 px-4 py-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80">
+                {group.label}
+              </p>
+              <div className="flex flex-col gap-1">
+                {group.links.map((link) => (
+                  <NavLink
+                    key={link.href}
+                    href={link.href}
+                    label={link.label}
+                    active={isActive(pathname, link.href)}
+                    onNavigate={closeDrawer}
+                    className="flex min-h-11 w-full items-center text-left text-base"
+                  />
+                ))}
               </div>
-            ))}
-          </div>
-        </>
-      ) : null}
+            </div>
+          ))}
+        </nav>
+      </Sheet>
     </header>
   );
 }

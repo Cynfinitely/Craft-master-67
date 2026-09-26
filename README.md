@@ -44,6 +44,39 @@ npm run dev               # http://localhost:3000
 | `npm run market:sample` | CLI: sample live trade listings into the local DB. |
 | `npm run market:scan` | CLI: incremental sample + probe scan for a class. |
 | `npm test` | Run solver and profit-engine tests. |
+| `npm run market:worker` | Durable collector. Loops forever, respects the trade rate limiter, and re-queues scheduled scans. |
+
+### Hosted database (Turso)
+
+The app uses a local `data/poe2.db` unless these environment variables are set:
+
+```bash
+LIBSQL_URL=libsql://your-db.turso.io
+LIBSQL_AUTH_TOKEN=...
+```
+
+Point both the Next.js server and `npm run market:worker` at the same URL. Seed the remote database once after a patch:
+
+```bash
+LIBSQL_URL=libsql://your-db.turso.io LIBSQL_AUTH_TOKEN=... npm run data:seed
+```
+
+Run the worker on a long-lived host (Fly.io or Railway). It is the only process that calls the trade API. With `LIBSQL_URL` set, the in-process queue pump stays off so this laptop does not double-hit rate limits. Collection continues while the computer is asleep.
+
+### Trade requests and the job queue
+
+- Web pages never call the trade API. They read the trade cache; on a miss they queue a job and show its progress. Snipe scans, tablet trade links, "Rank opportunities" and white-base quotes run as **interactive** jobs, which the worker claims before background scans.
+- Locally, without a worker, the Next.js process runs a small pump that drains the queue. It steps aside as soon as `npm run market:worker` is online.
+- The worker keeps the trade budget in memory from GGG's `X-Rate-Limit-*` headers, per policy and rule (`Ip`, and `Account` when logged in). Background work may use half of each window and interactive work 70%. A job that would have to wait is rescheduled to the exact moment it can run instead of holding its claim.
+- Scans are split into units: a tablet scan queues one job per tablet (pick one tablet with the scope chips), and gem scans can re-price only the current table, thin rows, or rows older than 6 hours. The Runs page shows lanes, units, budget meters, and cancel / retry buttons.
+- Optional: set `POESESSID=...` in `.env` on the worker host to search with a logged-in session. GGG then adds per-account limits on top of the per-IP ones. The value stays on the server and is never sent to the browser.
+
+Worker shortcuts:
+
+```bash
+npm run market:worker -- --tablets "Abyss Tablet"   # queue one tablet, then keep draining
+npm run market:worker -- --gems --once              # queue a gem scan and exit when idle
+```
 
 ## How it works
 

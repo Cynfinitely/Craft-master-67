@@ -92,7 +92,7 @@ export default async function MaterialsPage() {
         <h1 className="text-2xl font-bold text-forge-goldbright">
           Crafting Materials
         </h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Every Path of Exile 2 crafting currency and material, with its exact
           in-game effect and a live market price. Essences list their guaranteed
           modifier values per item class. Prices are from poe2scout for{" "}

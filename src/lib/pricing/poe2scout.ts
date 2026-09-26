@@ -1,8 +1,9 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getDb } from "@/db";
+import { getDb, isRemoteDb } from "@/db";
 import { priceCache } from "@/db/schema";
+import { enqueueJob } from "@/lib/jobs/queue";
 
 /**
  * Price data client for Path of Exile 2.
@@ -107,16 +108,60 @@ async function fetchJson(url: string): Promise<unknown> {
   return res.json();
 }
 
-export async function getLeagues(): Promise<PoeLeague[]> {
-  const raw = await fetchJson(`${BASE_URL}/Leagues`);
-  const arr = z.array(leagueSchema).parse(raw);
-  return arr.map((l) => ({
+function toLeague(l: z.infer<typeof leagueSchema>): PoeLeague {
+  return {
     value: l.Value,
     shortName: l.ShortName,
     isCurrent: l.IsCurrent,
     divinePrice: l.DivinePrice,
     baseCurrencyText: l.BaseCurrencyText,
-  }));
+  };
+}
+
+async function fetchLeaguesNetwork(): Promise<PoeLeague[]> {
+  const raw = await fetchJson(`${BASE_URL}/Leagues`);
+  return z.array(leagueSchema).parse(raw).map(toLeague);
+}
+
+async function readLeagueCache(): Promise<{ leagues: PoeLeague[]; fetchedAt: number } | null> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(priceCache)
+      .where(eq(priceCache.key, "leagues"))
+      .limit(1);
+    if (!rows[0]) return null;
+    const parsed = JSON.parse(rows[0].payload) as { leagues: PoeLeague[] };
+    return { leagues: parsed.leagues ?? [], fetchedAt: rows[0].fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+async function writeLeagueCache(leagues: PoeLeague[]): Promise<void> {
+  try {
+    const db = getDb();
+    const fetchedAt = Date.now();
+    await db
+      .insert(priceCache)
+      .values({ key: "leagues", payload: JSON.stringify({ leagues }), fetchedAt })
+      .onConflictDoUpdate({
+        target: priceCache.key,
+        set: { payload: JSON.stringify({ leagues }), fetchedAt },
+      });
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function getLeagues(): Promise<PoeLeague[]> {
+  const cached = await readLeagueCache();
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.leagues;
+  if (isRemoteDb()) return cached?.leagues ?? [];
+  const leagues = await fetchLeaguesNetwork();
+  await writeLeagueCache(leagues);
+  return leagues;
 }
 
 export async function getCurrentLeagueName(): Promise<string> {
@@ -191,7 +236,8 @@ async function writeCache(key: string, data: PriceData): Promise<void> {
 }
 
 async function fetchFreshPrices(league: string): Promise<PriceData> {
-  const leagues = await getLeagues();
+  const leagues = await fetchLeaguesNetwork();
+  await writeLeagueCache(leagues);
   const divinePrice = leagues.find((l) => l.value === league)?.divinePrice ?? 0;
 
   const perCategory = await Promise.all(
@@ -240,6 +286,10 @@ function refreshPrices(league: string): Promise<PriceData> {
   return p;
 }
 
+export function refreshPricesNow(league: string): Promise<PriceData> {
+  return refreshPrices(league);
+}
+
 /**
  * Returns priced currency/material data for a league, cached for an hour with
  * stale-while-revalidate: an expired cache entry is served immediately while
@@ -252,6 +302,23 @@ export async function getPrices(leagueName?: string): Promise<PriceData> {
   const cacheKey = `prices:${league}`;
 
   const cached = await readCache(cacheKey);
+  if (isRemoteDb()) {
+    if (!cached || Date.now() - cached.fetchedAt >= CACHE_TTL_MS) {
+      await enqueueJob({
+        kind: "refresh:prices",
+        payload: { league },
+      }).catch(() => null);
+    }
+    if (cached) return { ...cached, stale: Date.now() - cached.fetchedAt >= CACHE_TTL_MS };
+    return {
+      league,
+      divinePrice: 0,
+      items: [],
+      fetchedAt: 0,
+      stale: true,
+    };
+  }
+
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return { ...cached, stale: false };
   }

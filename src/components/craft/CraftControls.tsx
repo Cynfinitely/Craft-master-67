@@ -109,7 +109,7 @@ export function CraftControls({
             }
           />
           <div className="flex shrink-0 items-center gap-1.5">
-            <label className="text-xs text-forge-gold/60">iLvl</label>
+            <label className="text-xs text-forge-gold/80">iLvl</label>
             <input
               type="number"
               min={1}

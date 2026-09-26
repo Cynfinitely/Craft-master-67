@@ -217,7 +217,7 @@ export function SnipeBuilder({
             >
               <div className="min-w-0">
                 <span className="text-sm text-forge-gold/90">{s.name}</span>
-                <span className="ml-2 text-[11px] text-forge-gold/45">
+                <span className="ml-2 text-[11px] text-forge-gold/80">
                   {s.mods.length} mods
                 </span>
               </div>
@@ -257,7 +257,7 @@ export function SnipeBuilder({
         loadError ? (
           <p className="mt-3 text-sm text-forge-rust">{loadError}</p>
         ) : !data ? (
-          <p className="mt-3 text-sm text-forge-gold/50">Loading mod pool…</p>
+          <p className="mt-3 text-sm text-forge-gold/80">Loading mod pool…</p>
         ) : (
           <div className="mt-3 space-y-3">
             {selected.length > 0 ? (
@@ -267,7 +267,7 @@ export function SnipeBuilder({
                   return (
                     <span
                       key={s.group}
-                      className="flex items-center gap-1.5 rounded border border-emerald-700/60 bg-emerald-900/30 px-1.5 py-0.5 text-xs text-emerald-300"
+                      className="flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800"
                     >
                       {mod?.label ?? s.group}
                       {mod && mod.tiers.length > 1 ? (
@@ -288,7 +288,7 @@ export function SnipeBuilder({
                       ) : null}
                       <button
                         type="button"
-                        className="text-emerald-300/70 hover:text-emerald-200"
+                        className="text-emerald-800 hover:text-emerald-950"
                         onClick={() => toggle(mod!)}
                         aria-label="remove"
                       >
@@ -303,7 +303,7 @@ export function SnipeBuilder({
             <input
               type="text"
               placeholder="Filter mods (e.g. resistance, life, spirit)…"
-              className="w-full rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-sm text-forge-gold placeholder:text-forge-gold/30"
+              className="w-full rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-sm text-forge-gold placeholder:text-forge-gold/75"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
@@ -311,7 +311,7 @@ export function SnipeBuilder({
             <div className="grid gap-3 sm:grid-cols-2">
               {(["prefix", "suffix"] as const).map((side) => (
                 <div key={side}>
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-forge-gold/50">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-forge-gold/80">
                     {side === "prefix" ? "Prefixes" : "Suffixes"} (
                     {sideCount(side)}/3)
                   </div>
@@ -328,7 +328,7 @@ export function SnipeBuilder({
                           onClick={() => toggle(m)}
                           className={`flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors ${
                             isSel
-                              ? "bg-emerald-900/40 text-emerald-300"
+                              ? "bg-emerald-100 text-emerald-800"
                               : disabled
                                 ? "text-forge-gold/25"
                                 : "text-forge-gold/80 hover:bg-forge-panel2"
@@ -374,12 +374,12 @@ export function SnipeBuilder({
                   ))}
                 </select>
               </label>
-              <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs text-forge-gold/55">
+              <label className="flex w-full min-w-0 flex-1 flex-col gap-1 text-xs text-forge-gold/55 sm:w-auto sm:min-w-48">
                 Name
                 <input
                   type="text"
                   placeholder={autoName || "My target item"}
-                  className="rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-sm text-forge-gold placeholder:text-forge-gold/30"
+                  className="rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-sm text-forge-gold placeholder:text-forge-gold/75"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />

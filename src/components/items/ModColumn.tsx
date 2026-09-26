@@ -41,12 +41,12 @@ export function ModColumn({
         <h3 className={`text-sm font-semibold uppercase tracking-wide ${accentColor}`}>
           {title}
         </h3>
-        <span className="text-xs text-forge-gold/50">
+        <span className="text-xs text-forge-gold/80">
           {groups.length} groups
         </span>
       </div>
       {groups.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-forge-gold/50">
+        <p className="px-4 py-6 text-sm text-forge-gold/80">
           No {accent}es can roll on this base at this item level.
         </p>
       ) : (
@@ -57,7 +57,7 @@ export function ModColumn({
             return (
               <li key={g.group} className="px-4 py-2.5">
                 <div className="flex items-start justify-between gap-3">
-                  <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-forge-gold/60">
+                  <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-forge-gold/80">
                     {g.group}
                     {guaranteed ? (
                       <span
@@ -78,7 +78,7 @@ export function ModColumn({
                     {baseId ? (
                       <Link
                         href={`/craft?mode=base&base=${encodeURIComponent(baseId)}&ilvl=${itemLevel ?? 82}&groups=${encodeURIComponent(g.group)}`}
-                        className="rounded border border-forge-border px-1.5 py-0.5 text-[10px] text-forge-gold/60 transition-colors hover:border-forge-gold/50 hover:text-forge-goldbright"
+                        className="rounded border border-forge-border px-1.5 py-0.5 text-[10px] text-forge-gold/80 transition-colors hover:border-forge-gold/50 hover:text-forge-goldbright"
                         title="Open the crafting planner with this modifier preselected"
                       >
                         craft →
@@ -102,10 +102,10 @@ export function ModColumn({
                       <span className="text-forge-goldbright/90">
                         {modLabel(m)}
                       </span>
-                      <span className="shrink-0 text-[11px] text-forge-gold/40">
+                      <span className="shrink-0 text-[11px] text-forge-gold/80">
                         iLvl {m.requiredLevel}
                         {m.stats.length === 1 ? (
-                          <span className="ml-1 text-forge-gold/30">
+                          <span className="ml-1 text-forge-gold/80">
                             ({statRange(m.stats[0])})
                           </span>
                         ) : null}

@@ -50,9 +50,8 @@ export function MarketControls({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sampling failed");
-      setMessage(
-        `Stored ${data.inserted} samples (${data.fetched} listings fetched, ${data.totalListings} online).`,
-      );
+      if (data.id) setJobId(data.id);
+      setMessage("Queued a sample. Progress stays here and on Runs.");
       router.refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sampling failed.");
@@ -75,9 +74,8 @@ export function MarketControls({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Probing failed");
-      setMessage(
-        `Refreshed ${data.refreshed} of ${data.candidates} candidate combos (${data.probeCount} stored).`,
-      );
+      if (data.id) setJobId(data.id);
+      setMessage("Queued combo probes. Progress stays here and on Runs.");
       router.refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Probing failed.");
@@ -137,17 +135,17 @@ export function MarketControls({
             {sampling ? "Sampling trade…" : "Sample live listings"}
           </button>
         </ActionWithInfo>
-        <span className="text-xs text-forge-gold/50">league: {league}</span>
+        <span className="text-xs text-forge-gold/80">league: {league}</span>
       </ToolbarGroup>
 
       <LiveProgress jobId={jobId} active={probing || sampling} />
       {message ? (
-        <p className="text-xs text-forge-gold/60">{message}</p>
+        <p className="text-xs text-forge-gold/80">{message}</p>
       ) : null}
-      <p className="text-[11px] text-forge-gold/40">
-        <span className="text-forge-gold/60">Probing</span> runs one exact
+      <p className="text-[11px] text-forge-gold/80">
+        <span className="text-forge-gold/80">Probing</span> runs one exact
         stat-filtered trade search per meta combo (precise supply + ask
-        prices). <span className="text-forge-gold/60">Sampling</span> pulls
+        prices). <span className="text-forge-gold/80">Sampling</span> pulls
         ~60 random rare listings for discovery. Both are rate-limited and
         cached; re-run occasionally to keep data fresh.
       </p>

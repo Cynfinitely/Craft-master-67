@@ -16,7 +16,7 @@ export interface ProgressEvent {
 export interface ProgressJob {
   id: string;
   kind: string;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "cancelled";
   /** Latest one-line status. */
   message: string;
   /** Recent step log (newest last, capped). */
@@ -25,6 +25,10 @@ export interface ProgressJob {
   total: number | null;
   startedAt: number;
   updatedAt: number;
+  /** When a pending queue job becomes claimable (rate-limit waits). */
+  runAt?: number;
+  /** JSON-decoded output of a finished interactive job. */
+  result?: unknown;
 }
 
 export type ProgressReporter = (

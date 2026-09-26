@@ -5,26 +5,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Path of Exile inspired palette
+        // Cream, orange, and brown from the chosen palette. Token names stay `forge`.
         forge: {
-          bg: "#0d0c0a",
-          panel: "#17150f",
-          panel2: "#1f1c14",
-          border: "#3a3526",
-          gold: "#c8aa6e",
-          goldbright: "#e6c989",
-          rust: "#a65a2e",
+          bg: "#FDFBD4",
+          panel: "#FFFDE8",
+          panel2: "#F6EBB8",
+          border: "#D3BF94",
+          gold: "#713600",
+          goldbright: "#38240D",
+          rust: "#C05800",
         },
         affix: {
-          prefix: "#8aa9ff",
-          suffix: "#ff9a6e",
+          prefix: "#713600",
+          suffix: "#C05800",
         },
         rarity: {
-          normal: "#c8c8c8",
-          magic: "#8888ff",
-          rare: "#ffff77",
-          unique: "#af6025",
-          currency: "#aa9e82",
+          normal: "#38240D",
+          magic: "#3146c9",
+          rare: "#C05800",
+          unique: "#713600",
+          currency: "#38240D",
         },
       },
       fontFamily: {

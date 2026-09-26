@@ -334,7 +334,7 @@ export const marketJobs = sqliteTable(
     id: text("id").primaryKey(),
     kind: text("kind").notNull(),
     payload: text("payload").notNull(), // json
-    status: text("status").notNull(), // pending | running | done | error
+    status: text("status").notNull(), // pending | running | done | error | cancelled
     message: text("message").notNull().default(""),
     log: text("log").notNull().default("[]"), // json ProgressEvent[]
     current: integer("current"),
@@ -345,6 +345,20 @@ export const marketJobs = sqliteTable(
     error: text("error"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    /** Higher runs first within a lane. */
+    priority: integer("priority").notNull().default(0),
+    /** interactive (a user is waiting) | background (collector passes). */
+    lane: text("lane").notNull().default("background"),
+    /** At most one pending/running job per key (unique partial index). */
+    dedupeKey: text("dedupe_key"),
+    /** Parent run for unit jobs fanned out from a scoped scan. */
+    parentId: text("parent_id"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: integer("lease_expires_at"),
+    /** JSON result for interactive jobs (e.g. a trade URL or snipe scan). */
+    result: text("result"),
   },
   (t) => ({
     statusRunIdx: index("market_jobs_status_run_idx").on(t.status, t.runAt),
@@ -465,6 +479,40 @@ export const tabletComboResults = sqliteTable(
   }),
 );
 
+/**
+ * Recurring collector passes. The worker enqueues a job when `next_run_at`
+ * is due and that kind has nothing pending or running.
+ */
+export const jobSchedules = sqliteTable("job_schedules", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  payload: text("payload").notNull().default("{}"),
+  intervalMs: integer("interval_ms").notNull(),
+  nextRunAt: integer("next_run_at").notNull(),
+  enabled: integer("enabled").notNull().default(1),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * Append-only history for a market job. The `market_jobs.log` column stays a
+ * short tail; this table keeps every stage line.
+ */
+export const jobEvents = sqliteTable(
+  "job_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    jobId: text("job_id").notNull(),
+    at: integer("at").notNull(),
+    stage: text("stage").notNull().default(""),
+    text: text("text").notNull(),
+    current: integer("current"),
+    total: integer("total"),
+  },
+  (t) => ({
+    jobIdx: index("job_events_job_idx").on(t.jobId, t.at),
+  }),
+);
+
 export const tradeRateState = sqliteTable("trade_rate_state", {
   key: text("key").primaryKey(),
   nextAllowedAt: integer("next_allowed_at").notNull(),
@@ -472,6 +520,17 @@ export const tradeRateState = sqliteTable("trade_rate_state", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const workerHeartbeats = sqliteTable("worker_heartbeats", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(), // worker | pump
+  startedAt: integer("started_at").notNull(),
+  seenAt: integer("seen_at").notNull(),
+  currentJob: text("current_job"),
+  info: text("info"),
+});
+
+export type JobScheduleRow = typeof jobSchedules.$inferSelect;
+export type JobEventRow = typeof jobEvents.$inferSelect;
 export type MarketJobRow = typeof marketJobs.$inferSelect;
 export type MarketScanResultRow = typeof marketScanResults.$inferSelect;
 export type GemCorruptionResultRow = typeof gemCorruptionResults.$inferSelect;

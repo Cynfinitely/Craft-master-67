@@ -40,9 +40,17 @@ import {
   parseRetryAfterMs,
   type TradePolicy,
 } from "@/lib/trade/rateLimiter";
+import { isTradeOwner, TradeOwnerError } from "@/lib/trade/context";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export { TradeOwnerError };
+
+/**
+ * Optional logged-in session. GGG gives logged-in searches their own
+ * per-account limits on top of the IP ones. Read from the server env only.
+ */
+function sessionCookie(): Record<string, string> {
+  const id = process.env.POESESSID?.trim();
+  return id ? { Cookie: `POESESSID=${id}` } : {};
 }
 
 function policyFor(path: string): TradePolicy {
@@ -61,8 +69,9 @@ function policyFor(path: string): TradePolicy {
 async function executeRequest(
   path: string,
   init: RequestInit,
-  opts?: { failFast429?: boolean; maxWaitMs?: number },
+  opts?: { maxWaitMs?: number },
 ): Promise<unknown> {
+  if (!isTradeOwner()) throw new TradeOwnerError();
   const limiter = getTradeRateLimiter();
   const policy = policyFor(path);
   await limiter.acquire(policy, { maxWaitMs: opts?.maxWaitMs });
@@ -72,6 +81,7 @@ async function executeRequest(
       "User-Agent": USER_AGENT,
       Accept: "application/json",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...sessionCookie(),
     },
     cache: "no-store",
   });
@@ -152,7 +162,7 @@ function hashKey(value: unknown): string {
 /**
  * Cached trade request: serves from `trade_cache` while fresh, refreshes via
  * the rate-limited queue otherwise, and falls back to a stale cache entry if
- * the live request fails.
+ * the live request fails. Outside the trade owner only the cache is read.
  */
 async function cachedRequest(opts: {
   key: string;
@@ -164,6 +174,10 @@ async function cachedRequest(opts: {
 }): Promise<unknown> {
   const cached = await readCache(opts.key);
   if (cached && Date.now() - cached.fetchedAt < opts.ttlMs) return cached.payload;
+  if (!isTradeOwner()) {
+    if (cached) return cached.payload;
+    throw new TradeOwnerError();
+  }
   try {
     const fresh = await enqueue(
       opts.path,
@@ -372,12 +386,42 @@ export interface SearchAndFetchResult {
   listings: TradeListing[];
   /** Browser URL of this search on the official trade site. */
   tradeUrl: string;
+  /** Set when an old cache entry is served because live data was unavailable. */
+  stale?: boolean;
+  fetchedAt?: number;
+}
+
+function fromCache(entry: CacheEntry, stale: boolean): SearchAndFetchResult {
+  const payload = entry.payload as SearchAndFetchResult;
+  return { ...payload, fetchedAt: entry.fetchedAt, ...(stale ? { stale: true } : {}) };
+}
+
+/** Cache key of a search + fetch unit, so callers can check for a hit first. */
+export function searchAndFetchKey(
+  league: string,
+  query: Record<string, unknown>,
+  maxListings = 20,
+): string {
+  return `saf:${league}:${Math.min(100, maxListings)}:${hashKey(query)}`;
+}
+
+/** A cached search + fetch unit (fresh or stale), without any live request. */
+export async function readCachedSearch(
+  league: string,
+  query: Record<string, unknown>,
+  opts: { maxListings?: number; ttlMs?: number } = {},
+): Promise<SearchAndFetchResult | null> {
+  const cached = await readCache(searchAndFetchKey(league, query, opts.maxListings));
+  if (!cached) return null;
+  const ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
+  return fromCache(cached, Date.now() - cached.fetchedAt >= ttlMs);
 }
 
 /**
  * Search + fetch in one cached unit: runs the search, fetches up to
  * `maxListings` listings, and caches the combined result so a page reload
- * costs zero trade requests.
+ * costs zero trade requests. Outside the trade owner a stale entry is served
+ * (marked `stale`) and a miss throws `TradeOwnerError`.
  */
 export async function searchAndFetch(
   league: string,
@@ -386,11 +430,13 @@ export async function searchAndFetch(
 ): Promise<SearchAndFetchResult> {
   const maxListings = Math.min(100, opts.maxListings ?? 20);
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
-  const key = `saf:${league}:${maxListings}:${hashKey(query)}`;
+  const key = searchAndFetchKey(league, query, maxListings);
 
   const cached = await readCache(key);
-  if (cached && Date.now() - cached.fetchedAt < ttlMs) {
-    return cached.payload as SearchAndFetchResult;
+  if (cached && Date.now() - cached.fetchedAt < ttlMs) return fromCache(cached, false);
+  if (!isTradeOwner()) {
+    if (cached) return fromCache(cached, true);
+    throw new TradeOwnerError();
   }
   try {
     const search = await tradeSearch(league, query, { ttlMs });
@@ -407,7 +453,7 @@ export async function searchAndFetch(
     await writeCache(key, result);
     return result;
   } catch (err) {
-    if (cached) return cached.payload as SearchAndFetchResult;
+    if (cached) return fromCache(cached, true);
     throw err;
   }
 }
@@ -415,6 +461,8 @@ export async function searchAndFetch(
 /**
  * Scan path: search and its fetches run in one limiter slot, each paced by
  * its own policy. `maxWaitMs` makes a long pacing wait throw instead of block.
+ * Failures are thrown, never papered over with stale cache, so a scan
+ * reschedules instead of saving old prices as new.
  */
 export async function searchAndFetchForGem(
   league: string,
@@ -423,12 +471,11 @@ export async function searchAndFetchForGem(
 ): Promise<SearchAndFetchResult> {
   const maxListings = Math.min(100, opts.maxListings ?? 20);
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
-  const key = `saf:${league}:${maxListings}:${hashKey(query)}`;
+  const key = searchAndFetchKey(league, query, maxListings);
 
   const cached = await readCache(key);
-  if (cached && Date.now() - cached.fetchedAt < ttlMs) {
-    return cached.payload as SearchAndFetchResult;
-  }
+  if (cached && Date.now() - cached.fetchedAt < ttlMs) return fromCache(cached, false);
+  if (!isTradeOwner()) throw new TradeOwnerError();
 
   const runLive = async (): Promise<SearchAndFetchResult> => {
     const searchPath = `/search/poe2/${encodeURIComponent(league)}`;
@@ -438,7 +485,7 @@ export async function searchAndFetchForGem(
         method: "POST",
         body: JSON.stringify(query),
       },
-      { failFast429: true, maxWaitMs: opts.maxWaitMs },
+      { maxWaitMs: opts.maxWaitMs },
     )) as { id?: string; total?: number; result?: string[] };
     if (!rawSearch?.id || !Array.isArray(rawSearch.result)) {
       throw new TradeApiError("trade2 search returned an unexpected shape");
@@ -451,7 +498,7 @@ export async function searchAndFetchForGem(
       const rawFetch = (await executeRequest(
         `/fetch/${chunk.join(",")}?query=${encodeURIComponent(rawSearch.id)}`,
         { method: "GET" },
-        { failFast429: true, maxWaitMs: opts.maxWaitMs },
+        { maxWaitMs: opts.maxWaitMs },
       )) as { result?: (RawListing | null)[] };
       for (const r of rawFetch?.result ?? []) {
         if (!r) continue;
@@ -468,14 +515,9 @@ export async function searchAndFetchForGem(
     };
   };
 
-  try {
-    const result = await getTradeRateLimiter().schedule(runLive);
-    await writeCache(key, result);
-    return result;
-  } catch (err) {
-    if (cached) return cached.payload as SearchAndFetchResult;
-    throw err;
-  }
+  const result = await getTradeRateLimiter().schedule(runLive);
+  await writeCache(key, result);
+  return result;
 }
 
 export interface TradeStatEntry {

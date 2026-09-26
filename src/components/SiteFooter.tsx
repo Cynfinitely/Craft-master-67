@@ -1,7 +1,7 @@
 export function SiteFooter() {
   return (
     <footer className="border-t border-forge-border bg-forge-panel/60">
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 text-xs text-forge-gold/50 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[1400px]">
+      <div className="mx-auto w-full max-w-6xl px-4 py-4 text-xs text-forge-gold/80 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[1400px]">
         <p>
           This product isn&apos;t affiliated with or endorsed by Grinding Gear
           Games in any way.

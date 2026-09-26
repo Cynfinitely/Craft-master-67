@@ -1,4 +1,5 @@
 import type { GemCorruptionResultRow } from "@/db/schema";
+import { ResponsiveTable } from "@/components/ui/ResponsiveTable";
 
 /** Real-currency listings needed before a floor counts as a liquid market price
  * (mirrors LIQUID_MIN_LISTINGS in the scanner). Below this the gem is "thin". */
@@ -80,7 +81,7 @@ function StatusBadge({
   }
   if (status === "no_listings") {
     return (
-      <span className="rounded bg-forge-panel2 px-1.5 py-0.5 text-[10px] text-forge-gold/50">
+      <span className="rounded bg-forge-panel2 px-1.5 py-0.5 text-[10px] text-forge-gold/80">
         no listings
       </span>
     );
@@ -89,7 +90,7 @@ function StatusBadge({
     const label = errorMessage?.trim() || "retry pending";
     return (
       <span
-        className="max-w-[220px] truncate rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-200/90"
+        className="max-w-[220px] truncate rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-900"
         title={errorMessage?.trim() || LEGACY_ERROR_HINT}
       >
         {label.length > 40 ? `${label.slice(0, 37)}…` : label}
@@ -108,9 +109,9 @@ export function GemCorruptionTable({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="panel p-8 text-center text-forge-gold/50">
+      <div className="panel p-8 text-center text-forge-gold/80">
         <p>No 21/20 gem prices yet.</p>
-        <p className="mt-2 text-xs text-forge-gold/40">
+        <p className="mt-2 text-xs text-forge-gold/80">
           Click &ldquo;Scan all gems&rdquo; above — it finds the handful of gems
           worth corrupting and prices their floors automatically (~1–3 min, no
           extra terminal).
@@ -130,13 +131,13 @@ export function GemCorruptionTable({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-forge-gold/50">
+      <p className="text-xs text-forge-gold/80">
         Ranked by cheapest corrupted level-21 / 20%-quality listing (exalted
         equivalent) — highest floor = most profitable to corrupt and sell.{" "}
         {liquidCount} liquid of {priced.length} priced gems.
       </p>
       {thinCount > 0 ? (
-        <p className="text-[11px] text-amber-200/70">
+        <p className="text-[11px] text-amber-900">
           {thinCount} gem{thinCount === 1 ? "" : "s"} have fewer than{" "}
           {LIQUID_MIN_LISTINGS} listings (marked <span className="font-medium">thin</span>) —
           treat those floors as a single seller&apos;s ask, not a market price.
@@ -149,93 +150,109 @@ export function GemCorruptionTable({
         </p>
       ) : null}
       {errorCount > 0 ? (
-        <p className="text-[11px] text-forge-gold/40">
+        <p className="text-[11px] text-forge-gold/80">
           {errorCount} gem{errorCount === 1 ? "" : "s"} failed a trade lookup
           (usually rate limit or timeout). They retry automatically — see the
           Note column for details.
         </p>
       ) : null}
-      <div className="panel table-scroll overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="sticky top-0 bg-forge-panel text-left text-xs uppercase tracking-wide text-forge-gold/50">
-            <tr className="border-b border-forge-border">
-              <th className="px-3 py-2">Gem</th>
-              <th className="px-3 py-2">Note</th>
-              <th className="px-3 py-2 text-right">Floor (div)</th>
-              <th className="px-3 py-2 text-right">Floor (ex)</th>
-              <th className="px-3 py-2 text-right">Median</th>
-              <th className="px-3 py-2 text-center">Listings</th>
-              <th className="px-3 py-2 text-center">Sample</th>
-              <th className="px-3 py-2 text-center">Trade</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-forge-border/40">
-            {sorted.map((r) => (
-              <tr key={r.id} className="hover:bg-forge-panel2/40">
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-forge-goldbright">
-                      {r.gemType}
-                    </span>
-                    <StatusBadge
-                      status={r.status}
-                      errorMessage={errorNote(r)}
-                    />
-                    {isThinPriced(r) ? (
-                      <span
-                        className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-200/90"
-                        title={`Only ${r.listingCount ?? 0} listing(s) — price may not be reliable`}
-                      >
-                        thin
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="max-w-[240px] px-3 py-2 text-[11px] text-forge-gold/45">
-                  {errorNote(r) ??
-                    (r.status === "no_listings"
-                      ? "No 21/20 listings online"
-                      : r.status === "pending"
-                        ? "Queued — pricing floor shortly…"
-                        : "—")}
-                </td>
-                <td className="px-3 py-2 text-right font-semibold text-forge-goldbright">
-                  {fmtDiv(r.floorPriceExalted, divinePrice)}
-                </td>
-                <td className="px-3 py-2 text-right text-rarity-rare">
-                  {fmtEx(r.floorPriceExalted)}
-                </td>
-                <td className="px-3 py-2 text-right text-forge-gold/70">
-                  {fmtEx(r.medianPriceExalted)}
-                </td>
-                <td
-                  className={`px-3 py-2 text-center ${
-                    isThinPriced(r) ? "text-amber-200/80" : "text-forge-gold/60"
-                  }`}
-                >
-                  {r.listingCount ?? r.corruptedListings ?? "—"}
-                </td>
-                <td className="px-3 py-2 text-center text-forge-gold/50">
-                  {r.sampleCount ?? "—"}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {r.tradeUrl || r.tradeUrlCorrupted ? (
-                    <a
-                      href={r.tradeUrl ?? r.tradeUrlCorrupted ?? "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-affix-suffix text-xs hover:underline"
+      <div className="sm:panel sm:p-2">
+        <ResponsiveTable<GemCorruptionResultRow>
+          caption="Corrupted 21/20 gem floors"
+          rows={sorted}
+          rowKey={(r) => String(r.id)}
+          minWidth="40rem"
+          columns={[
+            {
+              key: "gem",
+              header: "Gem",
+              primary: true,
+              cell: (r) => (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-forge-goldbright">{r.gemType}</span>
+                  <StatusBadge status={r.status} errorMessage={errorNote(r)} />
+                  {isThinPriced(r) ? (
+                    <span
+                      className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-900"
+                      title={`Only ${r.listingCount ?? 0} listing(s) — price may not be reliable`}
                     >
-                      trade
-                    </a>
-                  ) : (
-                    <span className="text-forge-gold/30">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      thin
+                    </span>
+                  ) : null}
+                </div>
+              ),
+            },
+            {
+              key: "note",
+              header: "Note",
+              hideOnMobile: true,
+              className: "max-w-[240px] text-[11px] text-forge-gold/80",
+              cell: (r) =>
+                errorNote(r) ??
+                (r.status === "no_listings"
+                  ? "No 21/20 listings online"
+                  : r.status === "pending"
+                    ? "Queued — pricing floor shortly…"
+                    : "—"),
+            },
+            {
+              key: "div",
+              header: "Floor (div)",
+              align: "right",
+              className: "font-semibold text-forge-goldbright",
+              cell: (r) => fmtDiv(r.floorPriceExalted, divinePrice),
+            },
+            {
+              key: "ex",
+              header: "Floor (ex)",
+              align: "right",
+              className: "text-rarity-rare",
+              cell: (r) => fmtEx(r.floorPriceExalted),
+            },
+            {
+              key: "median",
+              header: "Median",
+              align: "right",
+              className: "text-forge-gold/70",
+              cell: (r) => fmtEx(r.medianPriceExalted),
+            },
+            {
+              key: "listings",
+              header: "Listings",
+              align: "right",
+              cell: (r) => (
+                <span className={isThinPriced(r) ? "text-amber-900" : "text-forge-gold/80"}>
+                  {r.listingCount ?? r.corruptedListings ?? "—"}
+                </span>
+              ),
+            },
+            {
+              key: "sample",
+              header: "Sample",
+              align: "right",
+              hideOnMobile: true,
+              className: "text-forge-gold/80",
+              cell: (r) => r.sampleCount ?? "—",
+            },
+            {
+              key: "trade",
+              header: "Trade",
+              cell: (r) =>
+                r.tradeUrl || r.tradeUrlCorrupted ? (
+                  <a
+                    href={r.tradeUrl ?? r.tradeUrlCorrupted ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="tap inline-flex items-center text-xs text-affix-suffix hover:underline"
+                  >
+                    trade
+                  </a>
+                ) : (
+                  <span className="text-forge-gold/80">—</span>
+                ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

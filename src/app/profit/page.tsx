@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listCraftableCategories, searchBases } from "@/lib/data";
 import { getEligibleMods } from "@/lib/data/queries";
-import { getCurrentLeagueName, getPrices } from "@/lib/pricing/poe2scout";
+import { getCollectorLeague } from "@/lib/jobs/schedules";
+import { getPrices } from "@/lib/pricing/poe2scout";
 import { buildModStatMap } from "@/lib/trade/modMap";
 import {
   getComboStats,
@@ -9,12 +10,10 @@ import {
   type ComboStat,
 } from "@/lib/market/analytics";
 import { listManualSales } from "@/lib/market/manual";
-import { getOpportunities } from "@/lib/market/opportunities";
+import { getStoredOpportunities } from "@/lib/market/scanResults";
 import { getProbes, type ComboProbe } from "@/lib/market/probes";
 import { parseRankMode } from "@/lib/market/profitPrefs";
 import { formatCost } from "@/lib/pricing/format";
-import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
-import { oppsProgressId } from "@/lib/progressId";
 import { MarketControls } from "@/components/market/MarketControls";
 import { ManualSales } from "@/components/market/ManualSales";
 import { SnipePanel } from "@/components/market/SnipePanel";
@@ -68,7 +67,7 @@ function ComboTable({
                       </span>
                     ))}
                   </div>
-                  <p className="mt-1 text-[11px] text-forge-gold/45">
+                  <p className="mt-1 text-[11px] text-forge-gold/80">
                     {c.count} listings · median{" "}
                     {formatCost(c.medianExalted, divinePrice)}
                   </p>
@@ -144,9 +143,9 @@ export default async function ProfitPage({
   let league = searchParams.league ?? "";
   if (!league) {
     try {
-      league = await getCurrentLeagueName();
+      league = await getCollectorLeague();
     } catch {
-      league = "Standard";
+      league = "Forbidden Rites";
     }
   }
   const itemClass = searchParams.class ?? null;
@@ -179,34 +178,17 @@ export default async function ProfitPage({
     : null;
 
   let opportunities: Awaited<
-    ReturnType<typeof getOpportunities>
+    ReturnType<typeof getStoredOpportunities>
   >["opportunities"] = [];
-  let unmappedCombos = 0;
+  let scannedAt: number | null = null;
 
-  if (itemClass && tab === "opportunities" && searchParams.run === "opportunities") {
-    const jobId = oppsProgressId(league, itemClass, searchParams.ilvl ?? "82", baseId);
-    startJob(jobId, "opportunities", "Building craft opportunities…");
+  if (itemClass) {
     try {
-      const result = await getOpportunities({
-        league,
-        itemClass,
-        itemLevel,
-        baseId: pinnedBaseName ? baseId : null,
-        rankMode,
-        onProgress: reporterFor(jobId),
-      });
-      opportunities = result.opportunities;
-      unmappedCombos = result.unmappedCombos;
-      finishJob(
-        jobId,
-        `Done — ${opportunities.length} opportunities ranked.`,
-      );
-    } catch (err) {
-      failJob(
-        jobId,
-        err instanceof Error ? err.message : "Opportunity build failed.",
-      );
-      throw err;
+      const stored = await getStoredOpportunities({ league, itemClass });
+      opportunities = stored.opportunities;
+      scannedAt = stored.summary.newestScannedAt;
+    } catch {
+      /* saved rankings are optional until a scan finishes */
     }
   }
 
@@ -264,13 +246,13 @@ export default async function ProfitPage({
         <h1 className="text-2xl font-bold text-forge-goldbright">
           Profit Dashboard
         </h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Find profitable crafts with sell-probability EV, market intel, and
           snipe-and-finish — ranked by profit per hour by default.
         </p>
       </div>
 
-      <div className="panel p-4">
+      <div className="panel p-3 sm:p-4">
         <ProfitControls
           classes={categories}
           bases={classBases}
@@ -279,7 +261,7 @@ export default async function ProfitPage({
       </div>
 
       {!itemClass ? (
-        <div className="panel p-8 text-center text-forge-gold/50">
+        <div className="panel p-8 text-center text-forge-gold/80">
           Pick an item class above — nothing loads until you scan or rank.
         </div>
       ) : tab === "snipes" ? (
@@ -315,8 +297,24 @@ export default async function ProfitPage({
             divinePrice={divinePrice}
           />
         </>
-      ) : searchParams.run !== "opportunities" ? (
-        <div className="panel p-8 text-center text-forge-gold/50">
+      ) : opportunities.length > 0 ? (
+        <>
+          {scannedAt ? (
+            <p className="text-xs text-forge-gold/80">
+              Saved rankings from{" "}
+              {new Date(scannedAt).toLocaleString()} (
+              {timeAgo(scannedAt)}).
+            </p>
+          ) : null}
+          <OpportunityList
+            opportunities={opportunities}
+            divinePrice={divinePrice}
+            itemLevel={itemLevel}
+            rankMode={rankMode}
+          />
+        </>
+      ) : (
+        <div className="panel p-8 text-center text-forge-gold/80">
           <p>
             {summary && summary.sampleCount > 0 ? (
               <>
@@ -334,26 +332,6 @@ export default async function ProfitPage({
             )}
           </p>
         </div>
-      ) : opportunities.length === 0 ? (
-        <div className="panel p-8 text-center text-forge-gold/50">
-          <p>
-            No rankable opportunities for {itemClass} in {league}. Scan market
-            first, or try a different class.
-          </p>
-          {unmappedCombos > 0 ? (
-            <p className="mt-2 text-xs text-forge-gold/40">
-              {unmappedCombos} combo(s) could not be mapped to craftable mod
-              groups.
-            </p>
-          ) : null}
-        </div>
-      ) : (
-        <OpportunityList
-          opportunities={opportunities}
-          divinePrice={divinePrice}
-          itemLevel={itemLevel}
-          rankMode={rankMode}
-        />
       )}
     </div>
   );

@@ -87,7 +87,7 @@ export function PasteImport() {
           </h2>
           <button
             type="button"
-            className="text-xs text-forge-gold/50 underline hover:text-forge-goldbright"
+            className="text-xs text-forge-gold/80 underline hover:text-forge-goldbright"
             onClick={() => setText(SAMPLE)}
           >
             Load sample
@@ -120,7 +120,7 @@ export function PasteImport() {
             </button>
           </ActionWithInfo>
           {resolved?.baseName ? (
-            <span className="text-sm text-forge-gold/60">
+            <span className="text-sm text-forge-gold/80">
               Matched base:{" "}
               <span className="text-rarity-normal">{resolved.baseName}</span> ·
               iLvl {resolved.itemLevel}
@@ -154,7 +154,7 @@ export function PasteImport() {
                     {m.kind}
                   </span>
                   <span className="text-forge-gold/80">{m.value}</span>
-                  <span className="text-[11px] text-forge-gold/40">
+                  <span className="text-[11px] text-forge-gold/80">
                     mod lvl {m.tierLevel}
                   </span>
                   {m.desecrated ? (
@@ -166,7 +166,7 @@ export function PasteImport() {
               ))}
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-forge-gold/50">
+            <p className="mt-2 text-sm text-forge-gold/80">
               No modifiers could be matched to the data.
             </p>
           )}
@@ -187,7 +187,7 @@ export function PasteImport() {
           )}
 
           {resolved.warnings.length ? (
-            <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-gold/50">
+            <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-gold/80">
               {resolved.warnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}

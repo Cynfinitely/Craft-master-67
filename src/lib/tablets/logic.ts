@@ -151,6 +151,16 @@ export function buildTabletCatalog(
   });
 }
 
+/** Catalog entries in scope, in catalog order. Throws when a name is not in the catalog. */
+export function scopeCatalog<T extends { name: string }>(catalog: T[], tablets?: string[]): T[] {
+  if (!tablets?.length) return catalog;
+  const known = new Set(catalog.map((t) => t.name));
+  const unknown = tablets.filter((name) => !known.has(name));
+  if (unknown.length) throw new Error(`Unknown tablet: ${unknown.join(", ")}`);
+  const wanted = new Set(tablets);
+  return catalog.filter((t) => wanted.has(t.name));
+}
+
 export function comboKey(prefixes: { group: string }[], suffixes: { group: string }[]): string {
   const p = prefixes.map((m) => m.group).sort();
   const s = suffixes.map((m) => m.group).sort();

@@ -5,13 +5,15 @@ import { useEffect, useRef, useState } from "react";
 export interface ProgressJob {
   id: string;
   kind: string;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "cancelled";
   message: string;
   log: { at: number; text: string }[];
   current: number | null;
   total: number | null;
   startedAt: number;
   updatedAt: number;
+  runAt?: number;
+  result?: unknown;
 }
 
 /** Fresh unique job id for an action about to start. */
@@ -63,6 +65,8 @@ export function LiveProgress({
   onProgress?: (job: ProgressJob) => void;
 }) {
   const [job, setJob] = useState<ProgressJob | null>(null);
+  const [workerOnline, setWorkerOnline] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
   const [pollError, setPollError] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatus = useRef<ProgressJob["status"] | null>(null);
@@ -95,7 +99,7 @@ export function LiveProgress({
       }
       prevCurrent.current = next.current;
 
-      const terminal = next.status === "done" || next.status === "error";
+      const terminal = !isInProgress(next.status);
       if (terminal && prevStatus.current !== next.status) {
         onCompleteRef.current?.(next);
       }
@@ -113,7 +117,8 @@ export function LiveProgress({
           `/api/progress?id=${encodeURIComponent(jobId)}`,
           { cache: "no-store" },
         );
-        const body = (await res.json()) as { job: ProgressJob | null };
+        const body = (await res.json()) as { job: ProgressJob | null; workerOnline?: boolean };
+        if (!cancelled) setWorkerOnline(body.workerOnline !== false);
         if (body.job) handleJob(body.job);
         else if (!cancelled) setPollError(true);
       } catch {
@@ -153,7 +158,7 @@ export function LiveProgress({
           <span className="text-forge-gold/85">Connecting to scan…</span>
         </div>
         {pollError ? (
-          <p className="mt-2 text-[11px] text-forge-gold/45">
+          <p className="mt-2 text-[11px] text-forge-gold/80">
             Waiting for job status — if this persists, refresh the page.
           </p>
         ) : null}
@@ -179,10 +184,27 @@ export function LiveProgress({
     job.kind === "scan:gems" || job.kind === "scan:tablets"
       ? gemScanPhase(job.message)
       : null;
+  const unit = job.kind === "scan:gems" ? "gems" : job.kind === "scan:tablets" ? "tablets" : "";
   const counterLabel =
-    job.current != null && job.total != null && job.total > 0
-      ? `${job.current} / ${job.total} gems`
+    unit && job.current != null && job.total != null && job.total > 0
+      ? `${job.current} / ${job.total} ${unit}`
       : null;
+  const waitMs =
+    job.status === "pending" && job.runAt != null ? job.runAt - Date.now() : 0;
+  const isQueueJob = job.kind.includes(":");
+
+  const cancel = async () => {
+    setCancelling(true);
+    try {
+      await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", id: job.id }),
+      });
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className={shell}>
@@ -193,7 +215,7 @@ export function LiveProgress({
           />
         ) : job.status === "done" ? (
           <span
-            className={`${prominent ? "h-2.5 w-2.5" : "h-2 w-2"} shrink-0 rounded-full bg-emerald-400`}
+            className={`${prominent ? "h-2.5 w-2.5" : "h-2 w-2"} shrink-0 rounded-full bg-emerald-600`}
           />
         ) : (
           <span
@@ -216,11 +238,33 @@ export function LiveProgress({
         >
           {job.message}
         </span>
-        <span className="ml-auto shrink-0 text-forge-gold/45">
+        <span className="ml-auto shrink-0 text-forge-gold/80">
           {pct != null ? `${pct}% · ` : ""}
           {elapsed}s
         </span>
+        {isQueueJob && isInProgress(job.status) ? (
+          <button
+            type="button"
+            className="tap shrink-0 rounded border border-forge-border px-2 py-0.5 text-[11px] text-forge-gold/80 hover:border-forge-rust hover:text-forge-rust disabled:opacity-50"
+            onClick={cancel}
+            disabled={cancelling}
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        ) : null}
       </div>
+
+      {job.status === "pending" && !workerOnline ? (
+        <p className="mt-1.5 text-[11px] text-forge-rust">
+          No market worker is online. Start it with{" "}
+          <code className="text-forge-goldbright">npm run market:worker</code>; the job
+          stays queued until then.
+        </p>
+      ) : waitMs > 1500 ? (
+        <p className="mt-1.5 text-[11px] text-forge-gold/80">
+          Waiting for the trade rate limit — resumes in {Math.ceil(waitMs / 1000)}s.
+        </p>
+      ) : null}
 
       {counterLabel ? (
         <p className="mt-1.5 text-[11px] font-medium text-forge-gold/55">
@@ -258,7 +302,7 @@ export function LiveProgress({
       ) : null}
 
       {stillWorking ? (
-        <p className="mt-2 text-[11px] text-forge-gold/45">
+        <p className="mt-2 text-[11px] text-forge-gold/80">
           Waiting on the PoE2 trade API (rate-limited, ~5–15s per gem). This is
           normal — not stuck.
         </p>
@@ -270,13 +314,13 @@ export function LiveProgress({
             prominent ? "max-h-40 overflow-y-auto" : ""
           }`}
         >
-          <p className="text-[10px] uppercase tracking-wide text-forge-gold/35">
+          <p className="text-[10px] uppercase tracking-wide text-forge-gold/80">
             Recent steps
           </p>
           {recent.map((e, i) => (
             <p
               key={`${e.at}-${i}`}
-              className="truncate text-[11px] text-forge-gold/50"
+              className="truncate text-[11px] text-forge-gold/80"
             >
               {e.text}
             </p>
@@ -284,8 +328,8 @@ export function LiveProgress({
         </div>
       ) : null}
 
-      {job.status === "done" ? (
-        <p className="mt-2 text-[11px] text-emerald-400/90">
+      {job.status === "done" && unit ? (
+        <p className="mt-2 text-[11px] text-emerald-800">
           Scan complete — table updated below.
         </p>
       ) : null}

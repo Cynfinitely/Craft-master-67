@@ -86,9 +86,8 @@ export function OpportunityControls({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to enqueue scan");
-      setScanMessage(
-        "Deep scan queued — run `npm run market:worker` locally, or wait if a worker is already running.",
-      );
+      if (data.id) setJobId(data.id);
+      setScanMessage("Deep scan queued. Progress stays here and on Runs.");
     } catch (err) {
       setScanMessage(
         err instanceof Error ? err.message : "Failed to enqueue scan.",
@@ -135,7 +134,7 @@ export function OpportunityControls({
           </select>
         ) : null}
         <div className="flex shrink-0 items-center gap-1.5">
-          <label className="text-xs text-forge-gold/60">iLvl</label>
+          <label className="text-xs text-forge-gold/80">iLvl</label>
           <input
             type="number"
             min={1}
@@ -155,7 +154,7 @@ export function OpportunityControls({
             }}
           />
         </div>
-        <span className="text-xs text-forge-gold/50">league: {league}</span>
+        <span className="text-xs text-forge-gold/80">league: {league}</span>
       </ToolbarGroup>
 
       {view === "crafts" ? (
@@ -184,7 +183,7 @@ export function OpportunityControls({
             summary="Queues a thorough background scan with tier combos and stored rankings."
             detail={[
               "Enqueues a scan:class job via the durable worker queue.",
-              "Requires npm run market:worker running locally.",
+              "Enqueues a scan:class job. The worker runs it under the trade rate limit.",
               "Probes up to ~30 tier-aware combos and simulates up to ~20.",
               "Writes market_scan_results — page loads rankings instantly later.",
             ]}
@@ -203,7 +202,7 @@ export function OpportunityControls({
 
       <LiveProgress jobId={jobId} active={isPending || scanning} showLog={3} />
       {scanMessage ? (
-        <p className="text-xs text-forge-gold/60">{scanMessage}</p>
+        <p className="text-xs text-forge-gold/80">{scanMessage}</p>
       ) : null}
     </div>
   );

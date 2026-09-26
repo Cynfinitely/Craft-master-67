@@ -48,7 +48,7 @@ export function ItemControls({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-forge-gold/50">
+        <span className="text-xs font-semibold uppercase tracking-wide text-forge-gold/80">
           Filters
         </span>
         <InfoTip
@@ -75,7 +75,7 @@ export function ItemControls({
           onChange={(v) => setParam({ class: v || null, base: null })}
         />
         <div className="flex shrink-0 items-center gap-1.5">
-          <label className="text-xs text-forge-gold/60">iLvl</label>
+          <label className="text-xs text-forge-gold/80">iLvl</label>
           <input
             type="number"
             min={1}

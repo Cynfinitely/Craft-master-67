@@ -26,13 +26,28 @@ const FEATURES = [
     title: "Profit Dashboard",
     desc: "Cross live market values with crafting costs to find the most profitable items to craft — ranked by profit per hour, batch EV, or ROI.",
   },
+  {
+    href: "/gems",
+    title: "Gem Corruption",
+    desc: "See floor prices for level-21, 20% quality corrupted skill gems, filled by the slow background scan.",
+  },
+  {
+    href: "/tablets",
+    title: "Tablets",
+    desc: "Browse expensive tablet modifier pairs and the floor prices the tablet scan has confirmed.",
+  },
+  {
+    href: "/runs",
+    title: "Runs",
+    desc: "See which collector passes are running, which stage they are in, and what is scheduled next.",
+  },
 ];
 
 export default function HomePage() {
   return (
-    <div className="space-y-8">
-      <section className="panel p-8">
-        <h1 className="text-3xl font-bold text-forge-goldbright">
+    <div className="space-y-6 sm:space-y-8">
+      <section className="panel p-5 sm:p-8">
+        <h1 className="text-2xl font-bold text-forge-goldbright sm:text-3xl">
           Path of Exile 2 Crafting Helper
         </h1>
         <p className="mt-3 max-w-2xl text-forge-gold/80">
@@ -55,7 +70,7 @@ export default function HomePage() {
           <Link
             key={f.href}
             href={f.href}
-            className="panel group p-5 transition-colors hover:border-forge-gold/50"
+            className="panel group p-4 transition-colors hover:border-forge-gold/50 sm:p-5"
           >
             <h2 className="text-lg font-semibold text-forge-goldbright group-hover:text-forge-gold">
               {f.title}
@@ -65,7 +80,7 @@ export default function HomePage() {
         ))}
       </section>
 
-      <section className="panel-inset p-4 text-sm text-forge-gold/60">
+      <section className="panel-inset p-4 text-sm text-forge-gold/80">
         <p>
           Note: Path of Exile 2 is still evolving and crafting mechanics change
           between patches. Modifier data is a snapshot from the community

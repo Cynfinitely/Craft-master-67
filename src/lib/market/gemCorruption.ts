@@ -88,6 +88,8 @@ export interface Gem2120BatchInput {
   league: string;
   scanStartedAt: number;
   batchSize?: number;
+  /** Re-price only these gems (skips discovery and keeps other rows). */
+  gemTypes?: string[];
   onProgress?: ProgressReporter;
 }
 
@@ -479,8 +481,17 @@ export async function runGem2120Batch(
     };
   }
 
+  // Scoped re-price: no discovery and no wipe, just these gems.
+  const scope = input.gemTypes?.length ? new Set(input.gemTypes) : null;
+  const inScope = (r: ScanRow) => !scope || scope.has(r.gemType);
+  let rows = (await getScanRows(league, scanStartedAt)).filter(inScope);
+  if (scope && rows.length === 0) {
+    report(`Re-pricing ${scope.size} gem${scope.size === 1 ? "" : "s"}…`, { current: 0, total: scope.size });
+    await seedCandidates(league, [...scope], scanStartedAt);
+    rows = (await getScanRows(league, scanStartedAt)).filter(inScope);
+  }
+
   // Phase 1 — discovery (runs once per scan, when no candidate rows exist yet).
-  let rows = await getScanRows(league, scanStartedAt);
   if (rows.length === 0) {
     await clearGem2120Results(league);
     let candidates: string[];

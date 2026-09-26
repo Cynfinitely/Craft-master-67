@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentLeagueName } from "@/lib/pricing/poe2scout";
-import {
-  getSnipeBuilderOptions,
-  listSnipeTemplates,
-  scanSnipeSpec,
-  scanSnipeTemplate,
-} from "@/lib/market/snipes";
+import { getSnipeBuilderOptions, listSnipeTemplates } from "@/lib/market/snipes";
 import {
   addSnipeSpec,
   deleteSnipeSpec,
   listSnipeSpecs,
 } from "@/lib/market/specs";
-import { failJob, finishJob, reporterFor, startJob } from "@/lib/progress";
+import { enqueueJob } from "@/lib/jobs/queue";
+import { triggerQueuePump } from "@/lib/jobs/pump";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +24,10 @@ async function resolveLeague(raw: string | null): Promise<string> {
 /**
  * GET  ?class=Belt[&league=...]                  -> templates + saved specs
  * GET  ?class=Belt&builder=1                     -> mod pool + bases for the spec builder
- * GET  ?class=Belt&template=<id>[&progress=<id>] -> run a template scan
- * GET  ?class=Belt&spec=<id>[&progress=<id>]     -> run a custom-spec scan
+ * GET  ?class=Belt&template=<id>                -> queue a template scan, returns {jobId}
+ * GET  ?class=Belt&spec=<id>                    -> queue a custom-spec scan, returns {jobId}
+ *
+ * Scans run in the market worker; the finished job's `result` is the scan.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -40,8 +38,6 @@ export async function GET(request: Request) {
   const league = await resolveLeague(searchParams.get("league"));
   const templateId = searchParams.get("template");
   const specId = Number.parseInt(searchParams.get("spec") ?? "", 10);
-  const progressId = searchParams.get("progress")?.slice(0, 80) ?? null;
-
   try {
     if (searchParams.get("builder")) {
       const builder = await getSnipeBuilderOptions(itemClass);
@@ -55,42 +51,29 @@ export async function GET(request: Request) {
       return NextResponse.json({ league, templates, specs });
     }
 
-    if (progressId) startJob(progressId, "snipe", "Starting snipe scan…");
     const maxListings = Math.min(
       20,
       Number.parseInt(searchParams.get("max") ?? "10", 10) || 10,
     );
-    const scan = Number.isFinite(specId)
-      ? await scanSnipeSpec({
-          league,
-          specId,
-          maxListings,
-          onProgress: progressId ? reporterFor(progressId) : undefined,
-        })
-      : await scanSnipeTemplate({
-          league,
-          templateId: templateId!,
-          itemClass,
-          maxListings,
-          onProgress: progressId ? reporterFor(progressId) : undefined,
-        });
-    if (!scan) {
-      if (progressId) failJob(progressId, "Unknown template or spec.");
-      return NextResponse.json(
-        { error: "Unknown template or spec." },
-        { status: 404 },
-      );
-    }
-    if (progressId) {
-      finishJob(
-        progressId,
-        `Done — ${scan.results.length} listings evaluated (${scan.total} matched online).`,
-      );
-    }
-    return NextResponse.json({ league, scan });
+    const target = Number.isFinite(specId) ? `spec:${specId}` : `template:${templateId}`;
+    const jobId = await enqueueJob({
+      kind: "snipe:scan",
+      payload: {
+        league,
+        itemClass,
+        maxListings,
+        ...(Number.isFinite(specId) ? { specId } : { templateId }),
+      },
+      lane: "interactive",
+      priority: 15,
+      maxAttempts: 2,
+      dedupeKey: `snipe:scan:${league}:${itemClass}:${target}:${maxListings}`,
+      message: "Queued snipe scan…",
+    });
+    triggerQueuePump();
+    return NextResponse.json({ league, jobId }, { status: 202 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Snipe scan failed";
-    if (progressId) failJob(progressId, message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

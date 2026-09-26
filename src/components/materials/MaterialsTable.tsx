@@ -31,46 +31,138 @@ function effectSummary(m: MaterialView): string {
   return m.description ?? "";
 }
 
-function TierCell({ m }: { m: MaterialView | undefined }) {
+type TierRow = {
+  family: string;
+  tiers: Partial<
+    Record<
+      MaterialTier,
+      { apiId: string; name: string; effect: string[]; priceExalted: number | null }
+    >
+  >;
+};
+
+function toView(
+  row: TierRow,
+  tier: MaterialTier,
+  label: string,
+  prices: Map<string, number | null>,
+): MaterialView | undefined {
+  const raw = row.tiers[tier];
+  if (!raw) return undefined;
+  return {
+    apiId: raw.apiId,
+    name: raw.name,
+    label,
+    tier,
+    effect: raw.effect,
+    description: null,
+    iconUrl: null,
+    stackSize: null,
+    maxStackSize: null,
+    priceExalted: raw.priceExalted ?? prices.get(raw.apiId) ?? null,
+  } as MaterialView;
+}
+
+/** Tier chip; tapping reveals the effect inline so it works without hover. */
+function TierChip({ m, tier }: { m: MaterialView | undefined; tier?: MaterialTier }) {
   const [open, setOpen] = useState(false);
   if (!m) {
-    return <td className="px-2 py-2 text-center text-forge-gold/25">—</td>;
+    return <div className="px-2 py-1.5 text-center text-forge-gold/25">—</div>;
   }
   const summary = effectSummary(m);
   return (
-    <td className="px-2 py-2 align-top">
-      <div
-        className="group relative rounded border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5 sm:cursor-default"
-        title={summary || m.name}
-        onClick={() => summary && setOpen((v) => !v)}
-        onKeyDown={(e) => {
-          if (summary && (e.key === "Enter" || e.key === " ")) {
-            e.preventDefault();
-            setOpen((v) => !v);
-          }
-        }}
-        role={summary ? "button" : undefined}
-        tabIndex={summary ? 0 : undefined}
-      >
-        <div className="text-xs font-medium text-rarity-currency leading-tight">
-          {m.name.replace(/^(Lesser |Greater |Perfect )/, "")}
-        </div>
-        <div className="mt-0.5 text-[10px] font-semibold text-forge-gold/70">
-          {formatPrice(m.priceExalted)}
-        </div>
-        {summary ? (
-          <div
-            className={`pointer-events-none absolute left-0 top-full z-10 mt-1 max-w-xs rounded border border-forge-border bg-forge-panel p-2 text-[10px] text-forge-gold/80 shadow-lg transition-opacity ${
-              open
-                ? "max-sm:opacity-100"
-                : "max-sm:opacity-0 max-sm:pointer-events-none"
-            } opacity-0 group-hover:opacity-100`}
-          >
-            {summary}
-          </div>
-        ) : null}
+    <button
+      type="button"
+      className="block w-full rounded border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5 text-left disabled:cursor-default"
+      title={summary || m.name}
+      aria-expanded={summary ? open : undefined}
+      disabled={!summary}
+      onClick={() => setOpen((v) => !v)}
+    >
+      {tier ? (
+        <span className={`mb-1 inline-block rounded px-1 text-[9px] uppercase ${TIER_STYLES[tier]}`}>
+          {tier}
+        </span>
+      ) : null}
+      <span className="block text-xs font-medium leading-tight text-rarity-currency">
+        {m.name.replace(/^(Lesser |Greater |Perfect )/, "")}
+      </span>
+      <span className="mt-0.5 block text-[10px] font-semibold text-forge-gold/70">
+        {formatPrice(m.priceExalted)}
+      </span>
+      {open && summary ? (
+        <span className="mt-1 block border-t border-forge-border/40 pt-1 text-[11px] text-forge-gold/80">
+          {summary}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function TierMatrix({
+  title,
+  familyLabel,
+  itemLabel,
+  rows,
+  prices,
+}: {
+  title: React.ReactNode;
+  familyLabel: string;
+  itemLabel: string;
+  rows: TierRow[];
+  prices: Map<string, number | null>;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+        {title}
+      </h2>
+
+      <ul className="space-y-2 sm:hidden">
+        {rows.map((row) => (
+          <li key={row.family} className="panel p-3">
+            <p className="mb-2 text-sm font-semibold text-forge-goldbright">{row.family}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {TIER_COLUMNS.map((tier) => (
+                <TierChip key={tier} tier={tier} m={toView(row, tier, itemLabel, prices)} />
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="panel hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[640px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-forge-border text-forge-gold/55">
+              <th className="sticky left-0 bg-forge-panel px-3 py-2 font-semibold">{familyLabel}</th>
+              {TIER_COLUMNS.map((t) => (
+                <th key={t} className="px-2 py-2 text-center font-semibold">
+                  <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase ${TIER_STYLES[t]}`}>
+                    {t}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-forge-border/30">
+            {rows.map((row) => (
+              <tr key={row.family} className="hover:bg-forge-panel2/30">
+                <td className="sticky left-0 bg-forge-panel px-3 py-2 font-medium text-forge-goldbright">
+                  {row.family}
+                </td>
+                {TIER_COLUMNS.map((tier) => (
+                  <td key={tier} className="px-2 py-2 align-top">
+                    <TierChip m={toView(row, tier, itemLabel, prices)} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </td>
+    </section>
   );
 }
 
@@ -78,72 +170,21 @@ export function EssenceMatrixTable({
   rows,
   prices,
 }: {
-  rows: {
-    family: string;
-    tiers: Partial<
-      Record<
-        MaterialTier,
-        { apiId: string; name: string; effect: string[]; priceExalted: number | null }
-      >
-    >;
-  }[];
+  rows: TierRow[];
   prices: Map<string, number | null>;
 }) {
-  if (rows.length === 0) return null;
   return (
-    <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-        Essences{" "}
-        <span className="text-forge-gold/30">({rows.length} families)</span>
-      </h2>
-      <div className="panel overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-forge-border text-forge-gold/55">
-              <th className="sticky left-0 bg-forge-panel px-3 py-2 font-semibold">
-                Family
-              </th>
-              {TIER_COLUMNS.map((t) => (
-                <th key={t} className="px-2 py-2 text-center font-semibold">
-                  <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase ${TIER_STYLES[t]}`}
-                  >
-                    {t}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-forge-border/30">
-            {rows.map((row) => (
-              <tr key={row.family} className="hover:bg-forge-panel2/30">
-                <td className="sticky left-0 bg-forge-panel px-3 py-2 font-medium text-forge-goldbright">
-                  {row.family}
-                </td>
-                {TIER_COLUMNS.map((tier) => {
-                  const raw = row.tiers[tier];
-                  const m: MaterialView | undefined = raw
-                    ? ({
-                        apiId: raw.apiId,
-                        name: raw.name,
-                        label: "Essences",
-                        tier,
-                        effect: raw.effect,
-                        description: null,
-                        iconUrl: null,
-                        stackSize: null,
-                        maxStackSize: null,
-                        priceExalted: raw.priceExalted ?? prices.get(raw.apiId) ?? null,
-                      } as MaterialView)
-                    : undefined;
-                  return <TierCell key={tier} m={m} />;
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <TierMatrix
+      title={
+        <>
+          Essences <span className="text-forge-gold/80">({rows.length} families)</span>
+        </>
+      }
+      familyLabel="Family"
+      itemLabel="Essences"
+      rows={rows}
+      prices={prices}
+    />
   );
 }
 
@@ -151,71 +192,49 @@ export function CurrencyTierTable({
   rows,
   prices,
 }: {
-  rows: {
-    family: string;
-    tiers: Partial<
-      Record<
-        MaterialTier,
-        { apiId: string; name: string; effect: string[]; priceExalted: number | null }
-      >
-    >;
-  }[];
+  rows: TierRow[];
   prices: Map<string, number | null>;
 }) {
-  if (rows.length === 0) return null;
   return (
-    <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-        Tiered currency
-      </h2>
-      <div className="panel overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-forge-border text-forge-gold/55">
-              <th className="sticky left-0 bg-forge-panel px-3 py-2 font-semibold">
-                Orb family
-              </th>
-              {TIER_COLUMNS.map((t) => (
-                <th key={t} className="px-2 py-2 text-center font-semibold">
-                  <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase ${TIER_STYLES[t]}`}
-                  >
-                    {t}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-forge-border/30">
-            {rows.map((row) => (
-              <tr key={row.family} className="hover:bg-forge-panel2/30">
-                <td className="sticky left-0 bg-forge-panel px-3 py-2 font-medium text-forge-goldbright">
-                  {row.family}
-                </td>
-                {TIER_COLUMNS.map((tier) => {
-                  const raw = row.tiers[tier];
-                  const m: MaterialView | undefined = raw
-                    ? ({
-                        apiId: raw.apiId,
-                        name: raw.name,
-                        label: "Currency",
-                        tier,
-                        effect: raw.effect,
-                        description: null,
-                        iconUrl: null,
-                        stackSize: null,
-                        maxStackSize: null,
-                        priceExalted: raw.priceExalted ?? prices.get(raw.apiId) ?? null,
-                      } as MaterialView)
-                    : undefined;
-                  return <TierCell key={tier} m={m} />;
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <TierMatrix
+      title="Tiered currency"
+      familyLabel="Orb family"
+      itemLabel="Currency"
+      rows={rows}
+      prices={prices}
+    />
+  );
+}
+
+function MaterialRows({ items, firstCellPad = "px-3" }: { items: MaterialView[]; firstCellPad?: string }) {
+  return (
+    <table className="w-full text-left text-xs">
+      <thead>
+        <tr className="border-b border-forge-border/40 text-forge-gold/55">
+          <th className={`${firstCellPad} py-2 font-semibold`}>Name</th>
+          <th className="hidden px-3 py-2 font-semibold sm:table-cell">Effect</th>
+          <th className="px-3 py-2 text-right font-semibold">Price</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-forge-border/30">
+        {items.map((m) => (
+          <tr key={m.apiId} className="align-top hover:bg-forge-panel2/30">
+            <td className={`${firstCellPad} py-2`}>
+              <span className="font-medium text-rarity-currency">{m.name}</span>
+              <span className="mt-0.5 block text-[11px] text-forge-gold/75 sm:hidden">
+                {effectSummary(m) || "—"}
+              </span>
+            </td>
+            <td className="hidden max-w-md px-3 py-2 text-forge-gold/75 sm:table-cell">
+              {effectSummary(m) || "—"}
+            </td>
+            <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-forge-gold/80">
+              {formatPrice(m.priceExalted)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -233,35 +252,10 @@ export function MaterialListTable({
     <section>
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
         {title}{" "}
-        <span className="text-forge-gold/30">
-          ({count ?? items.length})
-        </span>
+        <span className="text-forge-gold/80">({count ?? items.length})</span>
       </h2>
       <div className="panel overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-forge-border text-forge-gold/55">
-              <th className="px-3 py-2 font-semibold">Name</th>
-              <th className="px-3 py-2 font-semibold">Effect</th>
-              <th className="px-3 py-2 text-right font-semibold">Price</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-forge-border/30">
-            {items.map((m) => (
-              <tr key={m.apiId} className="hover:bg-forge-panel2/30">
-                <td className="px-3 py-2 font-medium text-rarity-currency">
-                  {m.name}
-                </td>
-                <td className="max-w-md px-3 py-2 text-forge-gold/75">
-                  {effectSummary(m) || "—"}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-forge-gold/80">
-                  {formatPrice(m.priceExalted)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <MaterialRows items={items} />
       </div>
     </section>
   );
@@ -277,38 +271,15 @@ export function LeagueAccordion({
     <div className="space-y-2">
       {groups.map((g) => (
         <details key={g.label} className="panel group">
-          <summary className="cursor-pointer list-none px-4 py-2.5 text-sm font-semibold text-forge-gold/80 hover:text-forge-goldbright [&::-webkit-details-marker]:hidden">
-            <span className="mr-2 text-forge-gold/40 group-open:rotate-90 inline-block transition-transform">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center px-4 py-2.5 text-sm font-semibold text-forge-gold/80 hover:text-forge-goldbright [&::-webkit-details-marker]:hidden">
+            <span className="mr-2 inline-block text-forge-gold/80 transition-transform group-open:rotate-90">
               ▸
             </span>
             {g.label}{" "}
-            <span className="text-forge-gold/30">({g.items.length})</span>
+            <span className="ml-1 text-forge-gold/80">({g.items.length})</span>
           </summary>
-          <div className="border-t border-forge-border/50 overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-forge-border/40 text-forge-gold/55">
-                  <th className="px-4 py-2 font-semibold">Name</th>
-                  <th className="px-3 py-2 font-semibold">Effect</th>
-                  <th className="px-3 py-2 text-right font-semibold">Price</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-forge-border/30">
-                {g.items.map((m) => (
-                  <tr key={m.apiId} className="hover:bg-forge-panel2/30">
-                    <td className="px-4 py-2 font-medium text-rarity-currency">
-                      {m.name}
-                    </td>
-                    <td className="max-w-md px-3 py-2 text-forge-gold/75">
-                      {effectSummary(m) || "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-forge-gold/80">
-                      {formatPrice(m.priceExalted)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="overflow-x-auto border-t border-forge-border/50">
+            <MaterialRows items={g.items} firstCellPad="px-4" />
           </div>
         </details>
       ))}

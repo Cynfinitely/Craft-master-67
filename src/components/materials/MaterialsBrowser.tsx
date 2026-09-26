@@ -184,7 +184,7 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
         }}
       />
 
-      <p className="text-xs text-forge-gold/40">{tabCount} materials in view</p>
+      <p className="text-xs text-forge-gold/80">{tabCount} materials in view</p>
 
       {tab === "essentials" ? (
         <div className="space-y-6">
@@ -198,21 +198,21 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
           <MaterialListTable title="Runes" items={filtered.runes} />
           <MaterialListTable title="Soul cores" items={filtered.soulCores} />
           {tabCount === 0 ? (
-            <div className="panel p-8 text-center text-forge-gold/50">
+            <div className="panel p-8 text-center text-forge-gold/80">
               No materials match your search.
             </div>
           ) : null}
         </div>
       ) : tab === "league" ? (
         filtered.leagueGroups.length === 0 ? (
-          <div className="panel p-8 text-center text-forge-gold/50">
+          <div className="panel p-8 text-center text-forge-gold/80">
             No league materials match your search.
           </div>
         ) : (
           <LeagueAccordion groups={filtered.leagueGroups} />
         )
       ) : filtered.gemsGroups.length === 0 ? (
-        <div className="panel p-8 text-center text-forge-gold/50">
+        <div className="panel p-8 text-center text-forge-gold/80">
           No gems or other items match your search.
         </div>
       ) : (

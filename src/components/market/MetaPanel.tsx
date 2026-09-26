@@ -151,7 +151,7 @@ export function MetaPanel({
         <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
           Meta demand (imported builds)
         </h3>
-        <p className="mt-0.5 text-[11px] text-forge-gold/45">
+        <p className="mt-0.5 text-[11px] text-forge-gold/80">
           Paste a PoB2 build code (poe.ninja → a popular build → Copy PoB
           code) or raw item text. The rare gear it wears becomes demand
           targets: probed for prices, boosted in opportunities, snipeable in
@@ -162,7 +162,7 @@ export function MetaPanel({
         <textarea
           rows={3}
           placeholder="Paste a PoB build code or item text (blocks starting with Rarity:)…"
-          className="w-full rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-xs text-forge-gold placeholder:text-forge-gold/30"
+          className="w-full rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-xs text-forge-gold placeholder:text-forge-gold/75"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
@@ -170,7 +170,7 @@ export function MetaPanel({
           <input
             type="text"
             placeholder="Source label (e.g. 'Deadeye LA #3 ladder')"
-            className="min-w-56 flex-1 rounded border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-xs text-forge-gold placeholder:text-forge-gold/30"
+            className="w-full min-w-0 flex-1 rounded sm:w-auto sm:min-w-56 border border-forge-border bg-forge-panel2 px-2.5 py-1.5 text-xs text-forge-gold placeholder:text-forge-gold/75"
             value={source}
             onChange={(e) => setSource(e.target.value)}
           />
@@ -195,20 +195,20 @@ export function MetaPanel({
         </div>
         {error ? <p className="text-xs text-forge-rust">{error}</p> : null}
         {notice ? (
-          <p className="text-xs text-emerald-300/90">{notice}</p>
+          <p className="text-xs text-emerald-800">{notice}</p>
         ) : null}
         {warnings.map((w, i) => (
-          <p key={i} className="text-xs text-amber-300/70">
+          <p key={i} className="text-xs text-amber-900">
             {w}
           </p>
         ))}
         {specNotice ? (
-          <p className="text-xs text-emerald-300/90">
+          <p className="text-xs text-emerald-800">
             {specNotice}{" "}
             {snipeHref ? (
               <Link
                 href={snipeHref}
-                className="underline hover:text-emerald-200"
+                className="underline hover:text-emerald-950"
               >
                 open Snipe &amp; finish →
               </Link>
@@ -271,7 +271,7 @@ export function MetaPanel({
             ))}
           </ul>
         ) : (
-          <p className="text-xs text-forge-gold/40">
+          <p className="text-xs text-forge-gold/80">
             No meta items yet{itemClass ? ` for ${itemClass}` : ""}.
           </p>
         )}

@@ -48,12 +48,12 @@ export function BasePickerPanel({
     <div className="space-y-3">
       {steps ? <StepBreadcrumb steps={steps} /> : null}
       {!filterActive ? (
-        <div className="panel p-6 text-center text-sm text-forge-gold/50">
+        <div className="panel p-6 text-center text-sm text-forge-gold/80">
           <p className="font-medium text-forge-gold/70">Step 1: Filter bases</p>
           <p className="mt-2">{emptyHint}</p>
         </div>
       ) : results.length === 0 ? (
-        <div className="panel p-4 text-sm text-forge-gold/50">
+        <div className="panel p-4 text-sm text-forge-gold/80">
           No bases match your search.
         </div>
       ) : (

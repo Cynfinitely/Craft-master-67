@@ -2,17 +2,22 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { ensureAppTables } from "@/db/ensure";
 import { tradeRateState } from "@/db/schema";
+import { currentTradeLane, type TradeLane } from "@/lib/trade/context";
 
 /**
- * Trade site pacing. The site enforces separate budgets per policy (search,
- * fetch, …), each with several windows such as `5:10:60,15:60:300,30:300:1800`
- * (hits:seconds:penalty). We record our own requests per policy and wait until
- * every window is under 70% of its limit, so a long scan never crosses one.
- * Server state headers and penalties override our local count.
+ * Trade site budget. The site enforces separate policies (search, fetch, …),
+ * each with rules (`Ip`, `Account` when logged in) and several windows such as
+ * `5:10:60,15:60:300,30:300:1800` (hits:seconds:penalty). Headers describe the
+ * live limits and the server's own counts; we record our requests too and wait
+ * until every window is under its lane's share, so a long scan never trips one.
+ *
+ * The budget lives in memory in the one process that owns trade (the worker),
+ * and a snapshot is saved every few seconds so restarts and the Runs page see it.
  */
 
 const STATE_KEY = "default";
-const HEADROOM = 0.7;
+/** Share of every window each lane may use. Background leaves room for users. */
+export const LANE_HEADROOM: Record<TradeLane, number> = { interactive: 0.7, background: 0.5 };
 /** Caps a bogus header; the longest real penalty we have seen is 30 minutes. */
 const MAX_COOLDOWN_MS = 60 * 60 * 1000;
 /** Header-less first requests use the tightest windows reported for each policy. */
@@ -39,7 +44,7 @@ const MIN_GAP_MS: Record<string, number> = { search: 12_000, fetch: 3_000 };
  * locked out at 13 and 16 searches per 5 minutes although the header says 30.
  */
 const EXTRA_WINDOWS: Record<string, Window[]> = {
-  search: [{ max: 15, periodSec: 300, penaltySec: 600 }],
+  search: [{ max: 15, periodSec: 300, penaltySec: 600, rule: "Extra" }],
 };
 /** Every lockout so far hit a request sent within a second of the previous one. */
 const ANY_GAP_MS = 3_500;
@@ -50,6 +55,7 @@ const ANY_GAP_MS = 3_500;
 const INVALID_LIMIT = 3;
 const INVALID_WINDOW_MS = 10 * 60 * 1000;
 const MAX_GAP_MS = 60_000;
+const SAVE_EVERY_MS = 10_000;
 
 export type TradePolicy = "search" | "fetch" | "data";
 
@@ -57,6 +63,8 @@ export interface Window {
   max: number;
   periodSec: number;
   penaltySec: number;
+  /** Header rule the window came from (`Ip`, `Account`, …). */
+  rule?: string;
 }
 
 /** Hit count the server reported for one window at time `at`. */
@@ -64,6 +72,7 @@ interface ServerCount {
   periodSec: number;
   current: number;
   at: number;
+  rule?: string;
 }
 
 interface PolicyState {
@@ -88,12 +97,37 @@ export interface RateLimitHeaderSource {
   get(name: string): string | null;
 }
 
+/** Requests one unit of work will send, e.g. one search and three fetches. */
+export interface TradeCost {
+  search?: number;
+  fetch?: number;
+}
+
+export interface WindowUsage {
+  rule: string;
+  periodSec: number;
+  max: number;
+  allowed: number;
+  used: number;
+}
+
+export interface PolicyUsage {
+  policy: string;
+  windows: WindowUsage[];
+  blockedUntil: number;
+  waitMs: number;
+}
+
 function parseTriples(raw: string | null): number[][] {
   if (!raw) return [];
   return raw
     .split(",")
     .map((part) => part.trim().split(":").map(Number))
     .filter((t) => t.length >= 3 && t.every((n) => Number.isFinite(n)));
+}
+
+function sameWindow(c: { rule?: string; periodSec: number }, w: { rule?: string; periodSec: number }) {
+  return c.periodSec === w.periodSec && (c.rule ?? "") === (w.rule ?? "");
 }
 
 /** Pure pacing state; persistence and sleeping live in the limiter below. */
@@ -128,14 +162,36 @@ export class TradePacer {
   }
 
   private prune(s: PolicyState, now: number) {
-    const longest = Math.max(0, ...s.windows.map((w) => w.periodSec)) * 1000;
+    const longest = Math.max(0, ...s.windows.map((w) => w.periodSec), 300) * 1000;
     s.hits = s.hits.filter((t) => now - t < longest).sort((a, b) => a - b);
   }
 
-  /** Milliseconds until one more request on `policy` keeps every window under 70%. */
-  waitMs(policy: string, now = Date.now()): number {
+  private allWindows(policy: string, s: PolicyState): Window[] {
+    return [...s.windows, ...(EXTRA_WINDOWS[policy] ?? [])];
+  }
+
+  /** Hits in a window: our own records, or the server's count plus what we sent since. */
+  private used(s: PolicyState, w: Window, now: number): { used: number; releaseAt: number | null } {
+    const periodMs = w.periodSec * 1000;
+    const inWindow = s.hits.filter((t) => now - t < periodMs);
+    let used = inWindow.length;
+    let releaseAt: number | null = inWindow[0] != null ? inWindow[0] + periodMs : null;
+    const server = s.counts?.find((c) => sameWindow(c, w));
+    if (server && now - server.at < periodMs) {
+      const serverUsed = server.current + s.hits.filter((t) => t > server.at).length;
+      if (serverUsed > used) {
+        used = serverUsed;
+        releaseAt = server.at + periodMs;
+      }
+    }
+    return { used, releaseAt };
+  }
+
+  /** Milliseconds until one more request on `policy` keeps every window under the lane's share. */
+  waitMs(policy: string, now = Date.now(), lane: TradeLane = "interactive"): number {
     const s = this.state(policy);
     this.prune(s, now);
+    const headroom = LANE_HEADROOM[lane];
     let wait = Math.max(0, s.blockedUntil - now, this.blockedUntil - now);
     const gap = s.minGapMs ?? MIN_GAP_MS[policy] ?? 0;
     const last = s.hits[s.hits.length - 1];
@@ -145,9 +201,9 @@ export class TradePacer {
       ...Object.values(this.policies).map((p) => p.hits[p.hits.length - 1] ?? Number.NEGATIVE_INFINITY),
     );
     if (Number.isFinite(lastAny)) wait = Math.max(wait, lastAny + ANY_GAP_MS - now);
-    for (const w of [...s.windows, ...(EXTRA_WINDOWS[policy] ?? [])]) {
+    for (const w of this.allWindows(policy, s)) {
       const periodMs = w.periodSec * 1000;
-      const allowed = Math.max(1, Math.floor(w.max * HEADROOM));
+      const allowed = Math.max(1, Math.floor(w.max * headroom));
       const inWindow = s.hits.filter((t) => now - t < periodMs);
       if (inWindow.length >= allowed) {
         const release = inWindow[inWindow.length - allowed];
@@ -155,7 +211,7 @@ export class TradePacer {
       }
       // The server's count covers requests we did not record (other tabs,
       // earlier processes). Its hits expire no later than `at + period`.
-      const server = s.counts?.find((c) => c.periodSec === w.periodSec);
+      const server = s.counts?.find((c) => sameWindow(c, w));
       if (server && now - server.at < periodMs) {
         const since = s.hits.filter((t) => t > server.at).length;
         if (server.current + since >= allowed) {
@@ -164,6 +220,31 @@ export class TradePacer {
       }
     }
     return Math.min(wait, MAX_COOLDOWN_MS);
+  }
+
+  /**
+   * Milliseconds until a whole unit of work could start and run without
+   * stopping: simulates its searches then fetches against a copy of the state.
+   * Returns the wait before the first request.
+   */
+  costWaitMs(cost: TradeCost, now = Date.now(), lane: TradeLane = "interactive"): {
+    startInMs: number;
+    durationMs: number;
+  } {
+    const sim = new TradePacer(this.snapshot());
+    const steps: string[] = [
+      ...Array<string>(Math.max(0, cost.search ?? 0)).fill("search"),
+      ...Array<string>(Math.max(0, cost.fetch ?? 0)).fill("fetch"),
+    ];
+    let t = now;
+    let first: number | null = null;
+    for (const policy of steps) {
+      t += sim.waitMs(policy, t, lane);
+      if (first == null) first = t;
+      sim.record(policy, t);
+    }
+    const start = first ?? now;
+    return { startInMs: start - now, durationMs: t - start };
   }
 
   record(policy: string, now = Date.now()) {
@@ -193,7 +274,7 @@ export class TradePacer {
       .filter(Boolean);
     const rules = named.length ? named : headers.get("x-rate-limit-ip") ? ["Ip"] : [];
     const windows: Window[] = [];
-    const counts = new Map<number, ServerCount>();
+    const counts: ServerCount[] = [];
     const observed: string[] = [];
     for (const rule of rules) {
       const key = rule.toLowerCase();
@@ -205,18 +286,17 @@ export class TradePacer {
         );
       }
       limits.forEach(([max, periodSec, penaltySec], i) => {
-        windows.push({ max, periodSec, penaltySec });
-        const st = states[i];
+        windows.push({ max, periodSec, penaltySec, rule });
+        const st = states.find((x) => x[1] === periodSec) ?? states[i];
         if (!st) return;
         const [current, , timeout] = st;
         if (timeout > 0) s.blockedUntil = Math.max(s.blockedUntil, now + timeout * 1000);
-        const prev = counts.get(periodSec);
-        if (!prev || current > prev.current) counts.set(periodSec, { periodSec, current, at: now });
+        counts.push({ periodSec, current, at: now, rule });
       });
     }
     if (windows.length) {
       s.windows = windows;
-      s.counts = [...counts.values()];
+      s.counts = counts;
       s.observed = observed.join(" · ");
     }
     const retryAfter = Number(headers.get("retry-after"));
@@ -239,9 +319,9 @@ export class TradePacer {
       const s = this.state(policy);
       if (value.windows?.length) s.windows = value.windows;
       s.blockedUntil = Math.max(s.blockedUntil, value.blockedUntil ?? 0);
-      s.hits = [...new Set([...s.hits, ...(value.hits ?? [])])];
+      s.hits = [...new Set([...s.hits, ...(value.hits ?? [])])].sort((a, b) => a - b);
       for (const c of value.counts ?? []) {
-        const mine = s.counts?.find((m) => m.periodSec === c.periodSec);
+        const mine = s.counts?.find((m) => sameWindow(m, c));
         if (!mine) s.counts = [...(s.counts ?? []), c];
         else if (c.at > mine.at) Object.assign(mine, c);
       }
@@ -252,6 +332,28 @@ export class TradePacer {
 
   observedHeaders(policy: string): string | undefined {
     return this.policies[policy]?.observed;
+  }
+
+  /** Per-window usage for the Runs page meters. */
+  usage(now = Date.now(), lane: TradeLane = "interactive"): PolicyUsage[] {
+    const out: PolicyUsage[] = [];
+    for (const policy of ["search", "fetch"]) {
+      const s = this.state(policy);
+      this.prune(s, now);
+      out.push({
+        policy,
+        blockedUntil: Math.max(s.blockedUntil, this.blockedUntil),
+        waitMs: this.waitMs(policy, now, lane),
+        windows: this.allWindows(policy, s).map((w) => ({
+          rule: w.rule ?? "Ip",
+          periodSec: w.periodSec,
+          max: w.max,
+          allowed: Math.max(1, Math.floor(w.max * LANE_HEADROOM[lane])),
+          used: this.used(s, w, now).used,
+        })),
+      });
+    }
+    return out;
   }
 
   snapshot(): PacerSnapshot {
@@ -278,15 +380,36 @@ export class TradeWaitError extends Error {
 export interface TradeRateLimiter {
   /** Serializes callers so one request sequence runs at a time. */
   schedule<T>(fn: () => Promise<T>): Promise<T>;
-  /** Waits for room on `policy`, then records the request. */
-  acquire(policy: TradePolicy, opts?: { maxWaitMs?: number }): Promise<void>;
+  /** Waits for room on `policy` in the current lane, then records the request. */
+  acquire(policy: TradePolicy, opts?: { maxWaitMs?: number; lane?: TradeLane }): Promise<void>;
   observe(policy: TradePolicy, headers: RateLimitHeaderSource, status?: number): Promise<void>;
-  waitMs(policy: TradePolicy): Promise<number>;
+  waitMs(policy: TradePolicy, lane?: TradeLane): Promise<number>;
+  /** Wait before a unit with this cost can run to the end without pausing. */
+  costWaitMs(cost: TradeCost, lane?: TradeLane): Promise<{ startInMs: number; durationMs: number }>;
+  usage(lane?: TradeLane): Promise<PolicyUsage[]>;
   observedHeaders(policy: TradePolicy): string | undefined;
+  /** Writes the snapshot now if anything changed since the last save. */
+  flush(): Promise<void>;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadSnapshot(): Promise<{ snapshot: PacerSnapshot; nextAllowedAt: number; updatedAt: number } | null> {
+  await ensureAppTables();
+  const rows = await getDb()
+    .select()
+    .from(tradeRateState)
+    .where(eq(tradeRateState.key, STATE_KEY))
+    .limit(1);
+  const row = rows[0];
+  if (!row?.payload) return null;
+  return {
+    snapshot: JSON.parse(row.payload) as PacerSnapshot,
+    nextAllowedAt: row.nextAllowedAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export function createTradeRateLimiter(opts?: {
@@ -299,31 +422,34 @@ export function createTradeRateLimiter(opts?: {
   const doSleep = opts?.sleep ?? sleep;
   const pacer = new TradePacer();
   let queueTail: Promise<unknown> = Promise.resolve();
+  let loaded: Promise<void> | null = null;
+  let dirty = false;
+  let lastSave = 0;
 
-  async function reload(): Promise<void> {
-    if (!persist) return;
-    try {
-      await ensureAppTables();
-      const rows = await getDb()
-        .select()
-        .from(tradeRateState)
-        .where(eq(tradeRateState.key, STATE_KEY))
-        .limit(1);
-      const row = rows[0];
-      if (!row) return;
-      if (row.payload) pacer.merge(JSON.parse(row.payload) as PacerSnapshot);
-      const blocked = Math.min(row.nextAllowedAt, now() + MAX_COOLDOWN_MS);
-      pacer.merge({ policies: { search: { windows: [], hits: [], blockedUntil: blocked } } });
-    } catch {
-      /* persistence is best-effort */
-    }
+  function load(): Promise<void> {
+    if (!persist) return Promise.resolve();
+    loaded ??= (async () => {
+      try {
+        const saved = await loadSnapshot();
+        if (!saved) return;
+        pacer.merge(saved.snapshot);
+        const blocked = Math.min(saved.nextAllowedAt, now() + MAX_COOLDOWN_MS);
+        pacer.merge({ policies: { search: { windows: [], hits: [], blockedUntil: blocked } } });
+      } catch {
+        /* persistence is best-effort */
+      }
+    })();
+    return loaded;
   }
 
-  async function save(): Promise<void> {
-    if (!persist) return;
+  async function save(force = false): Promise<void> {
+    if (!persist || !dirty) return;
+    const at = now();
+    if (!force && at - lastSave < SAVE_EVERY_MS) return;
+    dirty = false;
+    lastSave = at;
     try {
       await ensureAppTables();
-      const at = now();
       const payload = JSON.stringify(pacer.snapshot());
       const nextAllowedAt = at + pacer.waitMs("search", at);
       await getDb()
@@ -334,7 +460,7 @@ export function createTradeRateLimiter(opts?: {
           set: { nextAllowedAt, payload, updatedAt: at },
         });
     } catch {
-      /* best-effort */
+      dirty = true;
     }
   }
 
@@ -345,24 +471,40 @@ export function createTradeRateLimiter(opts?: {
       return p as Promise<T>;
     },
     async acquire(policy, acquireOpts) {
-      await reload();
-      const wait = pacer.waitMs(policy, now());
+      await load();
+      const lane = acquireOpts?.lane ?? currentTradeLane();
+      const wait = pacer.waitMs(policy, now(), lane);
       const maxWait = acquireOpts?.maxWaitMs ?? Number.POSITIVE_INFINITY;
       if (wait > maxWait) throw new TradeWaitError(wait, policy);
       if (wait > 0) await doSleep(wait);
       pacer.record(policy, now());
-      await save();
+      dirty = true;
+      void save();
     },
     async observe(policy, headers, status) {
+      await load();
       pacer.observe(policy, headers, now(), status);
-      await save();
+      dirty = true;
+      // A penalty must survive a crash, so it is written straight away.
+      await save(status === 429);
     },
-    async waitMs(policy) {
-      await reload();
-      return pacer.waitMs(policy, now());
+    async waitMs(policy, lane) {
+      await load();
+      return pacer.waitMs(policy, now(), lane ?? currentTradeLane());
+    },
+    async costWaitMs(cost, lane) {
+      await load();
+      return pacer.costWaitMs(cost, now(), lane ?? currentTradeLane());
+    },
+    async usage(lane) {
+      await load();
+      return pacer.usage(now(), lane ?? "interactive");
     },
     observedHeaders(policy) {
       return pacer.observedHeaders(policy);
+    },
+    flush() {
+      return save(true);
     },
   };
 }
@@ -371,13 +513,22 @@ const globalForLimiter = globalThis as unknown as { __tradeRateLimiter?: TradeRa
 
 export function getTradeRateLimiter(): TradeRateLimiter {
   if (!globalForLimiter.__tradeRateLimiter) {
-    globalForLimiter.__tradeRateLimiter = createTradeRateLimiter({ persist: true });
+    const limiter = createTradeRateLimiter({ persist: true });
+    globalForLimiter.__tradeRateLimiter = limiter;
+    // CLI scripts exit when idle; save what they learned about the limits first.
+    if (!process.env.NEXT_RUNTIME && typeof process.once === "function") {
+      process.once("beforeExit", () => void limiter.flush());
+    }
   }
   return globalForLimiter.__tradeRateLimiter;
 }
 
 export function setTradeRateLimiter(limiter: TradeRateLimiter | null): void {
   globalForLimiter.__tradeRateLimiter = limiter;
+}
+
+export async function flushTradeBudget(): Promise<void> {
+  await globalForLimiter.__tradeRateLimiter?.flush();
 }
 
 /** Time until the next trade search is allowed, without blocking. */
@@ -388,6 +539,29 @@ export async function getTradeCooldownMs(): Promise<number> {
 export async function waitForTradeCooldown(): Promise<void> {
   const waitMs = await getTradeCooldownMs();
   if (waitMs > 0) await sleep(waitMs);
+}
+
+/**
+ * Budget as last saved by the trade owner, for pages rendered in another
+ * process (the Runs board on a hosted web server).
+ */
+export async function readSavedBudget(lane: TradeLane = "interactive"): Promise<{
+  usage: PolicyUsage[];
+  savedAt: number;
+  observed: { search?: string; fetch?: string };
+} | null> {
+  try {
+    const saved = await loadSnapshot();
+    if (!saved) return null;
+    const pacer = new TradePacer(saved.snapshot);
+    return {
+      usage: pacer.usage(Date.now(), lane),
+      savedAt: saved.updatedAt,
+      observed: { search: pacer.observedHeaders("search"), fetch: pacer.observedHeaders("fetch") },
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Wait implied by one response's headers alone (tests and diagnostics). */

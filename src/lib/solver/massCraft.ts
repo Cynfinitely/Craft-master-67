@@ -2,7 +2,7 @@ import "server-only";
 import { getModPool } from "@/lib/data/queries";
 import { groupByModGroup, modLabel } from "@/lib/data/format";
 import { getCurrentLeagueName, getPrices } from "@/lib/pricing/poe2scout";
-import { getBasePrice, type BasePriceQuote } from "@/lib/trade/basePrice";
+import { getBasePriceResult, type BasePriceQuote } from "@/lib/trade/basePrice";
 import { buildModStatMap } from "@/lib/trade/modMap";
 import { withTimeout } from "@/lib/trade/client";
 import { estimateSaleValue, type SaleEstimate } from "@/lib/market/analytics";
@@ -197,9 +197,10 @@ export async function planMassCraft(opts: {
 
   /* ---- base purchase price (best-effort) ---- */
   let baseQuote: BasePriceQuote | null = null;
+  let baseQueued = false;
   if (league) {
-    baseQuote = await withTimeout(
-      getBasePrice({
+    const res = await withTimeout(
+      getBasePriceResult({
         league,
         baseType: pool.base.name,
         rarity: "normal",
@@ -208,11 +209,17 @@ export async function planMassCraft(opts: {
       }),
       20000,
     );
+    baseQuote = res?.quote ?? null;
+    baseQueued = res?.queued ?? false;
   }
   if (!baseQuote) {
     warnings.push(
-      "No live price for white bases — totals exclude the base purchase cost.",
+      baseQueued
+        ? "White base price is being fetched by the market worker — reload in a minute to include it."
+        : "No live price for white bases — totals exclude the base purchase cost.",
     );
+  } else if (baseQuote.stale) {
+    warnings.push("White base price is from an older trade search; a refresh is queued.");
   }
 
   /* ---- sale value from market samples ---- */

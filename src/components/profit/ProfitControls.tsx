@@ -2,8 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { LiveProgress, newProgressId } from "@/components/LiveProgress";
-import { oppsProgressId } from "@/lib/progressId";
+import { LiveProgress } from "@/components/LiveProgress";
 import type { RankMode } from "@/lib/market/profitEngine";
 import {
   DEFAULT_PROFIT_PREFS,
@@ -45,6 +44,7 @@ export function ProfitControls({
   const [isPending, startTransition] = useTransition();
   const [jobId, setJobId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [ranking, setRanking] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<ProfitPrefs>(DEFAULT_PROFIT_PREFS);
 
@@ -57,7 +57,6 @@ export function ProfitControls({
   const ilvl = params.get("ilvl") ?? "82";
   const tab = (params.get("tab") ?? "opportunities") as TabId;
   const rank = (params.get("rank") ?? prefs.rankMode) as RankMode;
-  const isRanking = isPending && params.get("run") === "opportunities";
 
   const push = useCallback(
     (updates: Record<string, string | null>) => {
@@ -82,20 +81,41 @@ export function ProfitControls({
     localStorage.setItem("profit-prefs", JSON.stringify(next));
   };
 
-  const rankOpportunities = () => {
-    if (!itemClass || scanning || isPending) return;
-    setJobId(oppsProgressId(league, itemClass, ilvl, baseId || null));
-    push({ run: "opportunities", tab: null });
+  const rankOpportunities = async () => {
+    if (!itemClass || scanning || ranking) return;
+    setRanking(true);
+    setScanMsg(null);
+    setJobId(null);
+    try {
+      const res = await fetch("/api/jobs/enqueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "rank:opportunities",
+          payload: {
+            league,
+            itemClass,
+            itemLevel: Number.parseInt(ilvl, 10) || 82,
+            baseId: baseId || null,
+            rankMode: rank,
+          },
+        }),
+      });
+      const data = (await res.json()) as { id?: string; error?: string };
+      if (!res.ok || !data.id) throw new Error(data.error ?? "Could not queue ranking");
+      setJobId(data.id);
+      if (tab !== "opportunities") push({ tab: null });
+    } catch (err) {
+      setScanMsg(err instanceof Error ? err.message : "Could not queue ranking.");
+      setRanking(false);
+    }
   };
 
   const runScan = async () => {
     if (!itemClass || scanning) return;
     setScanning(true);
     setScanMsg(null);
-    const id = newProgressId();
-    setJobId(id);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 75_000);
+    setJobId(null);
     try {
       const res = await fetch("/api/market/scan", {
         method: "POST",
@@ -103,28 +123,17 @@ export function ProfitControls({
         body: JSON.stringify({
           itemClass,
           league,
-          progressId: id,
           probeBudget: 3,
           quickSample: true,
         }),
-        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Scan failed");
-      setScanMsg(
-        `Done — probed ${data.probed} combos, added ${data.sampled} samples. Click Rank opportunities when ready.`,
-      );
-      router.refresh();
+      if (data.id) setJobId(data.id);
+      setScanMsg("Queued a market scan. Progress stays here and on Runs.");
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        setScanMsg(
-          "Scan timed out — partial results may be saved. Wait a minute and try again.",
-        );
-      } else {
-        setScanMsg(err instanceof Error ? err.message : "Scan failed.");
-      }
+      setScanMsg(err instanceof Error ? err.message : "Scan failed.");
     } finally {
-      clearTimeout(timeout);
       setScanning(false);
     }
   };
@@ -173,34 +182,34 @@ export function ProfitControls({
           onChange={(e) => push({ ilvl: e.target.value || "82", run: null })}
           title="Item level"
         />
-        <span className="text-xs text-forge-gold/50">league: {league}</span>
+        <span className="text-xs text-forge-gold/80">league: {league}</span>
       </div>
 
       {itemClass ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="btn btn-primary shrink-0 disabled:opacity-50"
+            className="btn btn-primary tap shrink-0 disabled:opacity-50"
             disabled={scanning || isPending}
             onClick={runScan}
-            title="Quick sample pass + up to 3 probes (~30–60s)"
+            title="Quick sample pass + up to 3 probes"
           >
-            {scanning ? "Scanning…" : "Scan market"}
+            {scanning ? "Queueing…" : "Scan market"}
           </button>
           <button
             type="button"
-            className="btn shrink-0 disabled:opacity-50"
-            disabled={scanning || isPending}
+            className="btn tap shrink-0 disabled:opacity-50"
+            disabled={scanning || ranking}
             onClick={rankOpportunities}
           >
-            {isRanking ? "Ranking…" : "Rank opportunities"}
+            {ranking ? "Ranking…" : "Rank opportunities"}
           </button>
-          <span className="text-[11px] text-forge-gold/40">
+          <span className="text-[11px] text-forge-gold/80">
             1. Scan market → 2. Rank opportunities → 3. Browse tabs below
           </span>
         </div>
       ) : (
-        <p className="text-sm text-forge-gold/50">
+        <p className="text-sm text-forge-gold/80">
           Pick an item class first — nothing runs until you click Scan or Rank.
         </p>
       )}
@@ -228,7 +237,7 @@ export function ProfitControls({
 
       {itemClass && tab === "opportunities" ? (
         <div className="flex flex-wrap gap-2 text-xs">
-          <span className="text-forge-gold/50">Rank by:</span>
+          <span className="text-forge-gold/80">Rank by:</span>
           {(
             [
               ["hour", "Profit/hr"],
@@ -246,7 +255,7 @@ export function ProfitControls({
               className={`rounded px-2 py-0.5 ${
                 rank === mode
                   ? "bg-forge-gold/20 text-forge-goldbright"
-                  : "text-forge-gold/60 hover:text-forge-gold"
+                  : "text-forge-gold/80 hover:text-forge-gold"
               }`}
             >
               {label}
@@ -255,8 +264,15 @@ export function ProfitControls({
         </div>
       ) : null}
 
-      <LiveProgress jobId={jobId} active={isPending || scanning} />
-      {scanMsg ? <p className="text-xs text-forge-gold/60">{scanMsg}</p> : null}
+      <LiveProgress
+        jobId={jobId}
+        active={ranking || scanning}
+        onComplete={() => {
+          setRanking(false);
+          router.refresh();
+        }}
+      />
+      {scanMsg ? <p className="text-xs text-forge-gold/80">{scanMsg}</p> : null}
     </div>
   );
 }

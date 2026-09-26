@@ -41,7 +41,7 @@ function MethodCard({
             ) : null}
             {method.name}
           </h3>
-          <p className="mt-0.5 text-sm text-forge-gold/60">{method.summary}</p>
+          <p className="mt-0.5 text-sm text-forge-gold/80">{method.summary}</p>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {method.successChancePerAttempt !== undefined &&
             method.successChancePerAttempt < 1 ? (
@@ -54,7 +54,7 @@ function MethodCard({
                 className={`rounded px-1.5 py-0.5 text-[10px] ${
                   method.brickRisk >= 0.5
                     ? "bg-forge-rust/25 text-forge-rust"
-                    : "bg-amber-900/30 text-amber-300"
+                    : "bg-amber-100 text-amber-900"
                 }`}
               >
                 {oddsLabel(method.brickRisk)} brick risk
@@ -69,16 +69,16 @@ function MethodCard({
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-forge-gold/50">est. cost</div>
+          <div className="text-xs text-forge-gold/80">est. cost</div>
           <div className="text-sm font-semibold text-rarity-currency">
             {method.costApproximate ? "~" : ""}
             {formatCost(method.estCostExalted, divinePriceExalted)}
             {method.excludesMarketPrice ? (
-              <span className="text-forge-gold/50"> + base price</span>
+              <span className="text-forge-gold/80"> + base price</span>
             ) : null}
           </div>
           {method.overallOdds > 0 && method.overallOdds < 1 ? (
-            <div className="mt-0.5 text-[11px] text-forge-gold/50">
+            <div className="mt-0.5 text-[11px] text-forge-gold/80">
               single-pass {oddsLabel(method.overallOdds)}
             </div>
           ) : null}
@@ -86,7 +86,7 @@ function MethodCard({
             <div
               className={`mt-0.5 text-[11px] font-semibold ${
                 method.expectedProfitExalted >= 0
-                  ? "text-emerald-300"
+                  ? "text-emerald-800"
                   : "text-forge-rust"
               }`}
             >
@@ -119,7 +119,7 @@ function MethodCard({
       {(method.pros.length > 0 || method.cons.length > 0) && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {method.pros.length > 0 ? (
-            <ul className="space-y-0.5 text-xs text-emerald-300/80">
+            <ul className="space-y-0.5 text-xs text-emerald-800">
               {method.pros.map((p, i) => (
                 <li key={i}>+ {p}</li>
               ))}
@@ -148,7 +148,7 @@ function MethodCard({
                 <span className="text-sm font-medium text-forge-goldbright">
                   {s.title}
                 </span>
-                <span className="text-[11px] text-forge-gold/50">
+                <span className="text-[11px] text-forge-gold/80">
                   {s.odds !== undefined ? oddsLabel(s.odds) : ""}
                   {s.expectedAttempts
                     ? ` · ~${s.expectedAttempts} tr${s.expectedAttempts === 1 ? "y" : "ies"}`
@@ -163,7 +163,7 @@ function MethodCard({
                   bricks here ~{oddsLabel(s.brickOdds)}
                 </span>
               ) : null}
-              <p className="mt-0.5 text-xs text-forge-gold/60">{s.detail}</p>
+              <p className="mt-0.5 text-xs text-forge-gold/80">{s.detail}</p>
               <div className="flex flex-wrap items-center gap-2">
                 {s.currency ? (
                   <Link
@@ -219,7 +219,7 @@ export function PlanView({
             <h2 className="text-lg font-semibold text-forge-goldbright">
               {plan.baseName}
             </h2>
-            <p className="text-sm text-forge-gold/60">
+            <p className="text-sm text-forge-gold/80">
               {plan.desiredPrefixes.length} prefix
               {plan.desiredPrefixes.length === 1 ? "" : "es"},{" "}
               {plan.desiredSuffixes.length} suffix
@@ -237,7 +237,7 @@ export function PlanView({
                     plan.divinePriceExalted,
                   )}
                 </span>{" "}
-                <span className="text-xs text-forge-gold/50">
+                <span className="text-xs text-forge-gold/80">
                   {plan.estimatedSale.source === "probe"
                     ? `(exact combo probe — ${plan.estimatedSale.sampleCount} listed on trade${
                         plan.estimatedSale.timeToSellDays != null
@@ -283,7 +283,7 @@ export function PlanView({
       </div>
 
       {plan.methods.length === 0 ? (
-        <div className="panel p-6 text-center text-forge-gold/50">
+        <div className="panel p-6 text-center text-forge-gold/80">
           No feasible crafting method for this selection.
         </div>
       ) : (
@@ -322,7 +322,7 @@ export function PlanView({
         </div>
       )}
 
-      <p className="text-xs text-forge-gold/40">
+      <p className="text-xs text-forge-gold/80">
         Odds and costs are approximate. Costs are expected attempts × live unit
         price (with fallbacks when a price is missing) and don&apos;t capture
         every Omen, Essence tier, or fractured-affix interaction. &ldquo;~&rdquo;

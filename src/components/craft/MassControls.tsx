@@ -30,10 +30,10 @@ export function MassControls() {
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs text-forge-gold/60">Method</label>
+      <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
+        <label className="shrink-0 text-xs text-forge-gold/80">Method</label>
         <select
-          className="input"
+          className="input min-w-0 sm:w-auto"
           value={method}
           onChange={(e) => push({ method: e.target.value })}
         >
@@ -45,7 +45,7 @@ export function MassControls() {
         </select>
       </div>
       <div className="flex items-center gap-1.5">
-        <label className="text-xs text-forge-gold/60">Bases to buy</label>
+        <label className="text-xs text-forge-gold/80">Bases to buy</label>
         <input
           type="number"
           min={1}
@@ -62,7 +62,7 @@ export function MassControls() {
       </div>
       {method === "alch-chaos" ? (
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-forge-gold/60">Chaos per base</label>
+          <label className="text-xs text-forge-gold/80">Chaos per base</label>
           <input
             type="number"
             min={0}

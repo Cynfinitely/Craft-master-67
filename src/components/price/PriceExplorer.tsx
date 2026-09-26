@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sheet } from "@/components/ui/Sheet";
 import type { PoeLeague, PriceData, PricedItem } from "@/lib/pricing/poe2scout";
 
 function fmt(n: number): string {
@@ -53,6 +54,8 @@ export function PriceExplorer({
   const router = useRouter();
   const [q, setQ] = useState(focus ?? "");
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [calcOpen, setCalcOpen] = useState(false);
+  const closeCalc = useCallback(() => setCalcOpen(false), []);
 
   const byName = useMemo(
     () => new Map(data.items.map((i) => [i.name, i])),
@@ -79,13 +82,84 @@ export function PriceExplorer({
   };
 
   const cartEntries = Object.entries(cart);
+  const cartCount = cartEntries.reduce((n, [, qty]) => n + qty, 0);
   const totalExalted = cartEntries.reduce((sum, [name, qty]) => {
     const item = byName.get(name);
     return sum + (item ? item.priceExalted * qty : 0);
   }, 0);
 
+  const calculator = (
+    <div className="p-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+        Cost calculator
+      </h2>
+      <p className="mt-1 text-xs text-forge-gold/80">
+        Add currencies and quantities to estimate a crafting budget.
+      </p>
+
+      {cartEntries.length === 0 ? (
+        <p className="mt-4 text-sm text-forge-gold/80">
+          Use the + buttons to add currency here.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {cartEntries.map(([name, qty]) => {
+            const item = byName.get(name);
+            return (
+              <li key={name} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 flex-1 break-words text-forge-goldbright/90">{name}</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="tap min-h-8 min-w-8 rounded border border-forge-border px-1.5 text-forge-gold/70 hover:text-forge-goldbright"
+                    aria-label={`Remove one ${name}`}
+                    onClick={() => item && addToCart(item, -1)}
+                  >
+                    −
+                  </button>
+                  <span className="w-8 text-center tabular-nums">{qty}</span>
+                  <button
+                    type="button"
+                    className="tap min-h-8 min-w-8 rounded border border-forge-border px-1.5 text-forge-gold/70 hover:text-forge-goldbright"
+                    aria-label={`Add one ${name}`}
+                    onClick={() => item && addToCart(item, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+                <span className="w-16 text-right tabular-nums text-forge-gold/80">
+                  {item ? fmt(item.priceExalted * qty) : "?"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {cartEntries.length > 0 ? (
+        <div className="mt-4 border-t border-forge-border pt-3 text-sm">
+          <div className="flex justify-between">
+            <span className="text-forge-gold/80">Total (Exalted)</span>
+            <span className="font-semibold text-forge-goldbright tabular-nums">
+              {fmt(totalExalted)}
+            </span>
+          </div>
+          <div className="mt-1 flex justify-between">
+            <span className="text-forge-gold/80">Total (Divine)</span>
+            <span className="text-forge-gold/80 tabular-nums">
+              {fmt(toDivine(totalExalted))}
+            </span>
+          </div>
+          <button type="button" className="btn mt-3 w-full" onClick={() => setCart({})}>
+            Clear
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_minmax(280px,360px)] xl:grid-cols-[1fr_380px]">
+    <div className="grid gap-5 max-lg:pb-20 lg:grid-cols-[1fr_minmax(280px,360px)] xl:grid-cols-[1fr_380px]">
       <div className="space-y-3">
         <div className="panel flex flex-col gap-2 p-4 sm:flex-row sm:items-center">
           <select
@@ -117,20 +191,22 @@ export function PriceExplorer({
         ) : null}
 
         <div className="panel">
-          <div className="flex items-center justify-between border-b border-forge-border px-4 py-2 text-xs text-forge-gold/50">
+          <div className="flex items-center justify-between border-b border-forge-border px-4 py-2 text-xs text-forge-gold/80">
             <span>
               {filtered.length} items · prices in Exalted Orbs · 1 Divine ≈{" "}
               {fmt(data.divinePrice)} Exalted
             </span>
           </div>
-          <div className="table-scroll max-h-[64vh] overflow-y-auto">
-            <table className="w-full min-w-[28rem] text-sm">
-              <thead className="sticky top-0 bg-forge-panel text-left text-xs text-forge-gold/50">
+          <div className="max-h-[64vh] overflow-y-auto overscroll-contain max-lg:max-h-none">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-forge-panel text-left text-xs text-forge-gold/80">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Currency</th>
+                  <th className="px-3 py-2 font-medium sm:px-4">Currency</th>
                   <th className="px-2 py-2 text-right font-medium">Exalted</th>
-                  <th className="px-2 py-2 text-right font-medium">Divine</th>
-                  <th className="px-2 py-2"></th>
+                  <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Divine</th>
+                  <th className="px-2 py-2">
+                    <span className="sr-only">Add</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-forge-border/40">
@@ -142,11 +218,11 @@ export function PriceExplorer({
                       key={`${i.category}:${i.apiId}`}
                       className={highlight ? "bg-forge-rust/15" : ""}
                     >
-                      <td className="px-4 py-1.5 text-forge-goldbright/90">
+                      <td className="px-3 py-1.5 text-forge-goldbright/90 sm:px-4">
                         {i.name}
                         {methodUses(i.name) ? (
                           <span
-                            className="ml-1.5 hidden text-[10px] text-forge-gold/40 md:inline"
+                            className="block text-[10px] text-forge-gold/80 md:ml-1.5 md:inline"
                             title="Crafting methods that consume this currency"
                           >
                             {methodUses(i.name)}
@@ -155,8 +231,13 @@ export function PriceExplorer({
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-forge-gold/80">
                         {fmt(i.priceExalted)}
+                        {toDivine(i.priceExalted) >= 0.01 ? (
+                          <span className="block text-[10px] text-forge-gold/70 sm:hidden">
+                            {fmt(toDivine(i.priceExalted))} div
+                          </span>
+                        ) : null}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-forge-gold/50">
+                      <td className="hidden px-2 py-1.5 text-right tabular-nums text-forge-gold/80 sm:table-cell">
                         {toDivine(i.priceExalted) >= 0.01
                           ? fmt(toDivine(i.priceExalted))
                           : "—"}
@@ -164,7 +245,8 @@ export function PriceExplorer({
                       <td className="px-2 py-1.5 text-right">
                         <button
                           type="button"
-                          className="rounded border border-forge-border px-1.5 text-xs text-forge-gold/70 hover:border-forge-gold/60 hover:text-forge-goldbright"
+                          className="tap min-h-7 min-w-7 rounded border border-forge-border px-1.5 text-xs text-forge-gold/70 hover:border-forge-gold/60 hover:text-forge-goldbright"
+                          aria-label={`Add ${i.name} to cost calculator`}
                           onClick={() => addToCart(i)}
                           title="Add to cost calculator"
                         >
@@ -180,82 +262,28 @@ export function PriceExplorer({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="panel p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-            Cost calculator
-          </h2>
-          <p className="mt-1 text-xs text-forge-gold/50">
-            Add currencies and quantities to estimate a crafting budget.
-          </p>
+      <aside className="hidden space-y-3 lg:block">
+        <div className="panel sticky top-[calc(var(--nav-height)+1rem)]">{calculator}</div>
+      </aside>
 
-          {cartEntries.length === 0 ? (
-            <p className="mt-4 text-sm text-forge-gold/40">
-              Use the + buttons to add currency here.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {cartEntries.map(([name, qty]) => {
-                const item = byName.get(name);
-                return (
-                  <li
-                    key={name}
-                    className="flex items-center justify-between gap-2 text-sm"
-                  >
-                    <span className="flex-1 text-forge-goldbright/90">
-                      {name}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        className="rounded border border-forge-border px-1.5 text-forge-gold/70 hover:text-forge-goldbright"
-                        onClick={() => item && addToCart(item, -1)}
-                      >
-                        −
-                      </button>
-                      <span className="w-8 text-center tabular-nums">{qty}</span>
-                      <button
-                        type="button"
-                        className="rounded border border-forge-border px-1.5 text-forge-gold/70 hover:text-forge-goldbright"
-                        onClick={() => item && addToCart(item, 1)}
-                      >
-                        +
-                      </button>
-                    </div>
-                    <span className="w-16 text-right tabular-nums text-forge-gold/60">
-                      {item ? fmt(item.priceExalted * qty) : "?"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {cartEntries.length > 0 ? (
-            <div className="mt-4 border-t border-forge-border pt-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-forge-gold/60">Total (Exalted)</span>
-                <span className="font-semibold text-forge-goldbright tabular-nums">
-                  {fmt(totalExalted)}
-                </span>
-              </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-forge-gold/60">Total (Divine)</span>
-                <span className="text-forge-gold/80 tabular-nums">
-                  {fmt(toDivine(totalExalted))}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn mt-3 w-full"
-                onClick={() => setCart({})}
-              >
-                Clear
-              </button>
-            </div>
-          ) : null}
-        </div>
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-forge-border bg-forge-panel px-4 py-2 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] lg:hidden"
+        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      >
+        <button
+          type="button"
+          className="btn btn-primary w-full justify-between"
+          onClick={() => setCalcOpen(true)}
+        >
+          <span>Cost calculator{cartCount ? ` · ${cartCount}` : ""}</span>
+          <span className="tabular-nums">
+            {cartCount ? `${fmt(totalExalted)} ex` : "Open"}
+          </span>
+        </button>
       </div>
+      <Sheet open={calcOpen} onClose={closeCalc} title="Cost calculator" side="bottom">
+        {calculator}
+      </Sheet>
     </div>
   );
 }

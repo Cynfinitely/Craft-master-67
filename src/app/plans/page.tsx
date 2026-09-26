@@ -48,7 +48,7 @@ export default async function PlansPage() {
         <h1 className="text-2xl font-bold text-forge-goldbright">
           Saved Plans &amp; Favorites
         </h1>
-        <p className="mt-1 text-sm text-forge-gold/60">
+        <p className="mt-1 text-sm text-forge-gold/80">
           Your crafting plans and favorite bases, stored locally.
         </p>
       </div>
@@ -65,7 +65,7 @@ export default async function PlansPage() {
           Favorite bases
         </h2>
         {favorites.length === 0 ? (
-          <div className="panel p-6 text-center text-forge-gold/50">
+          <div className="panel p-6 text-center text-forge-gold/80">
             No favorites yet. Star a base from the Items &amp; Mods page.
           </div>
         ) : (
@@ -74,10 +74,10 @@ export default async function PlansPage() {
               <Link
                 key={f.baseId}
                 href={`/items?base=${encodeURIComponent(f.baseId)}`}
-                className="panel flex items-center justify-between px-4 py-3 transition-colors hover:border-forge-gold/50"
+                className="panel flex min-h-11 min-w-0 items-center justify-between gap-3 px-4 py-3 transition-colors hover:border-forge-gold/50"
               >
-                <span className="text-rarity-normal">{f.name}</span>
-                <span className="text-xs text-forge-gold/40">
+                <span className="min-w-0 truncate text-rarity-normal">{f.name}</span>
+                <span className="shrink-0 text-xs text-forge-gold/80">
                   {f.itemClass}
                 </span>
               </Link>
