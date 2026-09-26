@@ -34,6 +34,7 @@ import {
   orderConfirmQueue,
   resolveListingMods,
   SAMPLE_FRESH_MS,
+  sampleBandsExalted,
   scopeCatalog,
   TABLET_SAMPLE_LISTINGS,
   tradeExplicitId,
@@ -46,8 +47,9 @@ import {
 /**
  * Prices 2-prefix + 2-suffix tablet combinations with a small, fixed number
  * of trade searches per refresh. Each batch runs one search step:
- *   1. Sample: one search per tablet (expensive listings first, up to 30
- *      fetched), grouped into candidate combinations. Reread after 1 hour.
+ *   1. Sample: one cheapest-first search per price band per tablet (100c+,
+ *      30-100c, 10-30c; up to 30 listings each), grouped into candidate
+ *      combinations. Reread after 1 hour.
  *   2. Confirm: one search per candidate, best score first, at most
  *      CONFIRM_BUDGET_PER_RUN per refresh. A floor is kept only when at
  *      least 3 listings exist; results stay valid for 6 hours.
@@ -56,9 +58,6 @@ import {
 
 const SEARCH_TTL_MS = 30 * 60 * 1000;
 const FLOOR_LISTINGS = 10;
-const MAX_PRICE_DIVINE = 10;
-/** Sample listings below this are not worth crafting for. */
-const SAMPLE_MIN_CHAOS = 5;
 const FALLBACK_DIVINE_EXALTED = 200;
 const SEARCH_TIMEOUT_MS = 180_000;
 const MAX_INLINE_WAIT_MS = 15_000;
@@ -390,25 +389,31 @@ async function sampleTablet(
   const stats = await getTradeStats();
   const statText = new Map(stats.map((s) => [s.id, s.text]));
   const affixes: TabletAffix[] = [...tablet.prefixes, ...tablet.suffixes];
-  const divine = priceMap.get("divine") ?? FALLBACK_DIVINE_EXALTED;
-  const minExalted = tradePriceToExalted(SAMPLE_MIN_CHAOS, "chaos", priceMap);
-  const result = await withTimeoutStrict(
-    searchAndFetchForGem(
-      league,
-      buildTradeQuery({
-        status: TABLET_TRADE_STATUS,
-        type: tablet.name,
-        rarity: "rare",
-        maxPriceEquivalent: Math.round(divine * MAX_PRICE_DIVINE),
-        ...(minExalted != null && minExalted > 0
-          ? { minPriceEquivalent: Math.max(1, Math.floor(minExalted)) }
-          : {}),
-        sort: { price: "desc" },
-      }),
-      { maxListings: TABLET_SAMPLE_LISTINGS, ttlMs: SEARCH_TTL_MS, maxWaitMs: MAX_INLINE_WAIT_MS },
-    ),
-    SEARCH_TIMEOUT_MS,
-  );
+  const chaos = tradePriceToExalted(1, "chaos", priceMap) ?? 1;
+  const bands = sampleBandsExalted(chaos);
+  // Bands already read come back from the search cache when a retry repeats them.
+  const results = [];
+  for (const band of bands) {
+    results.push(
+      await withTimeoutStrict(
+        searchAndFetchForGem(
+          league,
+          buildTradeQuery({
+            status: TABLET_TRADE_STATUS,
+            type: tablet.name,
+            rarity: "rare",
+            minPriceEquivalent: band.min,
+            maxPriceEquivalent: band.max,
+            sort: { price: "asc" },
+          }),
+          { maxListings: TABLET_SAMPLE_LISTINGS, ttlMs: SEARCH_TTL_MS, maxWaitMs: MAX_INLINE_WAIT_MS },
+        ),
+        SEARCH_TIMEOUT_MS,
+      ),
+    );
+  }
+  const listings = results.flatMap((r) => r.listings);
+  const total = results.reduce((sum, r) => sum + r.total, 0);
 
   interface Bucket {
     mods: ComboPayload;
@@ -416,7 +421,7 @@ async function sampleTablet(
     prices: number[];
   }
   const buckets = new Map<string, Bucket>();
-  for (const listing of result.listings) {
+  for (const listing of listings) {
     const price = listingExalted(listing, priceMap);
     if (price == null || price <= 0) continue;
     const resolved = resolveListingMods({
@@ -476,6 +481,14 @@ async function sampleTablet(
       });
   }
 
+  // Unchecked candidates from an older sample would crowd out this one's.
+  const old = await leagueRows(league, new Set([tablet.name]));
+  for (const row of old) {
+    if (row.status === "pending_floor" && !buckets.has(row.comboKey)) {
+      await db.delete(tabletComboResults).where(eq(tabletComboResults.id, row.id));
+    }
+  }
+
   await db
     .insert(tabletComboResults)
     .values({
@@ -488,10 +501,10 @@ async function sampleTablet(
       sampledMaxExalted: null,
       floorPriceExalted: null,
       medianPriceExalted: null,
-      listingCount: result.total,
-      sampleCount: result.listings.length,
+      listingCount: total,
+      sampleCount: listings.length,
       status: "sampled",
-      tradeUrl: result.tradeUrl,
+      tradeUrl: results[0]?.tradeUrl ?? null,
       statIds: "[]",
       errorMessage: null,
       fetchedAt: now,
@@ -501,8 +514,8 @@ async function sampleTablet(
       target: tabletComboResults.id,
       set: {
         status: "sampled",
-        listingCount: result.total,
-        sampleCount: result.listings.length,
+        listingCount: total,
+        sampleCount: listings.length,
         fetchedAt: now,
         scanStartedAt,
       },

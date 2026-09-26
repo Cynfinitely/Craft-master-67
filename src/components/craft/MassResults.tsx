@@ -70,7 +70,7 @@ export function MassResults({ plan }: { plan: MassCraftPlan }) {
           </div>
           <div className="sm:text-right">
             <div className="text-xs text-forge-gold/80">
-              simulated over {plan.sim.trials.toLocaleString()} bases
+              simulated over {plan.sim.trials.toLocaleString("en-US")} bases
             </div>
             <div className="text-sm font-semibold text-rarity-currency">
               {pct(plan.sim.fullHitRate)} hit / base

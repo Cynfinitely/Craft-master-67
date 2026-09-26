@@ -512,10 +512,30 @@ export function comboIsConfirmed(status: string, listingCount: number | null): b
 
 /* ----------------------------- confirm queue ----------------------------- */
 
-/** Confirm searches allowed per refresh, on top of one sample per tablet. */
+/** Confirm searches allowed per refresh, on top of each tablet's sample. */
 export const CONFIRM_BUDGET_PER_RUN = 20;
-/** Listings fetched from each tablet's single sample search (3 fetch calls). */
+/** Listings fetched from each sample search (3 fetch calls). */
 export const TABLET_SAMPLE_LISTINGS = 30;
+
+/**
+ * Price bands (chaos) each tablet's sample reads, cheapest first inside each
+ * band. Sorting the whole market by price descending only reaches asks parked
+ * at the search cap; the cheapest asks above 100c are the credible valuable ones.
+ */
+// Bounds are in chaos: a divine cap would drop every 100c+ ask when a divine is worth under 100c.
+export const TABLET_SAMPLE_BANDS_CHAOS: { min: number; max: number }[] = [
+  { min: 100, max: 2000 },
+  { min: 30, max: 100 },
+  { min: 10, max: 30 },
+];
+
+/** Sample bands as exalted-equivalent price filters. */
+export function sampleBandsExalted(chaosExalted: number): { min: number; max: number }[] {
+  return TABLET_SAMPLE_BANDS_CHAOS.map((b) => ({
+    min: Math.max(1, Math.floor(b.min * chaosExalted)),
+    max: Math.round(b.max * chaosExalted),
+  }));
+}
 /** Confirmed and too-few-listings rows are rechecked after this long. */
 export const CONFIRM_FRESH_MS = 6 * 60 * 60 * 1000;
 /** A tablet's listing sample is reread after this long. */

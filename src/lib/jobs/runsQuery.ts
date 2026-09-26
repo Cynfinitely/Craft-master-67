@@ -149,7 +149,7 @@ export async function loadRunsBoard(now = Date.now()): Promise<RunsBoardData> {
   const blockedUntil = Math.max(0, ...(budget?.usage.map((p) => p.blockedUntil) ?? []));
   const summary =
     blockedUntil > now
-      ? `Trade API paused until ${new Date(blockedUntil).toLocaleTimeString()} (penalty or Retry-After).`
+      ? "Trade API paused by a penalty or Retry-After."
       : budget
         ? "Trade budget is healthy."
         : "No trade requests recorded yet.";

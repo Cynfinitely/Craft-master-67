@@ -1,5 +1,7 @@
 "use client";
 
+import { useNow } from "@/lib/useNow";
+
 export interface ScopeOption {
   id: string;
   label: string;
@@ -7,9 +9,10 @@ export interface ScopeOption {
   at?: number | null;
 }
 
-function age(at: number | null | undefined): string {
+function age(at: number | null | undefined, now: number | null): string {
   if (!at) return "never";
-  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (now == null) return "";
+  const mins = Math.max(0, Math.round((now - at) / 60000));
   if (mins < 1) return "now";
   if (mins < 60) return `${mins}m`;
   const hours = Math.round(mins / 60);
@@ -33,6 +36,7 @@ export function ScopeChips({
   onChange: (next: string[]) => void;
   disabled?: boolean;
 }) {
+  const now = useNow();
   const all = selected.length === 0 || selected.length === options.length;
   const toggle = (id: string) => {
     const base = all ? [] : selected;
@@ -68,12 +72,12 @@ export function ScopeChips({
             aria-pressed={active}
             disabled={disabled}
             onClick={() => toggle(o.id)}
-            title={o.at ? `Last scanned ${new Date(o.at).toLocaleString()}` : "Never scanned"}
+            title={
+              !o.at ? "Never scanned" : now != null ? `Last scanned ${new Date(o.at).toLocaleString()}` : undefined
+            }
           >
             <span>{o.label}</span>
-            <span className="text-[10px] text-forge-gold/60" suppressHydrationWarning>
-              {age(o.at)}
-            </span>
+            <span className="text-[10px] text-forge-gold/60">{age(o.at, now)}</span>
           </button>
         );
       })}

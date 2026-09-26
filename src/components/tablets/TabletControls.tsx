@@ -4,10 +4,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveProgress, type ProgressJob } from "@/components/LiveProgress";
 import { ScopeChips } from "@/components/ui/ScopeChips";
+import { useNow } from "@/lib/useNow";
 
-function formatFetched(at: number | null): string {
+function formatFetched(at: number | null, now: number | null): string {
   if (!at) return "Prices have not been refreshed yet.";
-  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (now == null) return "";
+  const mins = Math.max(0, Math.round((now - at) / 60000));
   if (mins < 1) return "Prices refreshed just now.";
   if (mins < 60) return `Prices refreshed ${mins} min ago.`;
   const hours = Math.round(mins / 60);
@@ -47,6 +49,7 @@ export function TabletControls({
   counts?: StatusCounts;
   tradeWaitMs?: number;
 }) {
+  const now = useNow();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -166,7 +169,7 @@ export function TabletControls({
           {scanning ? "Refreshing…" : label}
         </button>
         {!scanning ? (
-          <span className="text-[11px] text-forge-gold/80">{formatFetched(fetchedAt)}</span>
+          <span className="text-[11px] text-forge-gold/80">{formatFetched(fetchedAt, now)}</span>
         ) : null}
         {tradeWaitMs > 15_000 ? (
           <span className="text-[11px] text-forge-rust/80">

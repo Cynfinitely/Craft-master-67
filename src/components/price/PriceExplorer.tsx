@@ -6,7 +6,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import type { PoeLeague, PriceData, PricedItem } from "@/lib/pricing/poe2scout";
 
 function fmt(n: number): string {
-  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (n >= 1000) return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
   if (n >= 10) return n.toFixed(1);
   if (n >= 1) return n.toFixed(2);
   return n.toFixed(3);

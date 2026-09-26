@@ -15,7 +15,7 @@
     "trade:stats": "tsx scripts/sync-trade-stats.ts",
     "trade:coverage": "tsx scripts/mod-coverage.ts",
     "market:sample": "tsx scripts/sample-market.ts",
-    "market:worker": "tsx --require ./scripts/shim-server-only.cjs scripts/market-worker.ts",
+    "market:worker": "tsx --env-file-if-exists=.env --require ./scripts/shim-server-only.cjs scripts/market-worker.ts",
     "market:scan": "tsx scripts/scan-market.ts",
     "test": "tsx --test tests/*.test.ts"
   },

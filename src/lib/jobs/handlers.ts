@@ -162,7 +162,7 @@ async function runParent(
   const detail = running
     ? running.message
     : waiting
-      ? `next unit in ${formatWait(waiting.runAt - Date.now())}`
+      ? `next check in ${formatWait(waiting.runAt - Date.now())}`
       : "waiting for the worker";
   const message = `${finished}/${state.childIds.length} ${label} done · ${detail}`;
   await rescheduleJob(job.id, Date.now() + PARENT_POLL_MS, message, {
@@ -220,7 +220,11 @@ async function runTabletUnit(job: MarketJobRow, payload: Record<string, unknown>
     );
   } else if (!res.done) {
     const waitMs = Math.max(1000, res.nextWaitMs);
-    await rescheduleJob(job.id, Date.now() + waitMs, `${tablet}: checking prices · ${counts}`);
+    const status =
+      waitMs > INLINE_WAIT_MS.background
+        ? `pacing the trade budget, next check in ${formatWait(waitMs)}`
+        : "checking prices";
+    await rescheduleJob(job.id, Date.now() + waitMs, `${tablet}: ${status} · ${counts}`);
   } else if (res.budgetSpent && res.remaining > 0) {
     await completeJob(job.id, `${tablet}: done for this refresh — ${counts}`);
   } else {

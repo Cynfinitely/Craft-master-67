@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveProgress, type ProgressJob } from "@/components/LiveProgress";
+import { useNow } from "@/lib/useNow";
 
 export interface GemScanScope {
   id: string;
@@ -13,9 +14,10 @@ export interface GemScanScope {
   at: number | null;
 }
 
-function age(at: number | null): string {
+function age(at: number | null, now: number | null): string {
   if (!at) return "never";
-  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (now == null) return "recently";
+  const mins = Math.max(0, Math.round((now - at) / 60000));
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
@@ -34,6 +36,7 @@ export function GemCorruptionControls({
   activeJobId?: string | null;
   scopes?: GemScanScope[];
 }) {
+  const now = useNow();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -147,7 +150,7 @@ export function GemCorruptionControls({
                 aria-checked={active}
                 disabled={scanning || empty}
                 onClick={() => setScopeId(s.id)}
-                title={`Last priced ${age(s.at)}`}
+                title={`Last priced ${age(s.at, now)}`}
                 className={`tap inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-40 ${
                   active
                     ? "border-forge-gold bg-forge-gold/15 text-forge-goldbright"
@@ -179,7 +182,7 @@ export function GemCorruptionControls({
         {!scanning ? (
           <span className="text-[11px] text-forge-gold/80" suppressHydrationWarning>
             {scope?.gemTypes
-              ? `Only these gems are re-priced; the rest of the table stays. Last priced ${age(scope.at)}.`
+              ? `Only these gems are re-priced; the rest of the table stays. Last priced ${age(scope.at, now)}.`
               : "Finds gems worth corrupting to 21/20 and prices each floor. Runs in the background."}
           </span>
         ) : null}

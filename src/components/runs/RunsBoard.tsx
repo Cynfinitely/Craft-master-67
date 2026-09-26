@@ -10,10 +10,13 @@ import type {
   WorkerCard,
 } from "@/lib/jobs/runsTypes";
 import type { StageView } from "@/lib/jobs/stages";
+import { useNow } from "@/lib/useNow";
 
-function when(ts: number | null): string {
+// Times use the browser's clock and locale; `now` is null until hydration ends.
+function when(ts: number | null, now: number | null): string {
   if (!ts) return "—";
-  const delta = ts - Date.now();
+  if (now == null) return "";
+  const delta = ts - now;
   if (delta > 60_000) {
     const min = Math.round(delta / 60000);
     return min < 90 ? `in ${min}m` : new Date(ts).toLocaleString();
@@ -22,17 +25,20 @@ function when(ts: number | null): string {
   return new Date(ts).toLocaleString();
 }
 
-function clock(ts: number): string {
-  return new Date(ts).toLocaleTimeString();
+function clock(ts: number, now: number | null): string {
+  return now == null ? "" : new Date(ts).toLocaleTimeString();
 }
 
 const RATE_WORDS = /rate limit|trade limit|budget|retry|penalty|paused/i;
 
-function waitReason(run: { status: string; runAt: number; message: string }): string | null {
-  if (run.status !== "pending" || run.runAt <= Date.now()) return null;
+function waitReason(
+  run: { status: string; runAt: number; message: string },
+  now: number | null,
+): string | null {
+  if (now == null || run.status !== "pending" || run.runAt <= now) return null;
   return RATE_WORDS.test(run.message)
-    ? `Waiting on the trade rate limit until ${clock(run.runAt)} (${when(run.runAt)}).`
-    : `Starts at ${clock(run.runAt)} (${when(run.runAt)}).`;
+    ? `Waiting on the trade rate limit until ${clock(run.runAt, now)} (${when(run.runAt, now)}).`
+    : `Starts at ${clock(run.runAt, now)} (${when(run.runAt, now)}).`;
 }
 
 function statusTone(status: string): string {
@@ -43,6 +49,7 @@ function statusTone(status: string): string {
 }
 
 function StageRail({ stages }: { stages: StageView[] }) {
+  const now = useNow();
   return (
     <ol className="mt-3 space-y-1">
       {stages.map((stage) => (
@@ -59,7 +66,7 @@ function StageRail({ stages }: { stages: StageView[] }) {
             {stage.status}
           </span>
           <span className="text-forge-goldbright">{stage.label}</span>
-          {stage.at ? <span className="text-forge-gold/80">{when(stage.at)}</span> : null}
+          {stage.at ? <span className="text-forge-gold/80">{when(stage.at, now)}</span> : null}
           {stage.status === "current" && stage.detail ? (
             <span className="text-forge-gold">{stage.detail}</span>
           ) : null}
@@ -70,10 +77,11 @@ function StageRail({ stages }: { stages: StageView[] }) {
 }
 
 function UnitList({ units }: { units: RunUnit[] }) {
+  const now = useNow();
   return (
     <ul className="mt-3 divide-y divide-forge-border/60 rounded-md border border-forge-border/60">
       {units.map((unit) => {
-        const wait = waitReason(unit);
+        const wait = waitReason(unit, now);
         return (
           <li key={unit.id} className="flex flex-col gap-0.5 px-3 py-2 text-xs sm:flex-row sm:items-baseline sm:gap-3">
             <span className="font-medium text-forge-goldbright sm:w-40 sm:shrink-0">{unit.label}</span>
@@ -96,6 +104,7 @@ function RunRow({
   run: RunCard;
   onAction: (action: "cancel" | "retry", id: string) => Promise<void>;
 }) {
+  const now = useNow();
   const [open, setOpen] = useState(run.status === "running" || run.units.length > 0);
   const [busy, setBusy] = useState(false);
   const active = run.status === "pending" || run.status === "running";
@@ -105,7 +114,7 @@ function RunRow({
     : run.total && run.current != null
       ? `${run.current}/${run.total}`
       : null;
-  const wait = waitReason(run);
+  const wait = waitReason(run, now);
 
   const act = async (action: "cancel" | "retry") => {
     setBusy(true);
@@ -135,13 +144,13 @@ function RunRow({
             {` · ${run.lane}`}
             {run.priority ? ` · priority ${run.priority}` : ""}
             {run.attempts > 0 ? ` · attempt ${run.attempts}/${run.maxAttempts}` : ""}
-            {active ? "" : ` · ${when(run.updatedAt)}`}
+            {active ? "" : ` · ${when(run.updatedAt, now)}`}
           </p>
           <p className="mt-1 break-words text-xs text-forge-gold">{run.message}</p>
           {wait ? <p className="mt-1 text-xs text-amber-800">{wait}</p> : null}
           {run.etaAt && active ? (
             <p className="mt-1 text-xs text-forge-gold/80">
-              Estimated finish {clock(run.etaAt)} ({when(run.etaAt)}), based on finished units.
+              Estimated finish {clock(run.etaAt, now)} ({when(run.etaAt, now)}), based on finished units.
             </p>
           ) : null}
         </button>
@@ -165,7 +174,7 @@ function RunRow({
             <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto break-words text-[11px] text-forge-gold/80">
               {run.events.map((event, i) => (
                 <li key={`${event.at}-${i}`}>
-                  {clock(event.at)} · {event.stage || "log"} · {event.text}
+                  {clock(event.at, now)} · {event.stage || "log"} · {event.text}
                 </li>
               ))}
             </ul>
@@ -193,12 +202,13 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 function WorkerStatus({ workers, remote }: { workers: WorkerCard[]; remote: boolean }) {
+  const now = useNow();
   const worker = workers.find((w) => w.kind === "worker");
   const pump = workers.find((w) => w.kind === "pump");
   if (worker) {
     return (
       <p className="text-xs text-emerald-700">
-        Market worker online (last seen {clock(worker.seenAt)})
+        Market worker online (last seen {clock(worker.seenAt, now)})
         {worker.currentJob ? `, working on ${worker.currentJob.slice(0, 8)}` : ", idle"}.
       </p>
     );
@@ -221,17 +231,17 @@ function WorkerStatus({ workers, remote }: { workers: WorkerCard[]; remote: bool
 }
 
 function BudgetMeters({ budget }: { budget: NonNullable<RunsBoardData["budget"]> }) {
-  const now = Date.now();
+  const now = useNow();
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {budget.policies.map((policy: BudgetPolicy) => (
         <div key={policy.policy} className="space-y-2">
           <p className="text-xs font-semibold text-forge-goldbright">
             {policy.policy === "search" ? "Searches" : "Item fetches"}
-            {policy.blockedUntil > now ? (
-              <span className="ml-2 font-normal text-red-700">paused until {clock(policy.blockedUntil)}</span>
+            {now == null ? null : policy.blockedUntil > now ? (
+              <span className="ml-2 font-normal text-red-700">paused until {clock(policy.blockedUntil, now)}</span>
             ) : policy.waitMs > 0 ? (
-              <span className="ml-2 font-normal text-amber-800">next background slot {when(now + policy.waitMs)}</span>
+              <span className="ml-2 font-normal text-amber-800">next background slot {when(now + policy.waitMs, now)}</span>
             ) : (
               <span className="ml-2 font-normal text-emerald-700">ready</span>
             )}
@@ -272,7 +282,7 @@ function BudgetMeters({ budget }: { budget: NonNullable<RunsBoardData["budget"]>
       <p className="text-[11px] text-forge-gold/70 sm:col-span-2">
         Ticks mark how much of each window background scans ({Math.round(budget.headroom.background * 100)}%) and
         on-demand jobs ({Math.round(budget.headroom.interactive * 100)}%) may use. The rest stays free so GGG never
-        applies a penalty. Snapshot from {clock(budget.savedAt)}.
+        applies a penalty. Snapshot from {clock(budget.savedAt, now)}.
       </p>
     </div>
   );
@@ -331,13 +341,14 @@ function LeaguePicker({ league, options }: { league: string; options: string[] }
 }
 
 function Upcoming({ rows }: { rows: ScheduleCard[] }) {
+  const now = useNow();
   if (rows.length === 0) return <Empty>Every schedule has a job in flight.</Empty>;
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {rows.map((row) => (
         <article key={row.id} className="panel p-4 text-sm">
           <p className="font-semibold text-forge-goldbright">{row.kind}</p>
-          <p className="text-xs text-forge-gold/80">Next pass {when(row.nextRunAt)}</p>
+          <p className="text-xs text-forge-gold/80">Next pass {when(row.nextRunAt, now)}</p>
         </article>
       ))}
     </div>
@@ -345,6 +356,7 @@ function Upcoming({ rows }: { rows: ScheduleCard[] }) {
 }
 
 export function RunsBoard({ initial }: { initial: RunsBoardData }) {
+  const now = useNow();
   const [board, setBoard] = useState(initial);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -391,7 +403,7 @@ export function RunsBoard({ initial }: { initial: RunsBoardData }) {
         <WorkerStatus workers={board.workers} remote={board.remote} />
         <p className="text-xs text-forge-gold">
           {board.rate.summary}
-          {board.rate.nextAllowedAt > Date.now() ? ` Next trade request ${when(board.rate.nextAllowedAt)}.` : ""}
+          {now != null && board.rate.nextAllowedAt > now ? ` Next trade request ${when(board.rate.nextAllowedAt, now)}.` : ""}
         </p>
         {board.budget ? <BudgetMeters budget={board.budget} /> : null}
       </section>

@@ -5,7 +5,7 @@
  *
  * Usage:
  *   npm run market:worker                      # loop forever
- *   npm run market:worker -- --once            # drain due jobs and exit
+ *   npm run market:worker -- --once            # drain due jobs and exit (no schedules)
  *   npm run market:worker -- --gems [--league "..."]
  *   npm run market:worker -- --tablets ["Abyss Tablet,Breach Tablet"]
  *   npm run market:worker -- --class "Body Armour" [--league "..."]
@@ -114,7 +114,6 @@ async function main() {
       priority: 5,
     });
     console.log(`Enqueued scan:gems ${id} for ${league}`);
-    if (!once) return;
   } else if (tabletsArg) {
     const league = await resolveLeague();
     const tablets = arg("tablets")?.split(",").map((t) => t.trim()).filter(Boolean);
@@ -128,7 +127,6 @@ async function main() {
       priority: 5,
     });
     console.log(`Enqueued scan:tablets ${id} for ${tablets?.join(", ") ?? "all tablets"} (${league})`);
-    if (!once) return;
   } else if (itemClass) {
     const league = await resolveLeague();
     const id = await enqueueJob({
@@ -137,7 +135,6 @@ async function main() {
       priority: 5,
     });
     console.log(`Enqueued scan:class ${id} for ${itemClass} (${league})`);
-    if (!once) return;
   }
   await loop();
 }

@@ -568,3 +568,19 @@ test("one tablet sample search fetches up to 30 listings", async () => {
     setTradeRateLimiter(null);
   }
 });
+
+test("sample bands are chaos ranges converted to exalted", async () => {
+  const { sampleBandsExalted } = await import("../src/lib/tablets/logic");
+  // Forbidden Rites: 1c = 62 ex, and a divine (475 ex) is under 8c, so the
+  // 100c+ band must not be capped in divines.
+  assert.deepEqual(sampleBandsExalted(62), [
+    { min: 6200, max: 124000 },
+    { min: 1860, max: 6200 },
+    { min: 620, max: 1860 },
+  ]);
+  assert.deepEqual(sampleBandsExalted(0.5), [
+    { min: 50, max: 1000 },
+    { min: 15, max: 50 },
+    { min: 5, max: 15 },
+  ]);
+});

@@ -77,8 +77,19 @@ export default async function TabletsPage({
     error = err instanceof Error ? err.message : "Failed to load tablet mods.";
   }
 
+  let tabletAges: Record<string, number> = {};
+  try {
+    tabletAges = await tabletSampleAges(league);
+  } catch {
+    /* best-effort */
+  }
+  // Without a choice in the URL, open the tablet with the freshest scan so results are visible.
+  const freshest = catalog
+    .filter((t) => tabletAges[t.name])
+    .sort((a, b) => tabletAges[b.name] - tabletAges[a.name])[0]?.name;
   const tabletName =
     catalog.find((t) => t.name === searchParams.tablet)?.name ??
+    freshest ??
     catalog[0]?.name ??
     "";
   const tablet = catalog.find((t) => t.name === tabletName) ?? null;
@@ -112,14 +123,12 @@ export default async function TabletsPage({
   }
 
   let tradeWaitMs = 0;
-  let tabletAges: Record<string, number> = {};
   try {
     if ((await countUnfinishedJobs()) > 0) triggerQueuePump();
     const active = await getActiveTabletScanJob(league);
     activeJobId = active?.id ?? null;
     const budget = await readSavedBudget();
     tradeWaitMs = budget?.usage.find((p) => p.policy === "search")?.waitMs ?? 0;
-    tabletAges = await tabletSampleAges(league);
   } catch {
     /* best-effort */
   }

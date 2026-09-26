@@ -74,7 +74,8 @@ Run the worker on a long-lived host (Fly.io or Railway). It is the only process 
 Worker shortcuts:
 
 ```bash
-npm run market:worker -- --tablets "Abyss Tablet"   # queue one tablet, then keep draining
+npm run market:worker -- --tablets "Abyss Tablet"   # queue one tablet, then keep draining (and ticking schedules)
+npm run market:worker -- --tablets "Abyss Tablet" --once   # run only that scan, no schedules, exit when idle
 npm run market:worker -- --gems --once              # queue a gem scan and exit when idle
 ```
 
