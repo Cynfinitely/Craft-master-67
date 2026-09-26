@@ -11,8 +11,7 @@ import {
 
 /**
  * Resolves PoB2 build items (rare gear) against the local game data: base
- * type + explicit-mod groups. The output feeds the meta-demand store — which
- * bases and explicit combos ladder builds actually wear.
+ * type + explicit-mod groups, so each item can be opened in the planner.
  */
 
 export interface ResolvedMetaItem {

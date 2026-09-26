@@ -20,7 +20,7 @@ export interface ResolvedItem {
   baseName: string | null;
   itemClass: string | null;
   itemLevel: number;
-  /** Encoded as "Group@<requiredLevel>" for solveFromBase. */
+  /** Goal entries ("Group@<requiredLevel>", "~d" when desecrated). */
   desiredGroups: string[];
   matched: ResolvedMod[];
   warnings: string[];

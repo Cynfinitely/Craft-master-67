@@ -20,16 +20,6 @@ const NAV_GROUPS = [
       { href: "/plans", label: "Saved" },
     ],
   },
-  {
-    label: "Market",
-    links: [
-      { href: "/profit", label: "Profit" },
-      { href: "/price", label: "Price Check" },
-      { href: "/gems", label: "Gem Corruption" },
-      { href: "/tablets", label: "Tablets" },
-      { href: "/runs", label: "Runs" },
-    ],
-  },
 ];
 
 function isActive(pathname: string, href: string): boolean {

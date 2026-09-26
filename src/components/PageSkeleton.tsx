@@ -1,4 +1,4 @@
-/** Shared loading skeleton for pages backed by slow trade/price lookups. */
+/** Shared loading skeleton for pages that simulate or load prices. */
 export function PageSkeleton({ label }: { label: string }) {
   return (
     <div className="space-y-4">

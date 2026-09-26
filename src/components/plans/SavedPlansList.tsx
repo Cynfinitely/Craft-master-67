@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { SavedPlanSummary } from "@/lib/user/queries";
 import { formatCost } from "@/lib/pricing/format";
+import { formatCurrentMods, formatGoalEntry } from "@/lib/craft/goal";
 
 export interface PlanDrift {
   savedCostExalted: number;
@@ -13,14 +14,23 @@ export interface PlanDrift {
 
 function craftHref(p: SavedPlanSummary): string {
   const groups = [...p.plan.desiredPrefixes, ...p.plan.desiredSuffixes]
-    .map((d) => d.group)
+    .map((d) =>
+      formatGoalEntry({
+        group: d.group,
+        minLevel: d.tierLevel ?? 0,
+        desecrated: !!d.desecrated,
+        optional: !!d.optional,
+      }),
+    )
     .join(",");
   const params = new URLSearchParams({
-    mode: "base",
+    mode: p.plan.current ? "finish" : "base",
     ilvl: String(p.plan.itemLevel),
   });
   if (p.baseId) params.set("base", p.baseId);
   if (groups) params.set("groups", groups);
+  if (p.plan.current) params.set("current", formatCurrentMods(p.plan.current));
+  if (p.plan.baseCostExalted) params.set("cost", String(p.plan.baseCostExalted));
   return `/craft?${params.toString()}`;
 }
 
@@ -61,7 +71,7 @@ export function SavedPlansList({
               {drift[p.id] ? (
                 <p className="mt-0.5 text-xs">
                   <span className="text-forge-gold/55">
-                    materials now ~
+                    best technique now ~
                     {formatCost(
                       drift[p.id].nowCostExalted,
                       drift[p.id].divinePriceExalted,

@@ -155,15 +155,45 @@ export async function getBase(id: string): Promise<BaseDetail | null> {
  * whose tag the item carries. Zero-weight entries earlier in the list block
  * the mod entirely.
  */
-export async function getEligibleMods(
+interface EligibleModsOptions {
+  generationTypes?: readonly string[];
+  includeEssenceOnly?: boolean;
+  /** Mod domains to include (default: regular item mods only). */
+  domains?: readonly string[];
+}
+
+const ELIGIBLE_CACHE_MAX = 400;
+const eligibleCache = new Map<string, Promise<EligibleMod[]>>();
+
+/** Memoized by (tag set, item level, options): game data is immutable per process. */
+export function getEligibleMods(
   itemTags: string[],
   itemLevel: number,
-  options: {
-    generationTypes?: readonly string[];
-    includeEssenceOnly?: boolean;
-    /** Mod domains to include (default: regular item mods only). */
-    domains?: readonly string[];
-  } = {},
+  options: EligibleModsOptions = {},
+): Promise<EligibleMod[]> {
+  const key = JSON.stringify([
+    [...new Set(itemTags)].sort(),
+    itemLevel,
+    options.generationTypes ?? null,
+    options.includeEssenceOnly ?? false,
+    options.domains ?? null,
+  ]);
+  const hit = eligibleCache.get(key);
+  if (hit) return hit;
+  const p = loadEligibleMods(itemTags, itemLevel, options);
+  p.catch(() => eligibleCache.delete(key));
+  if (eligibleCache.size >= ELIGIBLE_CACHE_MAX) {
+    const first = eligibleCache.keys().next().value;
+    if (first !== undefined) eligibleCache.delete(first);
+  }
+  eligibleCache.set(key, p);
+  return p;
+}
+
+async function loadEligibleMods(
+  itemTags: string[],
+  itemLevel: number,
+  options: EligibleModsOptions,
 ): Promise<EligibleMod[]> {
   const db = getDb();
   const generationTypes = options.generationTypes ?? DEFAULT_GEN_TYPES;

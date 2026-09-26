@@ -1,27 +1,27 @@
 import { NextResponse } from "next/server";
 import { resolveItem } from "@/lib/import/resolveItem";
-import { planFinish, type FinishCurrentMod } from "@/lib/solver/finish";
+import { parseGoalList, solve, type CurrentMod } from "@/lib/craft";
 
 export const dynamic = "force-dynamic";
 
 interface FinishRequest {
   /** Pasted in-game item text — the item's current mods are inferred. */
   text?: string;
-  /** Explicit input (used by the snipe scanner / saved listings). */
+  /** Explicit input instead of text. */
   baseId?: string;
   itemLevel?: number;
-  current?: FinishCurrentMod[];
-  /** Desired FINAL mod set ("Group@<minLevel>" / "...~d"). */
+  current?: CurrentMod[];
+  /** Desired FINAL mod set (goal entries: "Group", "Group@<minLevel>", "~d", "~o"). */
   desiredGroups?: string[];
-  buyPriceExalted?: number;
-  trials?: number;
+  /** Cost of another copy of the item (restart cost), in Exalted. */
+  baseCostExalted?: number;
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as FinishRequest;
-    const desiredGroups = body.desiredGroups ?? [];
-    if (desiredGroups.length === 0) {
+    const goal = parseGoalList((body.desiredGroups ?? []).join(","));
+    if (goal.length === 0) {
       return NextResponse.json(
         { error: "desiredGroups is required (the FINAL mod set to reach)." },
         { status: 400 },
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
         group: m.group,
         side: m.kind,
         level: m.tierLevel,
-        desecrated: m.desecrated,
+        desecrated: m.desecrated || undefined,
       }));
     }
 
@@ -58,14 +58,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const plan = await planFinish({
-      baseId,
-      itemLevel,
-      current,
-      desiredGroups,
-      buyPriceExalted: body.buyPriceExalted ?? null,
-      trials: body.trials,
-    });
+    const plan = await solve({ baseId, itemLevel, goal, current, baseCost: body.baseCostExalted });
     if (!plan) {
       return NextResponse.json({ error: "Unknown base item." }, { status: 404 });
     }

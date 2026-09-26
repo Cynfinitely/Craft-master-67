@@ -8,6 +8,8 @@ import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
 type CraftMode = "base" | "recommend" | "paste" | "mass";
+/** Finish mode is reached from a pasted item; it shows under the Paste tab. */
+type PageMode = CraftMode | "finish";
 
 const MODE_OPTIONS: { value: CraftMode; label: string }[] = [
   { value: "base", label: "From a base" },
@@ -21,7 +23,7 @@ export function CraftControls({
   mode,
 }: {
   classes: { category: string; classes: string[] }[];
-  mode: CraftMode;
+  mode: PageMode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,6 +62,7 @@ export function CraftControls({
     next.set("mode", m);
     next.delete("base");
     next.delete("groups");
+    next.delete("current");
     router.push(`${pathname}?${next.toString()}`);
   };
 
@@ -68,7 +71,7 @@ export function CraftControls({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <SegmentedControl
-            value={mode}
+            value={mode === "finish" ? "paste" : mode}
             onChange={switchMode}
             options={MODE_OPTIONS}
             shortLabels={{
@@ -83,15 +86,16 @@ export function CraftControls({
           label="Crafting planner"
           summary="Pick a mode, filter bases, then stage modifiers before building a plan."
           detail={[
-            "From a base: step-by-step craft path with live prices.",
+            "From a base: the brain ranks every technique for your goal.",
             "Recommend: pick desired mods and get ranked base suggestions.",
-            "Mass craft: simulate batch odds for a farming strategy.",
+            "Mass craft: one pass of a technique over a batch of bases.",
+            "Paste item: plan an item again, or finish the pasted item itself.",
             "Modifier picks are staged — nothing runs until you press the action button.",
           ]}
         />
       </div>
 
-      {mode === "paste" ? null : (
+      {mode === "paste" || mode === "finish" ? null : (
         <FilterFieldRow>
           {mode === "base" || mode === "mass" ? (
             <input

@@ -9,37 +9,17 @@ const FEATURES = [
   {
     href: "/materials",
     title: "Crafting Materials",
-    desc: "A reference for Path of Exile 2 crafting currencies and materials \u2014 essences, omens, runes, catalysts and more \u2014 with what each one does.",
+    desc: "A reference for Path of Exile 2 crafting currencies and materials \u2014 essences, omens, runes, catalysts and more \u2014 with what each one does and its live price.",
   },
   {
     href: "/craft",
     title: "Crafting Planner",
-    desc: "Pick a base and the modifiers you want, then get a step-by-step crafting path with rough odds. Or describe a goal and get a base recommendation.",
+    desc: "Pick a base and the modifiers you want. The crafting brain simulates every technique it knows and ranks them by expected cost to finish the item.",
   },
   {
-    href: "/price",
-    title: "Price Check",
-    desc: "Look up live currency values from poe2scout and estimate the rough cost of a crafting plan.",
-  },
-  {
-    href: "/profit",
-    title: "Profit Dashboard",
-    desc: "Cross live market values with crafting costs to find the most profitable items to craft — ranked by profit per hour, batch EV, or ROI.",
-  },
-  {
-    href: "/gems",
-    title: "Gem Corruption",
-    desc: "See floor prices for level-21, 20% quality corrupted skill gems, filled by the slow background scan.",
-  },
-  {
-    href: "/tablets",
-    title: "Tablets",
-    desc: "Browse expensive tablet modifier pairs and the floor prices the tablet scan has confirmed.",
-  },
-  {
-    href: "/runs",
-    title: "Runs",
-    desc: "See which collector passes are running, which stage they are in, and what is scheduled next.",
+    href: "/plans",
+    title: "Saved Plans",
+    desc: "Reopen saved crafting plans and see how their cost moved with today's currency prices.",
   },
 ];
 
@@ -51,9 +31,8 @@ export default function HomePage() {
           Path of Exile 2 Crafting Helper
         </h1>
         <p className="mt-3 max-w-2xl text-forge-gold/80">
-          A local-first toolkit for planning crafts in Path of Exile 2. Explore
-          the modifier pools of any item, learn what crafting materials do, plan
-          a path to the item you want, and estimate the cost.
+          A local-first crafting planner for Path of Exile 2. Tell it the item
+          you want and it works out the cheapest way to craft it, step by step.
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Link href="/items" className="btn btn-primary w-full sm:w-auto">

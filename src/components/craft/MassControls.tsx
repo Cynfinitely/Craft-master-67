@@ -2,22 +2,13 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-const METHODS = [
-  { id: "alch-spam", name: "Alchemy spam" },
-  { id: "alch-chaos", name: "Alchemy + Chaos cycles" },
-  { id: "transmute-regal-exalt", name: "Transmute → Regal → Exalt" },
-  { id: "perfect-seed", name: "Perfect Transmute + Augment seed" },
-  { id: "essence-exalt", name: "Essence + Exalt slams" },
-];
-
-export function MassControls() {
+export function MassControls({ techniques }: { techniques: { id: string; name: string }[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
 
-  const method = params.get("method") ?? "alch-spam";
+  const method = params.get("method") ?? "auto";
   const n = params.get("n") ?? "50";
-  const chaos = params.get("chaos") ?? "10";
 
   const push = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -31,13 +22,14 @@ export function MassControls() {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
-        <label className="shrink-0 text-xs text-forge-gold/80">Method</label>
+        <label className="shrink-0 text-xs text-forge-gold/80">Technique</label>
         <select
           className="input min-w-0 sm:w-auto"
           value={method}
-          onChange={(e) => push({ method: e.target.value })}
+          onChange={(e) => push({ method: e.target.value === "auto" ? null : e.target.value })}
         >
-          {METHODS.map((m) => (
+          <option value="auto">Let the brain pick (cheapest)</option>
+          {techniques.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
@@ -45,39 +37,20 @@ export function MassControls() {
         </select>
       </div>
       <div className="flex items-center gap-1.5">
-        <label className="text-xs text-forge-gold/80">Bases to buy</label>
+        <label className="text-xs text-forge-gold/80">Bases in the batch</label>
         <input
           type="number"
           min={1}
-          max={5000}
+          max={10000}
           className="input w-24 text-center"
           defaultValue={n}
           key={`n-${n}`}
           onBlur={(e) => push({ n: e.target.value || "50" })}
           onKeyDown={(e) => {
-            if (e.key === "Enter")
-              push({ n: (e.target as HTMLInputElement).value || "50" });
+            if (e.key === "Enter") push({ n: (e.target as HTMLInputElement).value || "50" });
           }}
         />
       </div>
-      {method === "alch-chaos" ? (
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-forge-gold/80">Chaos per base</label>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            className="input w-20 text-center"
-            defaultValue={chaos}
-            key={`c-${chaos}`}
-            onBlur={(e) => push({ chaos: e.target.value || "10" })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter")
-                push({ chaos: (e.target as HTMLInputElement).value || "10" });
-            }}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

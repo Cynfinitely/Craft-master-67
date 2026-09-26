@@ -1,285 +1,40 @@
 import { getClient } from "./index";
 
 /**
- * Idempotent DDL for tables added after the original seed script shipped.
- * Lets an existing data/poe2.db pick up new tables without a full reseed.
- * (scripts/seed-db.ts contains the same statements for fresh databases.)
+ * Idempotent DDL for the app-owned tables, so a database seeded by an older
+ * script picks them up without a full reseed. (scripts/seed-db.ts contains the
+ * same statements for fresh databases.)
  */
 export const APP_TABLES_DDL = `
-CREATE TABLE IF NOT EXISTS trade_cache (
-  key TEXT PRIMARY KEY,
-  payload TEXT NOT NULL,
-  fetched_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS trade_stats (
-  id TEXT PRIMARY KEY,
-  text TEXT NOT NULL,
-  type TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS trade_stats_type_idx ON trade_stats(type);
-CREATE TABLE IF NOT EXISTS market_samples (
-  listing_id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  item_class TEXT,
-  base_type TEXT NOT NULL,
-  name TEXT,
-  ilvl INTEGER,
-  rarity TEXT,
-  price_amount REAL,
-  price_currency TEXT,
-  price_exalted REAL,
-  indexed_at TEXT,
-  fetched_at INTEGER NOT NULL,
-  stats TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'trade'
-);
-CREATE INDEX IF NOT EXISTS market_samples_class_idx ON market_samples(league, item_class);
-CREATE INDEX IF NOT EXISTS market_samples_base_idx ON market_samples(league, base_type);
-CREATE TABLE IF NOT EXISTS manual_sales (
+CREATE TABLE IF NOT EXISTS saved_plans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  league TEXT NOT NULL,
-  item_class TEXT,
-  base_type TEXT NOT NULL,
-  ilvl INTEGER,
-  price_exalted REAL NOT NULL,
-  groups TEXT NOT NULL,
-  note TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS combo_probes (
-  id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  item_class TEXT NOT NULL,
-  combo_key TEXT NOT NULL,
-  groups TEXT NOT NULL,
-  labels TEXT NOT NULL,
-  listing_count INTEGER NOT NULL,
-  min_ask_exalted REAL,
-  median_ask_exalted REAL,
-  recent_count INTEGER,
-  trade_url TEXT,
-  fetched_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS combo_probes_class_idx ON combo_probes(league, item_class);
-CREATE INDEX IF NOT EXISTS combo_probes_fetched_idx ON combo_probes(fetched_at);
-CREATE TABLE IF NOT EXISTS scan_jobs (
-  id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  item_class TEXT,
-  status TEXT NOT NULL,
-  combos_probed INTEGER DEFAULT 0,
-  samples_added INTEGER DEFAULT 0,
-  started_at INTEGER NOT NULL,
-  finished_at INTEGER,
-  error TEXT
-);
-CREATE TABLE IF NOT EXISTS listing_snapshots (
-  probe_id TEXT NOT NULL,
-  listing_id TEXT NOT NULL,
-  price_exalted REAL,
-  seen_at INTEGER NOT NULL,
-  PRIMARY KEY (probe_id, listing_id)
-);
-CREATE INDEX IF NOT EXISTS listing_snapshots_probe_idx ON listing_snapshots(probe_id);
-CREATE TABLE IF NOT EXISTS snipe_specs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  league TEXT NOT NULL,
-  item_class TEXT NOT NULL,
-  base_id TEXT,
   name TEXT NOT NULL,
-  mods TEXT NOT NULL,
+  base_id TEXT,
+  payload TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS meta_items (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  league TEXT NOT NULL,
-  item_class TEXT NOT NULL,
-  base_id TEXT,
-  base_name TEXT,
-  groups TEXT NOT NULL,
-  labels TEXT NOT NULL DEFAULT '[]',
-  source_label TEXT,
-  added_at INTEGER NOT NULL
+CREATE TABLE IF NOT EXISTS favorites (
+  base_id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS meta_items_class_idx ON meta_items(league, item_class);
-CREATE TABLE IF NOT EXISTS market_jobs (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  status TEXT NOT NULL,
-  message TEXT NOT NULL DEFAULT '',
-  log TEXT NOT NULL DEFAULT '[]',
-  current INTEGER,
-  total INTEGER,
-  run_at INTEGER NOT NULL,
-  started_at INTEGER,
-  finished_at INTEGER,
-  error TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  priority INTEGER NOT NULL DEFAULT 0,
-  lane TEXT NOT NULL DEFAULT 'background',
-  dedupe_key TEXT,
-  parent_id TEXT,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  max_attempts INTEGER NOT NULL DEFAULT 5,
-  lease_owner TEXT,
-  lease_expires_at INTEGER,
-  result TEXT
-);
-CREATE INDEX IF NOT EXISTS market_jobs_status_run_idx ON market_jobs(status, run_at);
-CREATE INDEX IF NOT EXISTS market_jobs_kind_idx ON market_jobs(kind);
-CREATE TABLE IF NOT EXISTS market_scan_results (
-  id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  item_class TEXT NOT NULL,
-  combo_key TEXT NOT NULL,
-  groups TEXT NOT NULL,
-  tier_groups TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  confidence TEXT NOT NULL,
-  profit_p50_exalted REAL NOT NULL,
-  scanned_at INTEGER NOT NULL,
-  base_id TEXT
-);
-CREATE INDEX IF NOT EXISTS market_scan_results_class_idx ON market_scan_results(league, item_class);
-CREATE INDEX IF NOT EXISTS market_scan_results_scanned_idx ON market_scan_results(scanned_at);
-CREATE INDEX IF NOT EXISTS market_scan_results_profit_idx ON market_scan_results(league, item_class, profit_p50_exalted);
-CREATE TABLE IF NOT EXISTS trade_rate_state (
+CREATE TABLE IF NOT EXISTS price_cache (
   key TEXT PRIMARY KEY,
-  next_allowed_at INTEGER NOT NULL,
-  payload TEXT,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS gem_corruption_results (
-  id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  gem_type TEXT NOT NULL,
-  floor_price_exalted REAL,
-  median_price_exalted REAL,
-  listing_count INTEGER,
-  sample_count INTEGER,
-  status TEXT DEFAULT 'priced',
-  trade_url TEXT,
-  fetched_at INTEGER NOT NULL,
-  base_price_exalted REAL,
-  corrupted_price_exalted REAL,
-  base_listings INTEGER,
-  corrupted_listings INTEGER,
-  plus_one_chance REAL,
-  ev_per_attempt REAL,
-  profit_if_hit REAL,
-  vaal_cost_exalted REAL,
-  omen_cost_exalted REAL,
-  use_omen INTEGER DEFAULT 0,
-  trade_url_base TEXT,
-  trade_url_corrupted TEXT
-);
-CREATE INDEX IF NOT EXISTS gem_corruption_league_idx ON gem_corruption_results(league);
-CREATE TABLE IF NOT EXISTS tablet_combo_results (
-  id TEXT PRIMARY KEY,
-  league TEXT NOT NULL,
-  tablet TEXT NOT NULL,
-  combo_key TEXT NOT NULL,
-  mods TEXT NOT NULL,
-  sampled_min_exalted REAL,
-  sampled_max_exalted REAL,
-  floor_price_exalted REAL,
-  median_price_exalted REAL,
-  listing_count INTEGER,
-  sample_count INTEGER,
-  status TEXT NOT NULL DEFAULT 'pending_floor',
-  trade_url TEXT,
-  stat_ids TEXT NOT NULL DEFAULT '[]',
-  error_message TEXT,
-  fetched_at INTEGER NOT NULL,
-  scan_started_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tablet_combo_league_idx ON tablet_combo_results(league, tablet);
-CREATE INDEX IF NOT EXISTS tablet_combo_floor_idx ON tablet_combo_results(league, floor_price_exalted);
-CREATE TABLE IF NOT EXISTS job_schedules (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  payload TEXT NOT NULL DEFAULT '{}',
-  interval_ms INTEGER NOT NULL,
-  next_run_at INTEGER NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS job_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id TEXT NOT NULL,
-  at INTEGER NOT NULL,
-  stage TEXT NOT NULL DEFAULT '',
-  text TEXT NOT NULL,
-  current INTEGER,
-  total INTEGER
-);
-CREATE INDEX IF NOT EXISTS job_events_job_idx ON job_events(job_id, at);
-CREATE TABLE IF NOT EXISTS worker_heartbeats (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  started_at INTEGER NOT NULL,
-  seen_at INTEGER NOT NULL,
-  current_job TEXT,
-  info TEXT
+  payload TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
 );
 `;
-
-/** Columns added to existing tables after they shipped (idempotent ALTERs —
- * each runs in its own statement and "duplicate column" errors are ignored). */
-const COLUMN_MIGRATIONS = [
-  "ALTER TABLE combo_probes ADD COLUMN sell_through_per_day REAL",
-  "ALTER TABLE gem_corruption_results ADD COLUMN floor_price_exalted REAL",
-  "ALTER TABLE gem_corruption_results ADD COLUMN median_price_exalted REAL",
-  "ALTER TABLE gem_corruption_results ADD COLUMN listing_count INTEGER",
-  "ALTER TABLE gem_corruption_results ADD COLUMN sample_count INTEGER",
-  "ALTER TABLE gem_corruption_results ADD COLUMN status TEXT DEFAULT 'priced'",
-  "ALTER TABLE gem_corruption_results ADD COLUMN trade_url TEXT",
-  "ALTER TABLE gem_corruption_results ADD COLUMN error_message TEXT",
-  "CREATE INDEX IF NOT EXISTS gem_corruption_floor_idx ON gem_corruption_results(league, floor_price_exalted)",
-  "ALTER TABLE market_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
-  "ALTER TABLE market_jobs ADD COLUMN lane TEXT NOT NULL DEFAULT 'background'",
-  "ALTER TABLE market_jobs ADD COLUMN dedupe_key TEXT",
-  "ALTER TABLE market_jobs ADD COLUMN parent_id TEXT",
-  "ALTER TABLE market_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
-  "ALTER TABLE market_jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 5",
-  "ALTER TABLE market_jobs ADD COLUMN lease_owner TEXT",
-  "ALTER TABLE market_jobs ADD COLUMN lease_expires_at INTEGER",
-  "ALTER TABLE market_jobs ADD COLUMN result TEXT",
-  "CREATE INDEX IF NOT EXISTS market_jobs_claim_idx ON market_jobs(status, lane, priority, run_at)",
-  "CREATE INDEX IF NOT EXISTS market_jobs_parent_idx ON market_jobs(parent_id)",
-  // Jobs queued before dedupe existed can pile up; keep the running copy or the newest pending one.
-  `UPDATE market_jobs SET status = 'cancelled', message = 'Duplicate of another queued job', finished_at = updated_at
-     WHERE status = 'pending' AND parent_id IS NULL AND EXISTS (
-       SELECT 1 FROM market_jobs o WHERE o.kind = market_jobs.kind AND o.payload = market_jobs.payload
-         AND o.parent_id IS NULL AND o.rowid <> market_jobs.rowid
-         AND (o.status = 'running' OR (o.status = 'pending' AND o.rowid > market_jobs.rowid)))`,
-  // Older rows could share a key; keep only the newest active one before the unique index.
-  `UPDATE market_jobs SET dedupe_key = NULL WHERE dedupe_key IS NOT NULL AND status IN ('pending','running')
-     AND rowid NOT IN (SELECT MAX(rowid) FROM market_jobs WHERE dedupe_key IS NOT NULL AND status IN ('pending','running') GROUP BY dedupe_key)`,
-  "CREATE UNIQUE INDEX IF NOT EXISTS market_jobs_dedupe_active_idx ON market_jobs(dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('pending','running')",
-];
 
 let ensured: Promise<void> | null = null;
 
 /** Creates any missing app tables (cached; safe to call before every query). */
 export function ensureAppTables(): Promise<void> {
   if (!ensured) {
-    ensured = (async () => {
-      const client = getClient();
-      await client.executeMultiple(APP_TABLES_DDL);
-      for (const sql of COLUMN_MIGRATIONS) {
-        try {
-          await client.execute(sql);
-        } catch {
-          /* column already exists */
-        }
-      }
-    })().catch((err) => {
-      ensured = null; // allow a retry on transient failure
-      throw err;
-    });
+    ensured = getClient()
+      .executeMultiple(APP_TABLES_DDL)
+      .catch((err) => {
+        ensured = null; // allow a retry on transient failure
+        throw err;
+      });
   }
   return ensured;
 }

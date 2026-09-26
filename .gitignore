@@ -34,3 +34,4 @@ next-env.d.ts
 /data/poe2.db-shm
 
 /graphify-out
+.vercel

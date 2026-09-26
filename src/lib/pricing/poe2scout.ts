@@ -1,9 +1,9 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, isRemoteDb } from "@/db";
+import { getDb } from "@/db";
+import { ensureAppTables } from "@/db/ensure";
 import { priceCache } from "@/db/schema";
-import { enqueueJob } from "@/lib/jobs/queue";
 
 /**
  * Price data client for Path of Exile 2.
@@ -125,6 +125,7 @@ async function fetchLeaguesNetwork(): Promise<PoeLeague[]> {
 
 async function readLeagueCache(): Promise<{ leagues: PoeLeague[]; fetchedAt: number } | null> {
   try {
+    await ensureAppTables();
     const db = getDb();
     const rows = await db
       .select()
@@ -158,13 +159,23 @@ async function writeLeagueCache(leagues: PoeLeague[]): Promise<void> {
 export async function getLeagues(): Promise<PoeLeague[]> {
   const cached = await readLeagueCache();
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.leagues;
-  if (isRemoteDb()) return cached?.leagues ?? [];
-  const leagues = await fetchLeaguesNetwork();
-  await writeLeagueCache(leagues);
-  return leagues;
+  try {
+    const leagues = await fetchLeaguesNetwork();
+    await writeLeagueCache(leagues);
+    return leagues;
+  } catch (err) {
+    if (cached) return cached.leagues;
+    throw err;
+  }
 }
 
+/**
+ * League whose prices the planner uses. `POE2_LEAGUE` pins it (e.g. to a
+ * hardcore or private league); otherwise the current softcore league.
+ */
 export async function getCurrentLeagueName(): Promise<string> {
+  const pinned = process.env.POE2_LEAGUE?.trim();
+  if (pinned) return pinned;
   const leagues = await getLeagues();
   // Prefer the current softcore (non-HC) temp league.
   const sc = leagues.find((l) => l.isCurrent && !l.value.startsWith("HC"));
@@ -207,6 +218,7 @@ async function fetchCategory(
 
 async function readCache(key: string): Promise<PriceData | null> {
   try {
+    await ensureAppTables();
     const db = getDb();
     const rows = await db
       .select()
@@ -286,39 +298,17 @@ function refreshPrices(league: string): Promise<PriceData> {
   return p;
 }
 
-export function refreshPricesNow(league: string): Promise<PriceData> {
-  return refreshPrices(league);
-}
-
 /**
  * Returns priced currency/material data for a league, cached for an hour with
  * stale-while-revalidate: an expired cache entry is served immediately while
  * a background refresh updates it for the next reader. Only a cold cache
- * blocks on the network; on failure the last snapshot is returned (marked
- * stale).
+ * blocks on the network. This is the app's only outbound fetch.
  */
 export async function getPrices(leagueName?: string): Promise<PriceData> {
   const league = leagueName ?? (await getCurrentLeagueName());
   const cacheKey = `prices:${league}`;
 
   const cached = await readCache(cacheKey);
-  if (isRemoteDb()) {
-    if (!cached || Date.now() - cached.fetchedAt >= CACHE_TTL_MS) {
-      await enqueueJob({
-        kind: "refresh:prices",
-        payload: { league },
-      }).catch(() => null);
-    }
-    if (cached) return { ...cached, stale: Date.now() - cached.fetchedAt >= CACHE_TTL_MS };
-    return {
-      league,
-      divinePrice: 0,
-      items: [],
-      fetchedAt: 0,
-      stale: true,
-    };
-  }
-
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return { ...cached, stale: false };
   }

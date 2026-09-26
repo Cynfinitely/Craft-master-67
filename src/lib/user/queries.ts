@@ -2,7 +2,7 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { bases, favorites, savedPlans } from "@/db/schema";
-import type { CraftPlan } from "@/lib/solver/types";
+import type { CraftPlan } from "@/lib/craft/types";
 
 export interface SavedPlanSummary {
   id: number;

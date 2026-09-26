@@ -1,116 +1,78 @@
-import Link from "next/link";
-import type { CraftMethod, CraftPlan } from "@/lib/solver/types";
+import type { CraftMethod, CraftPlan, DesiredMod } from "@/lib/craft/types";
 import { formatCost } from "@/lib/pricing/format";
-import {
-  methodSortLabel,
-  topMethodBadge,
-  type MethodSortMode,
-} from "@/lib/solver/methodSort";
 import { SavePlanButton } from "./SavePlanButton";
 
-function oddsLabel(odds?: number): string {
-  if (odds === undefined) return "";
-  if (odds >= 1) return "guaranteed";
-  if (odds <= 0) return "not possible";
-  const pct = odds * 100;
-  if (pct < 0.1) return "<0.1%";
-  if (pct < 1) return `${pct.toFixed(2)}%`;
-  return `${pct.toFixed(1)}%`;
+function pct(p: number): string {
+  if (p >= 1) return "100%";
+  if (p <= 0) return "0%";
+  const v = p * 100;
+  if (v < 0.1) return "<0.1%";
+  if (v < 1) return `${v.toFixed(2)}%`;
+  return `${v.toFixed(1)}%`;
+}
+
+function Chip({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "warn" }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] ${
+        tone === "warn"
+          ? "bg-amber-100 text-amber-900"
+          : "border border-forge-border bg-forge-panel2/60 text-forge-gold/70"
+      }`}
+    >
+      {children}
+    </span>
+  );
 }
 
 function MethodCard({
   method,
   rank,
   divinePriceExalted,
-  sortMode,
 }: {
   method: CraftMethod;
   rank: number;
   divinePriceExalted: number;
-  sortMode: MethodSortMode;
 }) {
   return (
     <div className="panel p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <h3 className="flex items-center gap-2 font-semibold text-forge-goldbright">
             {rank === 0 ? (
               <span className="rounded bg-rarity-currency/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rarity-currency">
-                {topMethodBadge(sortMode)}
+                Best
               </span>
             ) : null}
             {method.name}
           </h3>
           <p className="mt-0.5 text-sm text-forge-gold/80">{method.summary}</p>
+          {method.chosenOptions.length > 0 ? (
+            <p className="mt-1 text-xs text-forge-goldbright/80">
+              <span className="text-forge-gold/60">Brain picked: </span>
+              {method.chosenOptions.join(" · ")}
+            </p>
+          ) : null}
           <div className="mt-1 flex flex-wrap gap-1.5">
-            {method.successChancePerAttempt !== undefined &&
-            method.successChancePerAttempt < 1 ? (
-              <span className="rounded border border-forge-border bg-forge-panel2/60 px-1.5 py-0.5 text-[10px] text-forge-gold/70">
-                {oddsLabel(method.successChancePerAttempt)} success / attempt
-              </span>
+            <Chip>{pct(method.successChancePerAttempt)} success per attempt</Chip>
+            {method.expectedItemsConsumed > 1.05 ? (
+              <Chip>~{method.expectedItemsConsumed.toFixed(1)} bases per finished item</Chip>
             ) : null}
-            {method.brickRisk !== undefined && method.brickRisk > 0 ? (
-              <span
-                className={`rounded px-1.5 py-0.5 text-[10px] ${
-                  method.brickRisk >= 0.5
-                    ? "bg-forge-rust/25 text-forge-rust"
-                    : "bg-amber-100 text-amber-900"
-                }`}
-              >
-                {oddsLabel(method.brickRisk)} brick risk
-              </span>
-            ) : null}
-            {method.expectedItemsConsumed !== undefined &&
-            method.expectedItemsConsumed > 1.05 ? (
-              <span className="rounded border border-forge-border bg-forge-panel2/60 px-1.5 py-0.5 text-[10px] text-forge-gold/70">
-                ~{method.expectedItemsConsumed.toFixed(1)} items consumed
-              </span>
-            ) : null}
+            {method.optionalHitRate != null ? <Chip>{pct(method.optionalHitRate)} also hit the optional mods</Chip> : null}
+            {method.lowConfidence ? <Chip tone="warn">low confidence</Chip> : null}
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-forge-gold/80">est. cost</div>
+          <div className="text-xs text-forge-gold/80">expected cost</div>
           <div className="text-sm font-semibold text-rarity-currency">
-            {method.costApproximate ? "~" : ""}
             {formatCost(method.estCostExalted, divinePriceExalted)}
-            {method.excludesMarketPrice ? (
-              <span className="text-forge-gold/80"> + base price</span>
-            ) : null}
           </div>
-          {method.overallOdds > 0 && method.overallOdds < 1 ? (
-            <div className="mt-0.5 text-[11px] text-forge-gold/80">
-              single-pass {oddsLabel(method.overallOdds)}
-            </div>
-          ) : null}
-          {method.expectedProfitExalted != null ? (
+          {method.p50CostExalted != null && method.p90CostExalted != null ? (
             <div
-              className={`mt-0.5 text-[11px] font-semibold ${
-                method.expectedProfitExalted >= 0
-                  ? "text-emerald-800"
-                  : "text-forge-rust"
-              }`}
+              className="mt-0.5 text-[11px] text-forge-gold/80"
+              title="Half of crafts finish within the first number; nine in ten within the second."
             >
-              {method.expectedProfitExalted >= 0 ? "+" : ""}
-              {formatCost(method.expectedProfitExalted, divinePriceExalted)}{" "}
-              EV profit
-              {method.roiPercent != null ? (
-                <span className="font-normal text-forge-gold/55">
-                  {" "}
-                  · {method.roiPercent.toFixed(0)}% ROI
-                </span>
-              ) : null}
-              {method.profitPerHour != null ? (
-                <span className="font-normal text-forge-gold/55">
-                  {" "}
-                  · {formatCost(method.profitPerHour, divinePriceExalted)}/hr
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          {method.expectedProfitExalted != null &&
-          method.expectedProfitExalted < 0 ? (
-            <div className="mt-0.5 text-[10px] text-forge-rust/80">
-              likely unprofitable at current prices
+              50%: {formatCost(method.p50CostExalted)} · 90%: {formatCost(method.p90CostExalted)}
             </div>
           ) : null}
         </div>
@@ -118,22 +80,16 @@ function MethodCard({
 
       {(method.pros.length > 0 || method.cons.length > 0) && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {method.pros.length > 0 ? (
-            <ul className="space-y-0.5 text-xs text-emerald-800">
-              {method.pros.map((p, i) => (
-                <li key={i}>+ {p}</li>
-              ))}
-            </ul>
-          ) : (
-            <span />
-          )}
-          {method.cons.length > 0 ? (
-            <ul className="space-y-0.5 text-xs text-forge-rust/90">
-              {method.cons.map((c, i) => (
-                <li key={i}>− {c}</li>
-              ))}
-            </ul>
-          ) : null}
+          <ul className="space-y-0.5 text-xs text-emerald-800">
+            {method.pros.map((p, i) => (
+              <li key={i}>+ {p}</li>
+            ))}
+          </ul>
+          <ul className="space-y-0.5 text-xs text-forge-rust/90">
+            {method.cons.map((c, i) => (
+              <li key={i}>− {c}</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -144,63 +100,77 @@ function MethodCard({
               {s.n}
             </div>
             <div className="flex-1">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-forge-goldbright">
-                  {s.title}
-                </span>
-                <span className="text-[11px] text-forge-gold/80">
-                  {s.odds !== undefined ? oddsLabel(s.odds) : ""}
-                  {s.expectedAttempts
-                    ? ` · ~${s.expectedAttempts} tr${s.expectedAttempts === 1 ? "y" : "ies"}`
-                    : ""}
-                  {s.costExalted !== undefined
-                    ? ` · ${formatCost(s.costExalted, divinePriceExalted)}`
-                    : ""}
-                </span>
-              </div>
-              {s.brickOdds !== undefined && s.brickOdds > 0 ? (
-                <span className="mt-1 inline-block rounded bg-forge-rust/20 px-1.5 py-0.5 text-[10px] font-medium text-forge-rust">
-                  bricks here ~{oddsLabel(s.brickOdds)}
-                </span>
-              ) : null}
+              <span className="text-sm font-medium text-forge-goldbright">{s.title}</span>
               <p className="mt-0.5 text-xs text-forge-gold/80">{s.detail}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                {s.currency ? (
-                  <Link
-                    href={`/price?focus=${encodeURIComponent(s.currency)}`}
-                    className="mt-1 inline-block tag-chip hover:border-forge-gold/60"
-                  >
-                    {s.currency}
-                  </Link>
-                ) : null}
-                {s.link ? (
-                  <a
-                    href={s.link.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-block tag-chip text-rarity-currency hover:border-forge-gold/60"
-                  >
-                    {s.link.label} ↗
-                  </a>
-                ) : null}
-              </div>
+              {s.currency ? <span className="mt-1 inline-block tag-chip">{s.currency}</span> : null}
             </div>
           </li>
         ))}
       </ol>
+
+      {method.currency.length > 0 ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-semibold text-forge-gold/80">
+            Shopping list per finished item
+          </summary>
+          <table className="mt-2 w-full text-xs">
+            <thead>
+              <tr className="text-left text-forge-gold/60">
+                <th className="py-1 font-normal">Currency</th>
+                <th className="py-1 text-right font-normal">Amount</th>
+                <th className="py-1 text-right font-normal">Unit</th>
+                <th className="py-1 text-right font-normal">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {method.currency.map((c) => (
+                <tr key={c.apiId} className="border-t border-forge-border/40 text-forge-gold/90">
+                  <td className="py-1">{c.name}</td>
+                  <td className="py-1 text-right">{c.perItem < 10 ? c.perItem.toFixed(1) : Math.round(c.perItem)}</td>
+                  <td className="py-1 text-right">{formatCost(c.unitPriceExalted)}</td>
+                  <td className="py-1 text-right">{formatCost(c.perItem * c.unitPriceExalted)}</td>
+                </tr>
+              ))}
+              {method.baseCostExalted > 0 ? (
+                <tr className="border-t border-forge-border/40 text-forge-gold/90">
+                  <td className="py-1">Bases</td>
+                  <td className="py-1 text-right">{method.expectedItemsConsumed.toFixed(1)}</td>
+                  <td className="py-1 text-right">{formatCost(method.baseCostExalted)}</td>
+                  <td className="py-1 text-right">
+                    {formatCost(method.baseCostExalted * method.expectedItemsConsumed)}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+          <p className="mt-1 text-[10px] text-forge-gold/60">
+            Averages from {method.attemptsSimulated.toLocaleString()} simulated attempts.
+          </p>
+        </details>
+      ) : null}
     </div>
   );
 }
 
-export function PlanView({
-  plan,
-  sortLinks,
-}: {
-  plan: CraftPlan;
-  /** hrefs for method sort toggles (cost / profit / roi). */
-  sortLinks?: Partial<Record<MethodSortMode, string>>;
-}) {
-  const sortMode = plan.methodSort ?? "cost";
+function TargetChip({ d }: { d: DesiredMod }) {
+  const color = d.desecrated
+    ? "border-forge-rust/40 bg-forge-rust/10 text-forge-rust"
+    : d.generationType === "prefix"
+      ? "border-affix-prefix/40 bg-affix-prefix/10 text-affix-prefix"
+      : "border-affix-suffix/40 bg-affix-suffix/10 text-affix-suffix";
+  return (
+    <span className={`rounded border px-2 py-0.5 text-xs ${color} ${d.optional ? "border-dashed opacity-80" : ""}`}>
+      {d.label}
+      {d.tierValue ? <span className="ml-1 opacity-60">≥ {d.tierValue}</span> : null}
+      {d.optional ? <span className="ml-1 opacity-60">(optional)</span> : null}
+      {d.desecrated ? <span className="ml-1 opacity-60">(desecrated)</span> : null}
+      {d.fluxName ? <span className="ml-1 opacity-60">(any element + {d.fluxName})</span> : null}
+    </span>
+  );
+}
+
+export function PlanView({ plan }: { plan: CraftPlan }) {
+  const targets = [...plan.desiredPrefixes, ...plan.desiredSuffixes];
   return (
     <div className="space-y-4">
       {plan.warnings.length > 0 ? (
@@ -216,118 +186,61 @@ export function PlanView({
       <div className="panel p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-forge-goldbright">
-              {plan.baseName}
-            </h2>
+            <h2 className="text-lg font-semibold text-forge-goldbright">{plan.baseName}</h2>
             <p className="text-sm text-forge-gold/80">
-              {plan.desiredPrefixes.length} prefix
-              {plan.desiredPrefixes.length === 1 ? "" : "es"},{" "}
-              {plan.desiredSuffixes.length} suffix
-              {plan.desiredSuffixes.length === 1 ? "" : "es"} · item level{" "}
-              {plan.itemLevel} ·{" "}
-              {plan.methods.length} method
-              {plan.methods.length === 1 ? "" : "s"}
+              {plan.current ? "Finishing your item · " : ""}
+              {targets.length} target{targets.length === 1 ? "" : "s"} · item level {plan.itemLevel} ·{" "}
+              {plan.methods.length} technique{plan.methods.length === 1 ? "" : "s"} ranked from{" "}
+              {plan.candidatesEvaluated} simulated option sets
+              {plan.baseCostExalted > 0 ? ` · base ${formatCost(plan.baseCostExalted)}` : ""}
             </p>
-            {plan.estimatedSale ? (
-              <p className="mt-0.5 text-sm">
-                <span className="font-semibold text-rarity-currency">
-                  sells ~
-                  {formatCost(
-                    plan.estimatedSale.priceExalted,
-                    plan.divinePriceExalted,
-                  )}
-                </span>{" "}
-                <span className="text-xs text-forge-gold/80">
-                  {plan.estimatedSale.source === "probe"
-                    ? `(exact combo probe — ${plan.estimatedSale.sampleCount} listed on trade${
-                        plan.estimatedSale.timeToSellDays != null
-                          ? ` · ~${plan.estimatedSale.timeToSellDays}d to sell`
-                          : ""
-                      })`
-                    : `(median of ${plan.estimatedSale.sampleCount} ${
-                        plan.estimatedSale.source === "manual"
-                          ? "manual sale"
-                          : "market"
-                      } samples)`}
-                </span>
-              </p>
-            ) : null}
           </div>
           <SavePlanButton plan={plan} />
         </div>
-
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {plan.desiredPrefixes.map((d) => (
-            <span
-              key={d.group}
-              className="rounded border border-affix-prefix/40 bg-affix-prefix/10 px-2 py-0.5 text-xs text-affix-prefix"
-            >
-              {d.label}
-              {d.tierValue ? (
-                <span className="ml-1 text-affix-prefix/60">≥ {d.tierValue}</span>
-              ) : null}
-            </span>
-          ))}
-          {plan.desiredSuffixes.map((d) => (
-            <span
-              key={d.group}
-              className="rounded border border-affix-suffix/40 bg-affix-suffix/10 px-2 py-0.5 text-xs text-affix-suffix"
-            >
-              {d.label}
-              {d.tierValue ? (
-                <span className="ml-1 text-affix-suffix/60">≥ {d.tierValue}</span>
-              ) : null}
-            </span>
+          {targets.map((d) => (
+            <TargetChip key={d.group} d={d} />
           ))}
         </div>
+        {plan.notes.length > 0 ? (
+          <ul className="mt-3 space-y-1 text-xs text-forge-gold/80">
+            {plan.notes.map((n, i) => (
+              <li key={i}>• {n}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {plan.methods.length === 0 ? (
-        <div className="panel p-6 text-center text-forge-gold/80">
-          No feasible crafting method for this selection.
-        </div>
+        <div className="panel p-6 text-center text-forge-gold/80">No technique reaches this goal.</div>
       ) : (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-              Crafting methods ({methodSortLabel(sortMode)})
-            </h3>
-            {sortLinks && plan.estimatedSale ? (
-              <div className="flex flex-wrap gap-1">
-                {(["cost", "profit", "roi"] as const).map((mode) => (
-                  <Link
-                    key={mode}
-                    href={sortLinks[mode] ?? "#"}
-                    className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
-                      sortMode === mode
-                        ? "bg-forge-gold/20 font-semibold text-forge-goldbright"
-                        : "text-forge-gold/55 hover:text-forge-gold"
-                    }`}
-                  >
-                    {mode === "cost" ? "Cost" : mode === "profit" ? "Profit" : "ROI"}
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+            Techniques, cheapest first
+          </h3>
           {plan.methods.map((m, i) => (
-            <MethodCard
-              key={m.id}
-              method={m}
-              rank={i}
-              divinePriceExalted={plan.divinePriceExalted ?? 0}
-              sortMode={sortMode}
-            />
+            <MethodCard key={m.id} method={m} rank={i} divinePriceExalted={plan.divinePriceExalted} />
           ))}
         </div>
       )}
 
+      {plan.rejected?.length ? (
+        <details className="panel p-3 text-xs text-forge-gold/80">
+          <summary className="cursor-pointer font-semibold">Techniques not used ({plan.rejected.length})</summary>
+          <ul className="mt-2 space-y-0.5">
+            {plan.rejected.map((r) => (
+              <li key={r.id}>
+                <span className="text-forge-goldbright/80">{r.name}</span>: {r.reason}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
       <p className="text-xs text-forge-gold/80">
-        Odds and costs are approximate. Costs are expected attempts × live unit
-        price (with fallbacks when a price is missing) and don&apos;t capture
-        every Omen, Essence tier, or fractured-affix interaction. &ldquo;~&rdquo;
-        marks methods whose cost is a rough estimate (e.g. buying a base). Always
-        sanity-check large crafts in-game.
+        Costs are simulated: each technique is run thousands of times on fresh bases at current currency prices
+        (conservative defaults when a price is missing), restarts included. Treat them as estimates and sanity-check
+        big crafts in-game.
       </p>
     </div>
   );

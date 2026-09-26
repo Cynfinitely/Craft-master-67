@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CraftPlan } from "@/lib/solver/types";
+import type { CraftPlan } from "@/lib/craft/types";
 import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export function SavePlanButton({ plan }: { plan: CraftPlan }) {
@@ -34,8 +34,8 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
       label="Save plan"
       summary="Stores the current plan locally for later."
       detail={[
-        "Saved to your browser session via the plans API.",
-        "Re-open from the Plans page with drift vs current prices.",
+        "Saved to the local database via the plans API.",
+        "The Saved page re-prices it at today's currency prices.",
         "Prompts for a name — includes base and mod counts by default.",
       ]}
     >

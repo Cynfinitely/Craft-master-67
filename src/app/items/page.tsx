@@ -17,7 +17,7 @@ import {
   guaranteedGroups,
   modHasTag,
   NOTABLE_TAGS,
-} from "@/lib/solver/determinism";
+} from "@/lib/craft/data/essences";
 import type { EligibleMod } from "@/lib/data/types";
 
 export const dynamic = "force-dynamic";

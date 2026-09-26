@@ -1,38 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import type { BaseRecommendation } from "@/lib/solver/types";
+import type { BaseRecommendation } from "@/lib/craft/types";
 import { formatCost } from "@/lib/pricing/format";
 import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
 
 export function Recommendations({
   recs,
   itemLevel,
-  groups,
+  goalParam,
+  baseCost,
   divinePriceExalted = 0,
 }: {
   recs: BaseRecommendation[];
   itemLevel: number;
-  groups: string[];
+  /** Encoded goal (the `groups` URL param). */
+  goalParam: string;
+  baseCost?: number;
   divinePriceExalted?: number;
 }) {
   if (recs.length === 0) {
     return (
       <div className="panel p-8 text-center text-forge-gold/80">
-        Select an item class and at least one desired modifier to get base
-        recommendations.
+        Select an item class and at least one required modifier to get base recommendations.
       </div>
     );
   }
 
-  const groupsParam = groups.join(",");
+  const planHref = (baseId: string) => {
+    const p = new URLSearchParams({ mode: "base", base: baseId, ilvl: String(itemLevel), groups: goalParam });
+    if (baseCost) p.set("cost", String(baseCost));
+    return `/craft?${p.toString()}`;
+  };
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-forge-gold/80">
-        Bases ranked by rollability and expected profit when market data
-        exists (probe-backed sale estimates weighted heavily). Open one to
-        build a full step-by-step plan.
+        Bases ranked by the brain&apos;s cheapest expected cost (quick pass), then by roll odds. Open one for the full
+        plan.
       </p>
       {recs.map((r, i) => (
         <div key={r.baseId} className="panel p-4">
@@ -43,55 +48,25 @@ export function Recommendations({
                 {r.baseName}
               </h3>
               {r.missing.length > 0 ? (
-                <p className="mt-0.5 text-xs text-forge-rust">
-                  Cannot roll: {r.missing.join(", ")}
-                </p>
+                <p className="mt-0.5 text-xs text-forge-rust">Cannot roll: {r.missing.join(", ")}</p>
               ) : r.cheapestCostExalted != null ? (
                 <p className="mt-0.5 text-xs text-forge-gold/80">
                   Cheapest:{" "}
-                  <span className="text-rarity-currency">
-                    {formatCost(r.cheapestCostExalted, divinePriceExalted)}
-                  </span>{" "}
+                  <span className="text-rarity-currency">{formatCost(r.cheapestCostExalted, divinePriceExalted)}</span>{" "}
                   via {r.cheapestMethod}
-                  {r.expectedProfitExalted != null ? (
-                    <>
-                      {" "}
-                      · est. profit{" "}
-                      <span
-                        className={
-                          r.expectedProfitExalted >= 0
-                            ? "text-emerald-800"
-                            : "text-forge-rust"
-                        }
-                      >
-                        {r.expectedProfitExalted >= 0 ? "+" : ""}
-                        {formatCost(r.expectedProfitExalted, divinePriceExalted)}
-                      </span>
-                      {r.saleConfidence ? (
-                        <span className="text-forge-gold/80">
-                          {" "}
-                          ({r.saleConfidence} confidence)
-                        </span>
-                      ) : null}
-                    </>
-                  ) : null}
                 </p>
               ) : null}
             </div>
             <ActionWithInfo
               label="Build plan"
-              summary="Opens a full step-by-step plan for this base and mods."
+              summary="Opens the full plan for this base and goal."
               detail={[
-                "Carries base, item level, and staged modifier groups.",
-                "Runs the planner with live prices on the craft page.",
-                "Compare methods by cost, profit, or ROI after opening.",
+                "Carries the base, item level, modifiers and base cost.",
+                "The brain runs a full (slower, more precise) pass there.",
               ]}
               className="w-full sm:w-auto"
             >
-              <Link
-                href={`/craft?mode=base&base=${encodeURIComponent(r.baseId)}&ilvl=${itemLevel}&groups=${encodeURIComponent(groupsParam)}`}
-                className="btn btn-primary w-full sm:w-auto"
-              >
+              <Link href={planHref(r.baseId)} className="btn btn-primary w-full sm:w-auto">
                 Build plan
               </Link>
             </ActionWithInfo>
@@ -100,9 +75,7 @@ export function Recommendations({
             {r.perGroup.map((g) => (
               <span key={g.group} className="tag-chip">
                 {g.label}
-                <span className="ml-1 text-forge-gold/80">
-                  {(g.odds * 100).toFixed(1)}%
-                </span>
+                <span className="ml-1 text-forge-gold/80">{(g.odds * 100).toFixed(1)}%</span>
               </span>
             ))}
           </div>
