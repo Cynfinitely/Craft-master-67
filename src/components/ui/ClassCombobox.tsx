@@ -14,12 +14,17 @@ export function ClassCombobox({
   onChange,
   placeholder = "Choose an item class…",
   className = "",
+  label = "Item class",
+  id,
 }: {
   categories: ClassCategory[];
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  /** Accessible name when no visible <label> points at `id`. */
+  label?: string;
+  id?: string;
 }) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -101,6 +106,11 @@ export function ClassCombobox({
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(`${listId}-${highlight}`)?.scrollIntoView({ block: "nearest" });
+  }, [highlight, open, listId]);
+
   let flatIndex = -1;
 
   return (
@@ -108,10 +118,13 @@ export function ClassCombobox({
       <div ref={rootRef} className="relative">
         <input
           ref={inputRef}
+          id={id}
           role="combobox"
+          aria-label={id ? undefined : label}
           aria-expanded={open}
-          aria-controls={listId}
+          aria-controls={open ? listId : undefined}
           aria-autocomplete="list"
+          aria-activedescendant={open && filtered[highlight] ? `${listId}-${highlight}` : undefined}
           className="input pr-11"
           placeholder={value || placeholder}
           value={open ? query : value}
@@ -128,7 +141,7 @@ export function ClassCombobox({
         {value ? (
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-lg text-forge-gold/80 hover:text-forge-goldbright"
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-lg text-forge-muted hover:text-forge-goldbright"
             aria-label="Clear item class"
             onClick={clear}
           >
@@ -137,42 +150,46 @@ export function ClassCombobox({
         ) : null}
       </div>
       <Popover open={open} onClose={dismiss} anchorRef={rootRef} matchWidth maxHeight={320}>
-        <ul id={listId} role="listbox" className="py-1">
+        <div id={listId} role="listbox" aria-label={label} className="py-1">
           {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-forge-gold/80">No classes found.</li>
+            <p className="px-3 py-2 text-sm text-forge-muted">No classes match “{query}”.</p>
           ) : (
             grouped.map(([category, classes]) => (
-              <li key={category}>
-                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80">
+              <div key={category} role="group" aria-labelledby={`${listId}-g-${category}`}>
+                <div
+                  id={`${listId}-g-${category}`}
+                  className="px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-forge-muted"
+                >
                   {category}
                 </div>
-                <ul>
-                  {classes.map((c) => {
-                    flatIndex += 1;
-                    const idx = flatIndex;
-                    const active = idx === highlight;
-                    return (
-                      <li key={c} role="option" aria-selected={value === c}>
-                        <button
-                          type="button"
-                          className={`w-full px-3 py-1.5 text-left text-sm transition-colors max-md:py-2.5 ${
-                            active || value === c
-                              ? "bg-forge-panel2 text-forge-goldbright"
-                              : "text-forge-gold/80 hover:bg-forge-panel2/60"
-                          }`}
-                          onMouseEnter={() => setHighlight(idx)}
-                          onClick={() => select(c)}
-                        >
-                          {c}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
+                {classes.map((c) => {
+                  flatIndex += 1;
+                  const idx = flatIndex;
+                  const active = idx === highlight;
+                  const selected = value === c;
+                  return (
+                    <div
+                      key={c}
+                      id={`${listId}-${idx}`}
+                      role="option"
+                      aria-selected={selected}
+                      className={`flex cursor-pointer items-center justify-between px-3 py-1.5 text-sm transition-colors max-md:py-2.5 ${
+                        active ? "bg-forge-panel2 text-forge-goldbright" : "text-forge-gold"
+                      } ${selected ? "font-semibold" : ""}`}
+                      onMouseEnter={() => setHighlight(idx)}
+                      // Keep focus in the input so typing and arrow keys keep working.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => select(c)}
+                    >
+                      {c}
+                      {selected ? <span aria-hidden>✓</span> : null}
+                    </div>
+                  );
+                })}
+              </div>
             ))
           )}
-        </ul>
+        </div>
       </Popover>
     </div>
   );

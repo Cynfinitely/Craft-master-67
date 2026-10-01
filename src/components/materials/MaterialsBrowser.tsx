@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Field } from "@/components/ui/Field";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type { MaterialTier } from "@/lib/materials/source";
 import {
@@ -56,6 +59,12 @@ export interface MaterialsCatalog {
 
 type TabId = "essentials" | "league" | "gems";
 
+const DEFAULT_TAB: TabId = "essentials";
+
+function isTabId(v: string | null): v is TabId {
+  return v === "essentials" || v === "league" || v === "gems";
+}
+
 const TABS: { value: TabId; label: string }[] = [
   { value: "essentials", label: "Crafting essentials" },
   { value: "league", label: "League materials" },
@@ -88,9 +97,70 @@ function filterGroups(
     .filter((g) => g.items.length > 0);
 }
 
-export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
-  const [q, setQ] = useState("");
-  const [tab, setTab] = useState<TabId>("essentials");
+/**
+ * Material browser. With `syncUrl`, the search query and tab are read from and
+ * written to the URL (`?q=…&tab=…`) so a filtered view can be shared or
+ * restored; that variant uses useSearchParams and must sit inside Suspense.
+ */
+export function MaterialsBrowser({
+  catalog,
+  syncUrl = false,
+}: {
+  catalog: MaterialsCatalog;
+  syncUrl?: boolean;
+}) {
+  return syncUrl ? (
+    <UrlSyncedBrowser catalog={catalog} />
+  ) : (
+    <BrowserView catalog={catalog} initialQ="" initialTab={DEFAULT_TAB} />
+  );
+}
+
+function UrlSyncedBrowser({ catalog }: { catalog: MaterialsCatalog }) {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  return (
+    <BrowserView
+      catalog={catalog}
+      initialQ={searchParams.get("q") ?? ""}
+      initialTab={isTabId(tabParam) ? tabParam : DEFAULT_TAB}
+      syncUrl
+    />
+  );
+}
+
+function BrowserView({
+  catalog,
+  initialQ,
+  initialTab,
+  syncUrl = false,
+}: {
+  catalog: MaterialsCatalog;
+  initialQ: string;
+  initialTab: TabId;
+  syncUrl?: boolean;
+}) {
+  const [q, setQ] = useState(initialQ);
+  const [tab, setTab] = useState<TabId>(initialTab);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Mirror q (debounced) and tab into the URL without adding history entries.
+  useEffect(() => {
+    if (!syncUrl) return;
+    const t = setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const trimmed = q.trim();
+      if (trimmed) params.set("q", trimmed);
+      else params.delete("q");
+      if (tab !== DEFAULT_TAB) params.set("tab", tab);
+      else params.delete("tab");
+      const next = params.toString();
+      if (next === window.location.search.replace(/^\?/, "")) return;
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, tab, syncUrl, router, pathname]);
 
   const needle = q.trim().toLowerCase();
 
@@ -147,9 +217,12 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
 
   const tabCount = useMemo(() => {
     if (tab === "essentials") {
+      // Tier rows hold one material per present tier; count the materials.
+      const tierItems = (rows: MaterialsCatalog["essenceRows"]) =>
+        rows.reduce((n, row) => n + Object.values(row.tiers).filter(Boolean).length, 0);
       return (
-        filtered.essenceRows.length +
-        filtered.currencyRows.length +
+        tierItems(filtered.essenceRows) +
+        tierItems(filtered.currencyRows) +
         filtered.currencyMisc.length +
         filtered.omens.length +
         filtered.runes.length +
@@ -165,18 +238,22 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
   return (
     <div className="space-y-4">
       <div className="panel flex flex-col gap-2 p-4 sm:flex-row">
-        <input
-          className="input"
-          placeholder="Search materials (e.g. life, fire resistance, exalted)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <Field label="Search materials" srOnlyLabel className="w-full">
+          <input
+            type="search"
+            className="input"
+            placeholder="Search materials (e.g. life, fire resistance, exalted)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </Field>
       </div>
 
       <SegmentedControl
         value={tab}
         onChange={setTab}
         options={TABS}
+        label="Material category"
         shortLabels={{
           essentials: "Essentials",
           league: "League",
@@ -184,7 +261,10 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
         }}
       />
 
-      <p className="text-xs text-forge-gold/80">{tabCount} materials in view</p>
+      <p role="status" aria-live="polite" className="text-xs text-forge-muted">
+        <span className="num">{tabCount}</span>{" "}
+        {tabCount === 1 ? "material" : "materials"} in view
+      </p>
 
       {tab === "essentials" ? (
         <div className="space-y-6">
@@ -198,25 +278,25 @@ export function MaterialsBrowser({ catalog }: { catalog: MaterialsCatalog }) {
           <MaterialListTable title="Runes" items={filtered.runes} />
           <MaterialListTable title="Soul cores" items={filtered.soulCores} />
           {tabCount === 0 ? (
-            <div className="panel p-8 text-center text-forge-gold/80">
-              No materials match your search.
-            </div>
+            <EmptyState title="No materials match your search">
+              Try a different name or effect, or check the other categories.
+            </EmptyState>
           ) : null}
         </div>
       ) : tab === "league" ? (
         filtered.leagueGroups.length === 0 ? (
-          <div className="panel p-8 text-center text-forge-gold/80">
-            No league materials match your search.
-          </div>
+          <EmptyState title="No league materials match your search">
+            Try a different name or effect, or check the other categories.
+          </EmptyState>
         ) : (
-          <LeagueAccordion groups={filtered.leagueGroups} />
+          <LeagueAccordion groups={filtered.leagueGroups} query={needle} />
         )
       ) : filtered.gemsGroups.length === 0 ? (
-        <div className="panel p-8 text-center text-forge-gold/80">
-          No gems or other items match your search.
-        </div>
+        <EmptyState title="No gems or other items match your search">
+          Try a different name or effect, or check the other categories.
+        </EmptyState>
       ) : (
-        <LeagueAccordion groups={filtered.gemsGroups} />
+        <LeagueAccordion groups={filtered.gemsGroups} query={needle} />
       )}
     </div>
   );

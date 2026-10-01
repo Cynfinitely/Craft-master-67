@@ -2,6 +2,7 @@ import type { BaseDetail, BaseSummary } from "@/lib/data/types";
 import { BasePickerList } from "./BasePickerList";
 import { SelectedBaseCard } from "./SelectedBaseCard";
 import { StepBreadcrumb } from "@/components/ui/StepBreadcrumb";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export function BasePickerPanel({
   filterActive,
@@ -48,14 +49,19 @@ export function BasePickerPanel({
     <div className="space-y-3">
       {steps ? <StepBreadcrumb steps={steps} /> : null}
       {!filterActive ? (
-        <div className="panel p-6 text-center text-sm text-forge-gold/80">
-          <p className="font-medium text-forge-gold/70">Step 1: Filter bases</p>
-          <p className="mt-2">{emptyHint}</p>
-        </div>
+        <EmptyState title="Filter bases">{emptyHint}</EmptyState>
       ) : results.length === 0 ? (
-        <div className="panel p-4 text-sm text-forge-gold/80">
-          No bases match your search.
-        </div>
+        <EmptyState title="No bases match">
+          {query?.trim() ? (
+            <>
+              Nothing matches &ldquo;{query.trim()}&rdquo;
+              {itemClass ? ` in ${itemClass}` : ""}. Try a shorter name or a
+              different item class.
+            </>
+          ) : (
+            "Try a different item class or search for a base name."
+          )}
+        </EmptyState>
       ) : (
         <BasePickerList
           results={results}

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { InfoTip } from "@/components/InfoTip";
 import { ClassCombobox } from "@/components/ui/ClassCombobox";
 import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
@@ -10,6 +10,19 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 type CraftMode = "base" | "recommend" | "paste" | "mass";
 /** Finish mode is reached from a pasted item; it shows under the Paste tab. */
 type PageMode = CraftMode | "finish";
+
+/**
+ * URL params each mode understands beyond mode/q/class/ilvl/cost. Switching
+ * modes keeps the ones the target mode reads (so a goal carries over) and
+ * drops the rest; the old URL stays in history, so Back restores it.
+ */
+const MODE_PARAMS: Record<CraftMode, string[]> = {
+  base: ["base", "groups"],
+  mass: ["base", "groups"],
+  recommend: ["groups"],
+  paste: [],
+};
+const MODE_SPECIFIC = ["base", "groups", "current"];
 
 const MODE_OPTIONS: { value: CraftMode; label: string }[] = [
   { value: "base", label: "From a base" },
@@ -30,24 +43,28 @@ export function CraftControls({
   const params = useSearchParams();
 
   const [q, setQ] = useState(params.get("q") ?? "");
-  const firstRender = useRef(true);
 
-  const push = (updates: Record<string, string | null>) => {
+  const searchId = useId();
+  const ilvlId = useId();
+
+  const push = (updates: Record<string, string | null>, replace = false) => {
     const next = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
-    router.push(`${pathname}?${next.toString()}`);
+    const href = `${pathname}?${next.toString()}`;
+    // Typing in the search box replaces the entry so Back isn't flooded with keystrokes.
+    if (replace) router.replace(href);
+    else router.push(href);
   };
 
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    // Only search when the box differs from the URL (also immune to StrictMode
+    // double-mounting, which used to fire a search that cleared `base`).
+    if (q === (params.get("q") ?? "")) return;
     const handle = setTimeout(
-      () => push({ q: q || null, base: null }),
+      () => push({ q: q || null, base: null }, true),
       300,
     );
     return () => clearTimeout(handle);
@@ -60,9 +77,7 @@ export function CraftControls({
   const switchMode = (m: CraftMode) => {
     const next = new URLSearchParams(params.toString());
     next.set("mode", m);
-    next.delete("base");
-    next.delete("groups");
-    next.delete("current");
+    for (const k of MODE_SPECIFIC) if (!MODE_PARAMS[m].includes(k)) next.delete(k);
     router.push(`${pathname}?${next.toString()}`);
   };
 
@@ -74,6 +89,7 @@ export function CraftControls({
             value={mode === "finish" ? "paste" : mode}
             onChange={switchMode}
             options={MODE_OPTIONS}
+            label="Planner mode"
             shortLabels={{
               base: "Base",
               recommend: "Recommend",
@@ -98,23 +114,37 @@ export function CraftControls({
       {mode === "paste" || mode === "finish" ? null : (
         <FilterFieldRow>
           {mode === "base" || mode === "mass" ? (
-            <input
-              className="input"
-              placeholder="Search base items"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+            <>
+              <label htmlFor={searchId} className="sr-only">
+                Search base items
+              </label>
+              <input
+                id={searchId}
+                type="search"
+                className="input"
+                placeholder="Search base items"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </>
           ) : null}
           <ClassCombobox
+            label="Item class"
             categories={classes}
             value={itemClass}
-            onChange={(v) =>
-              push({ class: v || null, base: null, groups: null })
-            }
+            onChange={(v) => {
+              // Groups are class-specific; only reset them when the class really changes.
+              if (v === itemClass) return;
+              push({ class: v || null, base: null, groups: null });
+            }}
           />
           <div className="flex shrink-0 items-center gap-1.5">
-            <label className="text-xs text-forge-gold/80">iLvl</label>
+            <label htmlFor={ilvlId} className="label">
+              <span aria-hidden="true">iLvl</span>
+              <span className="sr-only">Item level</span>
+            </label>
             <input
+              id={ilvlId}
               type="number"
               min={1}
               max={100}

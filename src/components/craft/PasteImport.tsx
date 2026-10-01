@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CraftPlan } from "@/lib/craft/types";
 import { formatCurrentMods } from "@/lib/craft/goal";
 import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
+import { Alert } from "@/components/ui/Alert";
+import { AffixMark, Badge } from "@/components/ui/Badge";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { PlanView } from "./PlanView";
 
 interface PobItem {
@@ -89,8 +92,17 @@ export function PasteImport() {
   const [resolved, setResolved] = useState<ResolvedItem | null>(null);
   const [plan, setPlan] = useState<CraftPlan | null>(null);
   const [pob, setPob] = useState<PobResult | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const textareaId = useId();
+  const hintId = useId();
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const submit = async () => {
+    // A newer submit supersedes any request still in flight.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setError(null);
     setResolved(null);
@@ -101,6 +113,7 @@ export function PasteImport() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to parse item");
@@ -108,33 +121,54 @@ export function PasteImport() {
       setPlan((data.plan as CraftPlan) ?? null);
       setPob((data.pob as PobResult) ?? null);
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(e instanceof Error ? e.message : "Failed to parse item");
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) setLoading(false);
     }
   };
+
+  const hasText = text.trim().length > 0;
+  const finish = resolved ? finishHref(resolved) : null;
 
   return (
     <div className="space-y-4">
       <div className="panel p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-            Paste an item (in-game Ctrl+C) or a PoB build code
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="section-title">
+            <label htmlFor={textareaId}>Paste an item (in-game Ctrl+C) or a PoB build code</label>
           </h2>
-          <button
-            type="button"
-            className="text-xs text-forge-gold/80 underline hover:text-forge-goldbright"
-            onClick={() => setText(SAMPLE)}
-          >
-            Load sample
-          </button>
+          {hasText && text !== SAMPLE ? (
+            <ConfirmButton
+              className="btn-ghost btn-sm"
+              confirmLabel="Replace your text?"
+              ariaLabel="Load sample item"
+              onConfirm={() => setText(SAMPLE)}
+            >
+              Load sample
+            </ConfirmButton>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setText(SAMPLE)}
+              disabled={text === SAMPLE}
+            >
+              Load sample
+            </button>
+          )}
         </div>
         <textarea
+          id={textareaId}
+          aria-describedby={hintId}
           className="input mt-2 h-48 w-full resize-y font-mono text-xs"
           placeholder="Hover an item in-game, press Ctrl+C, then paste here — or paste a Path of Building code…"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
+        <p id={hintId} className="mt-1 text-2xs text-forge-muted">
+          Works with item text copied in-game (hover the item, Ctrl+C) and Path of Building export codes.
+        </p>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <ActionWithInfo
             label="Find crafting paths"
@@ -147,138 +181,132 @@ export function PasteImport() {
           >
             <button
               type="button"
-              className="btn"
+              className="btn btn-primary"
               onClick={submit}
-              disabled={loading || !text.trim()}
+              disabled={loading || !hasText}
+              aria-busy={loading || undefined}
             >
               {loading ? "Analyzing…" : "Find crafting paths"}
             </button>
           </ActionWithInfo>
           {resolved?.baseName ? (
-            <span className="text-sm text-forge-gold/80">
+            <span className="text-sm text-forge-muted">
               Matched base:{" "}
               <span className="text-rarity-normal">{resolved.baseName}</span> ·
               iLvl {resolved.itemLevel}
             </span>
           ) : null}
-          {resolved && finishHref(resolved) ? (
-            <Link href={finishHref(resolved)!} className="btn btn-primary">
+          {finish ? (
+            <Link href={finish} className="btn">
               Finish this item
             </Link>
           ) : null}
         </div>
       </div>
 
-      {error ? (
-        <div className="panel border-forge-rust/60 bg-forge-rust/10 p-4 text-sm text-forge-goldbright/90">
-          {error}
-        </div>
-      ) : null}
+      {/* Short summary for screen readers instead of announcing the whole plan. */}
+      <p role="status" className="sr-only">
+        {loading
+          ? "Analyzing item…"
+          : resolved
+            ? `Found ${resolved.matched.length} modifier${resolved.matched.length === 1 ? "" : "s"} on ${resolved.baseName}.${plan ? " Crafting paths ready below." : ""}`
+            : pob
+              ? "Path of Building items loaded below."
+              : ""}
+      </p>
 
-      {resolved ? (
-        <div className="panel p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-            Detected modifiers
-          </h3>
-          {resolved.matched.length ? (
-            <ul className="mt-2 space-y-1 text-sm">
-              {resolved.matched.map((m) => (
-                <li key={m.group} className="flex items-center gap-2">
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
-                      m.kind === "prefix"
-                        ? "bg-affix-prefix/15 text-affix-prefix"
-                        : "bg-affix-suffix/15 text-affix-suffix"
-                    }`}
-                  >
-                    {m.kind}
-                  </span>
-                  <span className="text-forge-gold/80">{m.value}</span>
-                  <span className="text-[11px] text-forge-gold/80">
-                    mod lvl {m.tierLevel}
-                  </span>
-                  {m.desecrated ? (
-                    <span className="rounded bg-violet-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-violet-200">
-                      desecrated
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-2 text-sm text-forge-gold/80">
-              No modifiers could be matched to the data.
-            </p>
-          )}
+      <div className="space-y-4">
+        {error ? (
+          <Alert tone="danger" title="Couldn’t read that item">
+            {error}
+          </Alert>
+        ) : null}
 
-          {(resolved.requiresDesecration || resolved.requiresRuneforging) && (
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {resolved.requiresDesecration ? (
-                <span className="rounded border border-violet-700/50 bg-violet-900/20 px-2 py-1 text-violet-200">
-                  Contains a desecrated mod — only the desecration techniques can reach it.
-                </span>
-              ) : null}
-              {resolved.requiresRuneforging ? (
-                <span className="rounded border border-sky-700/50 bg-sky-900/20 px-2 py-1 text-sky-200">
-                  Has Runic Ward — added via Verisium Runeforging on the base.
-                </span>
-              ) : null}
-            </div>
-          )}
+        {resolved ? (
+          <div className="panel p-4">
+            <h3 className="section-title">Detected modifiers</h3>
+            {resolved.matched.length ? (
+              <ul className="mt-2 space-y-1 text-sm">
+                {resolved.matched.map((m) => (
+                  <li key={m.group} className="flex flex-wrap items-center gap-2">
+                    <AffixMark kind={m.kind} />
+                    <span className="text-forge-goldbright">{m.value}</span>
+                    <span className="num text-2xs text-forge-muted">mod lvl {m.tierLevel}</span>
+                    {m.desecrated ? <Badge tone="accent">desecrated</Badge> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-forge-muted">
+                No modifiers could be matched to the data.
+              </p>
+            )}
 
-          {resolved.warnings.length ? (
-            <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-gold/80">
-              {resolved.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+            {(resolved.requiresDesecration || resolved.requiresRuneforging) && (
+              <div className="mt-3 space-y-2">
+                {resolved.requiresDesecration ? (
+                  <Alert tone="info">Contains a desecrated mod — only the desecration techniques can reach it.</Alert>
+                ) : null}
+                {resolved.requiresRuneforging ? (
+                  <Alert tone="info">Has Runic Ward — added via Verisium Runeforging on the base.</Alert>
+                ) : null}
+              </div>
+            )}
 
-      {pob ? (
-        <div className="panel p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
-            Rare items in the build ({pob.items.length} of {pob.totalBlocks})
-          </h3>
-          {pob.items.length ? (
-            <ul className="mt-2 divide-y divide-forge-border/40">
-              {pob.items.map((it, i) => (
-                <li key={`${it.baseId}-${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm text-rarity-normal">
-                      {it.baseName} <span className="text-xs text-forge-gold/60">({it.itemClass})</span>
+            {resolved.warnings.length ? (
+              <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-muted">
+                {resolved.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {pob ? (
+          <div className="panel p-4">
+            <h3 className="section-title">
+              Rare items in the build ({pob.items.length} of {pob.totalBlocks})
+            </h3>
+            {pob.items.length ? (
+              <ul className="mt-2 divide-y divide-forge-border/40">
+                {pob.items.map((it, i) => (
+                  <li key={`${it.baseId}-${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm text-rarity-normal">
+                        {it.baseName} <span className="text-xs text-forge-muted">({it.itemClass})</span>
+                      </div>
+                      <div className="text-xs text-forge-muted">{it.labels.join(" · ")}</div>
                     </div>
-                    <div className="text-xs text-forge-gold/80">{it.labels.join(" · ")}</div>
-                  </div>
-                  <Link
-                    href={`/craft?${new URLSearchParams({
-                      mode: "base",
-                      base: it.baseId,
-                      ilvl: String(Math.max(it.itemLevel, 1)),
-                      groups: it.groups.join(","),
-                    }).toString()}`}
-                    className="btn"
-                  >
-                    Plan it
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-2 text-sm text-forge-gold/80">No rare items could be resolved.</p>
-          )}
-          {pob.warnings.length ? (
-            <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-gold/80">
-              {pob.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+                    <Link
+                      href={`/craft?${new URLSearchParams({
+                        mode: "base",
+                        base: it.baseId,
+                        ilvl: String(Math.max(it.itemLevel, 1)),
+                        groups: it.groups.join(","),
+                      }).toString()}`}
+                      className="btn"
+                    >
+                      Plan it
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-forge-muted">No rare items could be resolved.</p>
+            )}
+            {pob.warnings.length ? (
+              <ul className="mt-3 list-inside list-disc space-y-0.5 text-xs text-forge-muted">
+                {pob.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
-      {plan ? <PlanView plan={plan} /> : null}
+        {plan ? <PlanView plan={plan} /> : null}
+      </div>
     </div>
   );
 }

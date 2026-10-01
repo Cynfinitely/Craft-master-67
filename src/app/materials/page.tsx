@@ -17,9 +17,12 @@ import {
   type MaterialTier,
 } from "@/lib/materials/source";
 import { getPriceByApiId } from "@/lib/pricing/poe2scout";
+import { Suspense } from "react";
+import { Alert } from "@/components/ui/Alert";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 export const metadata = {
-  title: "Crafting Materials | PoE2 Crafting Helper",
+  title: "Crafting Materials",
 };
 
 // Re-fetch live prices at most hourly; the material catalog itself is static.
@@ -52,6 +55,9 @@ function tierEntry(m: Material, prices: Map<string, number>) {
 export default async function MaterialsPage() {
   const meta = getMaterialsMeta();
   const prices = await getPriceByApiId();
+  // getPriceByApiId swallows fetch errors and returns an empty map, so an
+  // empty map means live prices could not be loaded.
+  const pricesUnavailable = prices.size === 0;
 
   const catalog: MaterialsCatalog = {
     essenceRows: essenceMatrix().map((row) => ({
@@ -87,19 +93,27 @@ export default async function MaterialsPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-forge-goldbright">
-          Crafting Materials
-        </h1>
-        <p className="mt-1 text-sm text-forge-gold/80">
-          Every Path of Exile 2 crafting currency and material, with its exact
-          in-game effect and a live market price. Essences list their guaranteed
-          modifier values per item class. Prices are from poe2scout for{" "}
-          <span className="text-forge-gold/80">{meta.league}</span>.
-        </p>
-      </div>
-      <MaterialsBrowser catalog={catalog} />
+    <div className="space-y-6">
+      <PageHeader
+        title="Crafting Materials"
+        description={
+          <>
+            Every Path of Exile 2 crafting currency and material, with its exact
+            in-game effect and a live market price. Essences list their
+            guaranteed modifier values per item class. Prices are from poe2scout
+            for {meta.league}.
+          </>
+        }
+      />
+      {pricesUnavailable ? (
+        <Alert tone="warn">
+          Live prices unavailable — showing materials without prices.
+        </Alert>
+      ) : null}
+      {/* useSearchParams in MaterialsBrowser needs a Suspense boundary to keep this page static. */}
+      <Suspense fallback={<MaterialsBrowser catalog={catalog} />}>
+        <MaterialsBrowser catalog={catalog} syncUrl />
+      </Suspense>
     </div>
   );
 }

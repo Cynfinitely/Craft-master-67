@@ -1,10 +1,13 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { InfoTip } from "@/components/InfoTip";
 import { ClassCombobox } from "@/components/ui/ClassCombobox";
+import { Field } from "@/components/ui/Field";
 import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
+
+const DEFAULT_ILVL = "82";
 
 export function ItemControls({
   classes,
@@ -18,39 +21,55 @@ export function ItemControls({
   const params = useSearchParams();
 
   const [q, setQ] = useState(params.get("q") ?? "");
-  const firstRender = useRef(true);
 
-  const setParam = (updates: Record<string, string | null>) => {
+  const setParam = (
+    updates: Record<string, string | null>,
+    nav: "push" | "replace" = "push",
+  ) => {
     const next = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
-    router.push(`${pathname}?${next.toString()}`);
+    router[nav](`${pathname}?${next.toString()}`);
   };
 
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    // Only search when the box differs from the URL (also immune to StrictMode
+    // double-mounting, which used to fire a search that cleared `base`).
+    if (q === (params.get("q") ?? "")) return;
+    // Debounced keystrokes replace the entry so history isn't flooded.
     const handle = setTimeout(() => {
-      setParam({ q: q || null, base: null });
+      setParam({ q: q || null, base: null }, "replace");
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   const itemClass = params.get("class") ?? "";
-  const ilvl = params.get("ilvl") ?? "82";
+  const ilvl = params.get("ilvl") ?? DEFAULT_ILVL;
   const tag = params.get("tag") ?? "";
+
+  // Item level is edited locally and committed on blur/Enter so the field can
+  // be cleared while typing without triggering a navigation per keystroke.
+  const [ilvlDraft, setIlvlDraft] = useState(ilvl);
+  useEffect(() => setIlvlDraft(ilvl), [ilvl]);
+
+  const commitIlvl = () => {
+    const n = Number.parseInt(ilvlDraft, 10);
+    if (Number.isNaN(n)) {
+      setIlvlDraft(ilvl);
+      return;
+    }
+    const clamped = String(Math.min(100, Math.max(1, n)));
+    setIlvlDraft(clamped);
+    if (clamped !== ilvl) setParam({ ilvl: clamped });
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-forge-gold/80">
-          Filters
-        </span>
+        <h2 className="section-title text-xs">Filters</h2>
         <InfoTip
           label="How to browse items"
           summary="Filter bases, pick one, then explore its modifier pool."
@@ -62,42 +81,55 @@ export function ItemControls({
           ]}
         />
       </div>
-      <input
-        className="input"
-        placeholder="Search base items (e.g. Sapphire Ring)"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      <Field label="Search base items" srOnlyLabel>
+        <input
+          type="search"
+          className="input"
+          placeholder="Search base items (e.g. Sapphire Ring)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </Field>
       <FilterFieldRow>
         <ClassCombobox
           categories={classes}
           value={itemClass}
+          label="Item class"
           onChange={(v) => setParam({ class: v || null, base: null })}
         />
-        <div className="flex shrink-0 items-center gap-1.5">
-          <label className="text-xs text-forge-gold/80">iLvl</label>
+        <Field label="Item level" inline className="shrink-0">
           <input
             type="number"
+            inputMode="numeric"
             min={1}
             max={100}
-            className="input w-16 text-center"
-            value={ilvl}
-            onChange={(e) => setParam({ ilvl: e.target.value || "82" })}
+            className="input w-16 text-center num"
+            value={ilvlDraft}
+            onChange={(e) => setIlvlDraft(e.target.value)}
+            onBlur={commitIlvl}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitIlvl();
+              }
+            }}
           />
-        </div>
+        </Field>
       </FilterFieldRow>
-      <select
-        className="input"
-        value={tag}
-        onChange={(e) => setParam({ tag: e.target.value || null })}
-      >
-        <option value="">Filter mods by tag (all)</option>
-        {tags.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+      <Field label="Mod tag">
+        <select
+          className="input"
+          value={tag}
+          onChange={(e) => setParam({ tag: e.target.value || null })}
+        >
+          <option value="">All tags</option>
+          {tags.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </Field>
     </div>
   );
 }

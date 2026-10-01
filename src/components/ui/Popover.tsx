@@ -28,6 +28,7 @@ export function Popover({
   className = "",
   id,
   role,
+  ariaLabel,
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,6 +40,7 @@ export function Popover({
   className?: string;
   id?: string;
   role?: string;
+  ariaLabel?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<Position | null>(null);
@@ -100,6 +102,8 @@ export function Popover({
       ref={panelRef}
       id={id}
       role={role}
+      aria-label={ariaLabel}
+      tabIndex={role === "dialog" ? -1 : undefined}
       className={`fixed z-[90] overflow-y-auto overscroll-contain rounded-md border border-forge-border bg-forge-panel shadow-lg ${className}`}
       style={{
         top: pos?.top ?? -9999,

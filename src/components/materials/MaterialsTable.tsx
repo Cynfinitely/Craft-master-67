@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { MaterialTier } from "@/lib/materials/source";
+import { formatExaltedOnly } from "@/lib/pricing/format";
 import type { MaterialView } from "./MaterialsBrowser";
 
 const TIER_COLUMNS: MaterialTier[] = [
@@ -11,19 +12,29 @@ const TIER_COLUMNS: MaterialTier[] = [
   "Perfect",
 ];
 
+// Theme tokens only; dark text on tinted creams keeps every chip above 4.5:1.
 const TIER_STYLES: Record<MaterialTier, string> = {
-  Lesser: "bg-forge-panel2 text-forge-gold/70",
+  Lesser: "bg-forge-panel2 text-forge-muted",
   Normal: "bg-forge-rust/20 text-forge-goldbright",
   Greater: "bg-forge-gold/15 text-forge-goldbright",
   Perfect: "bg-forge-rust/35 text-forge-goldbright",
 };
 
+/** Same as formatExaltedOnly, but a missing price renders as an em dash. */
 function formatPrice(p: number | null): string {
-  if (p == null) return "—";
-  if (p >= 1000) return `${(p / 1000).toFixed(1)}k ex`;
-  if (p >= 10) return `${Math.round(p)} ex`;
-  if (p >= 1) return `${p.toFixed(1)} ex`;
-  return `${p.toFixed(2)} ex`;
+  return p == null ? "—" : formatExaltedOnly(p);
+}
+
+function PriceText({ p }: { p: number | null }) {
+  if (p == null) {
+    return (
+      <>
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">no price</span>
+      </>
+    );
+  }
+  return <>{formatPrice(p)}</>;
 }
 
 function effectSummary(m: MaterialView): string {
@@ -67,7 +78,13 @@ function toView(
 function TierChip({ m, tier }: { m: MaterialView | undefined; tier?: MaterialTier }) {
   const [open, setOpen] = useState(false);
   if (!m) {
-    return <div className="px-2 py-1.5 text-center text-forge-gold/25">—</div>;
+    return (
+      <div className="px-2 py-1.5 text-center text-forge-muted">
+        {tier ? <span className="sr-only">{tier}: </span> : null}
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">none</span>
+      </div>
+    );
   }
   const summary = effectSummary(m);
   return (
@@ -80,18 +97,18 @@ function TierChip({ m, tier }: { m: MaterialView | undefined; tier?: MaterialTie
       onClick={() => setOpen((v) => !v)}
     >
       {tier ? (
-        <span className={`mb-1 inline-block rounded px-1 text-[9px] uppercase ${TIER_STYLES[tier]}`}>
+        <span className={`mb-1 inline-block rounded px-1 text-2xs uppercase ${TIER_STYLES[tier]}`}>
           {tier}
         </span>
       ) : null}
       <span className="block text-xs font-medium leading-tight text-rarity-currency">
         {m.name.replace(/^(Lesser |Greater |Perfect )/, "")}
       </span>
-      <span className="mt-0.5 block text-[10px] font-semibold text-forge-gold/70">
-        {formatPrice(m.priceExalted)}
+      <span className="num mt-0.5 block text-2xs font-semibold text-forge-muted">
+        <PriceText p={m.priceExalted} />
       </span>
       {open && summary ? (
-        <span className="mt-1 block border-t border-forge-border/40 pt-1 text-[11px] text-forge-gold/80">
+        <span className="mt-1 block border-t border-forge-border/40 pt-1 text-2xs text-forge-muted">
           {summary}
         </span>
       ) : null}
@@ -115,7 +132,7 @@ function TierMatrix({
   if (rows.length === 0) return null;
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+      <h2 className="section-title mb-2">
         {title}
       </h2>
 
@@ -135,11 +152,13 @@ function TierMatrix({
       <div className="panel hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[640px] text-left text-xs">
           <thead>
-            <tr className="border-b border-forge-border text-forge-gold/55">
-              <th className="sticky left-0 bg-forge-panel px-3 py-2 font-semibold">{familyLabel}</th>
+            <tr className="border-b border-forge-border text-forge-muted">
+              <th scope="col" className="sticky left-0 bg-forge-panel px-3 py-2 font-semibold">
+                {familyLabel}
+              </th>
               {TIER_COLUMNS.map((t) => (
-                <th key={t} className="px-2 py-2 text-center font-semibold">
-                  <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase ${TIER_STYLES[t]}`}>
+                <th key={t} scope="col" className="px-2 py-2 text-center font-semibold">
+                  <span className={`inline-block rounded px-1.5 py-0.5 text-2xs uppercase ${TIER_STYLES[t]}`}>
                     {t}
                   </span>
                 </th>
@@ -149,9 +168,12 @@ function TierMatrix({
           <tbody className="divide-y divide-forge-border/30">
             {rows.map((row) => (
               <tr key={row.family} className="hover:bg-forge-panel2/30">
-                <td className="sticky left-0 bg-forge-panel px-3 py-2 font-medium text-forge-goldbright">
+                <th
+                  scope="row"
+                  className="sticky left-0 bg-forge-panel px-3 py-2 text-left font-medium text-forge-goldbright"
+                >
                   {row.family}
-                </td>
+                </th>
                 {TIER_COLUMNS.map((tier) => (
                   <td key={tier} className="px-2 py-2 align-top">
                     <TierChip m={toView(row, tier, itemLabel, prices)} />
@@ -177,7 +199,7 @@ export function EssenceMatrixTable({
     <TierMatrix
       title={
         <>
-          Essences <span className="text-forge-gold/80">({rows.length} families)</span>
+          Essences <span className="text-forge-muted">({rows.length} families)</span>
         </>
       }
       familyLabel="Family"
@@ -210,10 +232,16 @@ function MaterialRows({ items, firstCellPad = "px-3" }: { items: MaterialView[];
   return (
     <table className="w-full text-left text-xs">
       <thead>
-        <tr className="border-b border-forge-border/40 text-forge-gold/55">
-          <th className={`${firstCellPad} py-2 font-semibold`}>Name</th>
-          <th className="hidden px-3 py-2 font-semibold sm:table-cell">Effect</th>
-          <th className="px-3 py-2 text-right font-semibold">Price</th>
+        <tr className="border-b border-forge-border/40 text-forge-muted">
+          <th scope="col" className={`${firstCellPad} py-2 font-semibold`}>
+            Name
+          </th>
+          <th scope="col" className="hidden px-3 py-2 font-semibold sm:table-cell">
+            Effect
+          </th>
+          <th scope="col" className="px-3 py-2 text-right font-semibold">
+            Price
+          </th>
         </tr>
       </thead>
       <tbody className="divide-y divide-forge-border/30">
@@ -221,15 +249,15 @@ function MaterialRows({ items, firstCellPad = "px-3" }: { items: MaterialView[];
           <tr key={m.apiId} className="align-top hover:bg-forge-panel2/30">
             <td className={`${firstCellPad} py-2`}>
               <span className="font-medium text-rarity-currency">{m.name}</span>
-              <span className="mt-0.5 block text-[11px] text-forge-gold/75 sm:hidden">
+              <span className="mt-0.5 block text-2xs text-forge-muted sm:hidden">
                 {effectSummary(m) || "—"}
               </span>
             </td>
-            <td className="hidden max-w-md px-3 py-2 text-forge-gold/75 sm:table-cell">
+            <td className="hidden max-w-md px-3 py-2 text-forge-muted sm:table-cell">
               {effectSummary(m) || "—"}
             </td>
-            <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-forge-gold/80">
-              {formatPrice(m.priceExalted)}
+            <td className="num whitespace-nowrap px-3 py-2 text-right font-semibold text-forge-muted">
+              <PriceText p={m.priceExalted} />
             </td>
           </tr>
         ))}
@@ -250,9 +278,9 @@ export function MaterialListTable({
   if (items.length === 0) return null;
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-forge-gold/70">
+      <h2 className="section-title mb-2">
         {title}{" "}
-        <span className="text-forge-gold/80">({count ?? items.length})</span>
+        <span className="text-forge-muted">({count ?? items.length})</span>
       </h2>
       <div className="panel overflow-x-auto">
         <MaterialRows items={items} />
@@ -263,20 +291,30 @@ export function MaterialListTable({
 
 export function LeagueAccordion({
   groups,
+  query = "",
 }: {
   groups: { label: string; items: MaterialView[] }[];
+  /** Active search; groups open (and re-mount) while it is non-empty so matches are visible. */
+  query?: string;
 }) {
   if (groups.length === 0) return null;
   return (
     <div className="space-y-2">
       {groups.map((g) => (
-        <details key={g.label} className="panel group">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center px-4 py-2.5 text-sm font-semibold text-forge-gold/80 hover:text-forge-goldbright [&::-webkit-details-marker]:hidden">
-            <span className="mr-2 inline-block text-forge-gold/80 transition-transform group-open:rotate-90">
+        <details
+          key={`${g.label}\u0000${query}`}
+          open={query ? true : undefined}
+          className="panel group"
+        >
+          <summary className="flex min-h-11 cursor-pointer list-none items-center px-4 py-2.5 text-sm font-semibold text-forge-muted hover:text-forge-goldbright [&::-webkit-details-marker]:hidden">
+            <span
+              aria-hidden="true"
+              className="mr-2 inline-block text-forge-muted transition-transform group-open:rotate-90"
+            >
               ▸
             </span>
             {g.label}{" "}
-            <span className="ml-1 text-forge-gold/80">({g.items.length})</span>
+            <span className="ml-1 text-forge-muted">({g.items.length})</span>
           </summary>
           <div className="overflow-x-auto border-t border-forge-border/50">
             <MaterialRows items={g.items} firstCellPad="px-4" />

@@ -11,7 +11,7 @@
 html,
 body {
   background-color: theme("colors.forge.bg");
-  color: #38240d;
+  color: theme("colors.forge.goldbright");
   overflow-x: clip;
 }
 
@@ -34,7 +34,23 @@ body {
   min-height: 100vh;
 }
 
+@layer base {
+  /* One focus ring for every interactive element that doesn't style its own. */
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  [role="tab"]:focus-visible,
+  [role="option"]:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    @apply rounded-sm outline-none ring-2 ring-forge-rust/60 ring-offset-1 ring-offset-forge-bg;
+  }
+}
+
 @layer components {
+  .container-shell {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[1400px];
+  }
+
   .panel {
     @apply rounded-lg border border-forge-border bg-forge-panel shadow-sm;
   }
@@ -44,27 +60,54 @@ body {
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-forge-border bg-forge-panel2 px-3 py-1.5 text-sm font-medium text-forge-goldbright transition-colors hover:border-forge-rust/50 hover:text-forge-rust focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forge-rust/50 focus-visible:ring-offset-2 focus-visible:ring-offset-forge-bg disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-[2.5rem];
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-forge-border bg-forge-panel2 px-3 py-1.5 text-sm font-medium text-forge-goldbright transition-colors hover:border-forge-rust/50 hover:text-forge-rust-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forge-rust/50 focus-visible:ring-offset-2 focus-visible:ring-offset-forge-bg disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-[2.5rem];
   }
 
+  /* The main action in a region; one per view where possible. */
   .btn-primary {
-    @apply border-forge-rust/50 bg-forge-rust/15 text-forge-goldbright hover:border-forge-rust hover:bg-forge-rust/25 hover:text-forge-goldbright;
+    @apply border-forge-gold bg-forge-gold text-forge-panel hover:border-forge-goldbright hover:bg-forge-goldbright hover:text-forge-panel disabled:hover:bg-forge-gold;
+  }
+
+  /* Low-emphasis text action (Clear, Revert, Load sample). */
+  .btn-ghost {
+    @apply border-transparent bg-transparent px-2 text-forge-muted underline-offset-2 hover:border-transparent hover:text-forge-goldbright hover:underline;
+  }
+
+  .btn-danger {
+    @apply border-danger-border bg-danger-bg text-danger-fg hover:border-danger-fg hover:text-danger-fg;
+  }
+
+  .btn-sm {
+    @apply gap-1 px-2 py-0.5 text-xs max-sm:min-h-0;
   }
 
   .input {
-    @apply w-full rounded-md border border-forge-border bg-forge-panel px-3 py-2 text-sm text-forge-goldbright placeholder:text-forge-gold/75 focus:border-forge-rust/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-forge-rust/40;
+    @apply w-full rounded-md border border-forge-border bg-forge-panel px-3 py-2 text-sm text-forge-goldbright placeholder:text-forge-muted/80 focus:border-forge-rust/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-forge-rust/40 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .label {
+    @apply text-xs font-medium text-forge-muted;
+  }
+
+  /* Small uppercase heading for page sections. */
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-forge-muted;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-2xs font-medium;
   }
 
   .tag-chip {
     @apply inline-flex items-center rounded-full border border-forge-border bg-forge-panel2 px-2 py-0.5 text-xs text-forge-gold;
   }
 
-  .combobox-panel {
-    @apply rounded-md border border-forge-border bg-forge-panel shadow-lg;
-  }
-
   .table-scroll {
     @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
+  }
+
+  .num {
+    @apply tabular-nums;
   }
 }
 

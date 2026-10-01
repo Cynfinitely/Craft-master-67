@@ -30,36 +30,40 @@ export default function HomePage() {
         <h1 className="text-2xl font-bold text-forge-goldbright sm:text-3xl">
           Path of Exile 2 Crafting Helper
         </h1>
-        <p className="mt-3 max-w-2xl text-forge-gold/80">
+        <p className="mt-3 max-w-2xl text-forge-muted">
           A local-first crafting planner for Path of Exile 2. Tell it the item
           you want and it works out the cheapest way to craft it, step by step.
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Link href="/items" className="btn btn-primary w-full sm:w-auto">
-            Browse items &amp; mods
-          </Link>
-          <Link href="/craft" className="btn w-full sm:w-auto">
+          <Link href="/craft" className="btn btn-primary w-full sm:w-auto">
             Plan a craft
+          </Link>
+          <Link href="/items" className="btn w-full sm:w-auto">
+            Browse items &amp; mods
           </Link>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <section aria-label="Tools" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {FEATURES.map((f) => (
           <Link
             key={f.href}
             href={f.href}
-            className="panel group p-4 transition-colors hover:border-forge-gold/50 sm:p-5"
+            className="panel group flex flex-col p-4 transition-colors hover:border-forge-rust/50 focus-visible:rounded-lg sm:p-5"
           >
-            <h2 className="text-lg font-semibold text-forge-goldbright group-hover:text-forge-gold">
-              {f.title}
-            </h2>
-            <p className="mt-2 text-sm text-forge-gold/70">{f.desc}</p>
+            <h2 className="text-lg font-semibold text-forge-goldbright">{f.title}</h2>
+            <p className="mt-2 flex-1 text-sm text-forge-muted">{f.desc}</p>
+            <span
+              aria-hidden
+              className="mt-3 text-sm font-medium text-forge-rust-strong group-hover:underline"
+            >
+              Open →
+            </span>
           </Link>
         ))}
       </section>
 
-      <section className="panel-inset p-4 text-sm text-forge-gold/80">
+      <section className="panel-inset p-4 text-sm text-forge-muted">
         <p>
           Note: Path of Exile 2 is still evolving and crafting mechanics change
           between patches. Modifier data is a snapshot from the community

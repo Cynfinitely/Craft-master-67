@@ -4,23 +4,23 @@
  * "fire_resistance" when "fire" + "resistance" already convey it).
  */
 export const TAG_STYLES: Record<string, string> = {
-  life: "bg-rose-900/50 text-rose-200",
-  mana: "bg-sky-900/50 text-sky-200",
-  fire: "bg-orange-900/50 text-orange-200",
-  cold: "bg-cyan-900/50 text-cyan-200",
-  lightning: "bg-yellow-900/50 text-yellow-200",
-  chaos: "bg-fuchsia-900/50 text-fuchsia-200",
-  physical: "bg-zinc-700/60 text-zinc-200",
-  elemental: "bg-teal-900/50 text-teal-200",
-  resistance: "bg-emerald-900/50 text-emerald-200",
-  attack: "bg-red-900/50 text-red-200",
-  caster: "bg-indigo-900/50 text-indigo-200",
-  minion: "bg-lime-900/50 text-lime-200",
-  speed: "bg-green-900/50 text-green-200",
-  critical: "bg-amber-900/50 text-amber-200",
-  defences: "bg-slate-700/60 text-slate-200",
-  ailment: "bg-purple-900/50 text-purple-200",
-  attribute: "bg-stone-700/60 text-stone-200",
+  life: "border-rose-200 bg-rose-100 text-rose-800",
+  mana: "border-sky-200 bg-sky-100 text-sky-800",
+  fire: "border-orange-200 bg-orange-100 text-orange-800",
+  cold: "border-cyan-200 bg-cyan-100 text-cyan-800",
+  lightning: "border-yellow-200 bg-yellow-100 text-yellow-800",
+  chaos: "border-fuchsia-200 bg-fuchsia-100 text-fuchsia-800",
+  physical: "border-zinc-200 bg-zinc-100 text-zinc-800",
+  elemental: "border-teal-200 bg-teal-100 text-teal-800",
+  resistance: "border-emerald-200 bg-emerald-100 text-emerald-800",
+  attack: "border-red-200 bg-red-100 text-red-800",
+  caster: "border-indigo-200 bg-indigo-100 text-indigo-800",
+  minion: "border-lime-200 bg-lime-100 text-lime-800",
+  speed: "border-green-200 bg-green-100 text-green-800",
+  critical: "border-amber-200 bg-amber-100 text-amber-800",
+  defences: "border-slate-200 bg-slate-100 text-slate-800",
+  ailment: "border-purple-200 bg-purple-100 text-purple-800",
+  attribute: "border-stone-200 bg-stone-100 text-stone-800",
 };
 
 export const NOTABLE_TAGS = Object.keys(TAG_STYLES);
@@ -33,5 +33,5 @@ export function notableTags(tags: string[]): string[] {
 }
 
 export function tagStyle(tag: string): string {
-  return TAG_STYLES[tag] ?? "bg-forge-bg/60 text-forge-gold/70";
+  return TAG_STYLES[tag] ?? "border-forge-border bg-forge-panel2 text-forge-muted";
 }

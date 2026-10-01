@@ -43,9 +43,10 @@ function NavLink({
     <Link
       href={href}
       onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
       className={`rounded-md px-3 py-1.5 text-sm transition-colors ${className} ${
         active
-          ? "bg-forge-rust/15 text-forge-goldbright ring-1 ring-forge-rust/45"
+          ? "bg-forge-rust/15 font-semibold text-forge-goldbright ring-1 ring-forge-rust/45"
           : "text-forge-gold hover:bg-forge-panel2 hover:text-forge-goldbright"
       }`}
     >
@@ -73,13 +74,20 @@ export function SiteNav() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-forge-border bg-forge-panel shadow-sm">
-      <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-3 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[1400px]">
+      <a
+        href="#main"
+        className="btn sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-[60]"
+      >
+        Skip to content
+      </a>
+      <nav aria-label="Main" className="container-shell flex items-center gap-2 py-3">
         <Link
           href="/"
           className="mr-2 flex shrink-0 items-center gap-2 text-forge-goldbright"
+          aria-label="PoE2 Crafting Helper — home"
         >
           <span className="text-lg font-bold tracking-wide">PoE2</span>
-          <span className="hidden text-sm text-forge-gold/70 sm:inline">
+          <span className="hidden text-sm text-forge-muted sm:inline">
             Crafting Helper
           </span>
         </Link>
@@ -90,7 +98,7 @@ export function SiteNav() {
               key={group.label}
               className="flex flex-wrap items-center gap-1 xl:mr-1"
             >
-              <span className="hidden px-1 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80 xl:inline">
+              <span className="hidden px-1 text-2xs font-semibold uppercase tracking-wide text-forge-muted xl:inline">
                 {group.label}
               </span>
               {group.links.map((link) => (
@@ -110,7 +118,6 @@ export function SiteNav() {
           className="btn tap ml-auto md:hidden"
           aria-expanded={drawerOpen}
           aria-haspopup="dialog"
-          aria-label="Open menu"
           onClick={() => setDrawerOpen(true)}
         >
           <span aria-hidden className="flex flex-col gap-[3px]">
@@ -123,10 +130,10 @@ export function SiteNav() {
       </nav>
 
       <Sheet open={drawerOpen} onClose={closeDrawer} title="Menu" side="right">
-        <nav aria-label="Main">
+        <nav aria-label="Main (mobile)">
           {NAV_GROUPS.map((group) => (
             <div key={group.label} className="border-b border-forge-border/50 px-4 py-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-forge-gold/80">
+              <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-forge-muted">
                 {group.label}
               </p>
               <div className="flex flex-col gap-1">

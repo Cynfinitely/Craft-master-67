@@ -9,7 +9,7 @@ export function PlanCraftLink({ href }: { href: string }) {
       label="Plan a craft"
       summary="Opens the crafting planner with this base pre-selected."
       detail={[
-        "Carries base id and item level into the planner.",
+        "Carries the base, item level and your search filters into the planner.",
         "Modifier groups are empty until you pick targets.",
         "Use the Items page pool to see what can roll before planning.",
       ]}
