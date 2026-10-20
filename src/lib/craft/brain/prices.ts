@@ -1,6 +1,6 @@
-import "server-only";
-import { getPrices } from "@/lib/pricing/poe2scout";
-import { makePriceBook, type PriceBook } from "../engine/prices";
+import 'server-only';
+import { getPrices } from '@/lib/pricing/poe2scout';
+import { makePriceBook, type PriceBook } from '../engine/prices';
 
 const MEMO_MS = 60_000;
 let memo: { at: number; book: Promise<PriceBook> } | null = null;
@@ -9,8 +9,8 @@ async function load(): Promise<PriceBook> {
   try {
     const data = await getPrices();
     return makePriceBook({
-      live: new Map(data.items.map((i) => [i.apiId, i.priceExalted])),
-      names: new Map(data.items.map((i) => [i.apiId, i.name])),
+      live: new Map(data.items.map(i => [i.apiId, i.priceExalted])),
+      names: new Map(data.items.map(i => [i.apiId, i.name])),
       divinePriceExalted: data.divinePrice,
       fetchedAt: data.fetchedAt,
       league: data.league,

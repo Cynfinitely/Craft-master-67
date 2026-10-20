@@ -1,5 +1,5 @@
-import { directedFill, type FillOptions } from "../engine/fill";
-import type { Target } from "../types";
+import { directedFill, type FillOptions } from '../engine/fill';
+import type { Target } from '../types';
 import {
   OK,
   desecratableTargets,
@@ -10,9 +10,9 @@ import {
   no,
   orbTiers,
   wantsFor,
-} from "./helpers";
-import { desecrateStep } from "./desecrateStep";
-import { defineTechnique } from "./types";
+} from './helpers';
+import { desecrateStep } from './desecrateStep';
+import { defineTechnique } from './types';
 
 interface Choice {
   desec: Target;
@@ -21,23 +21,30 @@ interface Choice {
 }
 
 export const desecrateExalt = defineTechnique<Choice>({
-  id: "desecrate-exalt",
-  name: "Desecrate + directed Exalts",
-  summary: "Magic ladder to Rare, desecrate one target at the Well of Souls, then directed Exalts.",
-  modes: ["craft"],
+  id: 'desecrate-exalt',
+  name: 'Desecrate + directed Exalts',
+  summary:
+    'Magic ladder to Rare, desecrate one target at the Well of Souls, then directed Exalts.',
+  modes: ['craft'],
   applies(ctx) {
-    return desecratableTargets(ctx).length ? OK : no("No target can be desecrated on this class");
+    return desecratableTargets(ctx).length
+      ? OK
+      : no('No target can be desecrated on this class');
   },
   choices(ctx) {
     const out: Choice[] = [];
     for (const desec of desecratableTargets(ctx))
       for (const echoes of [false, true])
-        for (const exaltTier of orbTiers(ctx, "exalt"))
+        for (const exaltTier of orbTiers(ctx, 'exalt'))
           for (const cleanup of [true, false])
-            out.push({ desec, echoes, fill: { exaltTier, cleanup, double: false } });
+            out.push({
+              desec,
+              echoes,
+              fill: { exaltTier, cleanup, double: false },
+            });
     return out;
   },
-  key: (c) => `${c.desec.group}:${c.echoes ? "e" : ""}${fillKey(c.fill)}`,
+  key: c => `${c.desec.group}:${c.echoes ? 'e' : ''}${fillKey(c.fill)}`,
   run(c, t, ctx) {
     t.transmute();
     t.augment();
@@ -53,18 +60,20 @@ export const desecrateExalt = defineTechnique<Choice>({
   },
   describe: (c, ctx) => [
     {
-      title: "Transmute, Augment, Regal",
+      title: 'Transmute, Augment, Regal',
       detail: `Rare ${ctx.baseName} with 3 mods.`,
-      currency: ctx.prices.name("regal"),
+      currency: ctx.prices.name('regal'),
     },
     desecrateStep(ctx, c.desec, c.echoes),
     ...fillSteps(ctx, c.fill),
   ],
   options: (c, ctx) => [
     `desecrate for ${label(ctx, c.desec.group)}`,
-    c.echoes ? "Abyssal Echoes (5 options)" : "3 reveal options",
+    c.echoes ? 'Abyssal Echoes (5 options)' : '3 reveal options',
     ...fillOptionsLabels(c.fill),
   ],
-  pros: () => ["Reaches desecrated-only mods; you pick from the reveal."],
-  cons: () => ["A reveal without the target still takes the slot (one desecrated mod per item)."],
+  pros: () => ['Reaches desecrated-only mods; you pick from the reveal.'],
+  cons: () => [
+    'A reveal without the target still takes the slot (one desecrated mod per item).',
+  ],
 });

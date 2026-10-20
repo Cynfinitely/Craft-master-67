@@ -1,6 +1,6 @@
-import type { Side, Target } from "../types";
+import type { Side, Target } from '../types';
 
-export type Rarity = "normal" | "magic" | "rare";
+export type Rarity = 'normal' | 'magic' | 'rare';
 
 export interface Mod {
   group: string;
@@ -25,7 +25,11 @@ export const MAX_CRAFTED_MODS = 1;
 export const MAX_DESECRATED_MODS = 1;
 
 export function sideCap(item: Item): number {
-  return item.rarity === "magic" ? MAX_MAGIC_PER_SIDE : item.rarity === "rare" ? MAX_RARE_PER_SIDE : 0;
+  return item.rarity === 'magic'
+    ? MAX_MAGIC_PER_SIDE
+    : item.rarity === 'rare'
+      ? MAX_RARE_PER_SIDE
+      : 0;
 }
 
 export function sideCount(item: Item, side: Side): number {
@@ -44,7 +48,7 @@ export function hasGroup(item: Item, group: string): boolean {
 }
 
 export function cloneItem(item: Item): Item {
-  return { rarity: item.rarity, mods: item.mods.map((m) => ({ ...m })) };
+  return { rarity: item.rarity, mods: item.mods.map(m => ({ ...m })) };
 }
 
 export function modSatisfies(m: Mod, t: Target): boolean {
@@ -65,7 +69,8 @@ export function isNeeded(m: Mod, targets: Target[]): boolean {
 }
 
 export function requiredDone(item: Item, targets: Target[]): boolean {
-  for (const t of targets) if (!t.optional && !targetSatisfied(item, t)) return false;
+  for (const t of targets)
+    if (!t.optional && !targetSatisfied(item, t)) return false;
   return true;
 }
 

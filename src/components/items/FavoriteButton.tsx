@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useState } from "react";
+import { useState } from 'react';
 
 export function FavoriteButton({
   baseId,
@@ -23,9 +23,9 @@ export function FavoriteButton({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/favorites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -46,13 +46,16 @@ export function FavoriteButton({
         onClick={toggle}
         disabled={busy}
         aria-pressed={fav}
-        className={`btn shrink-0 ${fav ? "border-forge-gold text-forge-goldbright" : ""}`}
+        className={`btn shrink-0 ${fav ? 'border-forge-gold text-forge-goldbright' : ''}`}
       >
-        <span aria-hidden>{fav ? "★" : "☆"}</span>
-        {fav ? "Favorited" : "Favorite"}
+        <span aria-hidden>{fav ? '★' : '☆'}</span>
+        {fav ? 'Favorited' : 'Favorite'}
         {baseName ? <span className="sr-only"> {baseName}</span> : null}
       </button>
-      <span role="status" className="text-2xs font-medium text-danger-fg empty:hidden">
+      <span
+        role="status"
+        className="text-2xs font-medium text-danger-fg empty:hidden"
+      >
         {error}
       </span>
     </div>

@@ -10,8 +10,8 @@
 
 html,
 body {
-  background-color: theme("colors.forge.bg");
-  color: theme("colors.forge.goldbright");
+  background-color: theme('colors.forge.bg');
+  color: theme('colors.forge.goldbright');
   overflow-x: clip;
 }
 
@@ -21,11 +21,8 @@ html {
 }
 
 body {
-  background-image: radial-gradient(
-      ellipse at top,
-      rgba(192, 88, 0, 0.16),
-      transparent 58%
-    ),
+  background-image:
+    radial-gradient(ellipse at top, rgba(192, 88, 0, 0.16), transparent 58%),
     radial-gradient(
       ellipse at bottom right,
       rgba(113, 54, 0, 0.12),
@@ -39,9 +36,9 @@ body {
   a:focus-visible,
   button:focus-visible,
   summary:focus-visible,
-  [role="tab"]:focus-visible,
-  [role="option"]:focus-visible,
-  [tabindex]:not([tabindex="-1"]):focus-visible {
+  [role='tab']:focus-visible,
+  [role='option']:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
     @apply rounded-sm outline-none ring-2 ring-forge-rust/60 ring-offset-1 ring-offset-forge-bg;
   }
 }
@@ -121,13 +118,13 @@ body {
 /* thin scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: theme("colors.forge.border") transparent;
+  scrollbar-color: theme('colors.forge.border') transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: theme("colors.forge.border");
+  background-color: theme('colors.forge.border');
   border-radius: 9999px;
 }

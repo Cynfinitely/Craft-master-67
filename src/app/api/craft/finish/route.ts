@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { resolveItem } from "@/lib/import/resolveItem";
-import { parseGoalList, solve, type CurrentMod } from "@/lib/craft";
+import { NextResponse } from 'next/server';
+import { resolveItem } from '@/lib/import/resolveItem';
+import { parseGoalList, solve, type CurrentMod } from '@/lib/craft';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 interface FinishRequest {
   /** Pasted in-game item text — the item's current mods are inferred. */
@@ -20,11 +20,11 @@ interface FinishRequest {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as FinishRequest;
-    const goal = parseGoalList((body.desiredGroups ?? []).join(","));
+    const goal = parseGoalList((body.desiredGroups ?? []).join(','));
     if (goal.length === 0) {
       return NextResponse.json(
-        { error: "desiredGroups is required (the FINAL mod set to reach)." },
-        { status: 400 },
+        { error: 'desiredGroups is required (the FINAL mod set to reach).' },
+        { status: 400 }
       );
     }
 
@@ -37,13 +37,15 @@ export async function POST(request: Request) {
       resolved = await resolveItem(body.text.trim());
       if (!resolved.baseId) {
         return NextResponse.json(
-          { error: resolved.warnings[0] ?? "Could not resolve the pasted item." },
-          { status: 422 },
+          {
+            error: resolved.warnings[0] ?? 'Could not resolve the pasted item.',
+          },
+          { status: 422 }
         );
       }
       baseId = resolved.baseId;
       itemLevel = resolved.itemLevel;
-      current = resolved.matched.map((m) => ({
+      current = resolved.matched.map(m => ({
         group: m.group,
         side: m.kind,
         level: m.tierLevel,
@@ -53,20 +55,29 @@ export async function POST(request: Request) {
 
     if (!baseId) {
       return NextResponse.json(
-        { error: "Provide either pasted item `text` or `baseId` + `current`." },
-        { status: 400 },
+        { error: 'Provide either pasted item `text` or `baseId` + `current`.' },
+        { status: 400 }
       );
     }
 
-    const plan = await solve({ baseId, itemLevel, goal, current, baseCost: body.baseCostExalted });
+    const plan = await solve({
+      baseId,
+      itemLevel,
+      goal,
+      current,
+      baseCost: body.baseCostExalted,
+    });
     if (!plan) {
-      return NextResponse.json({ error: "Unknown base item." }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Unknown base item.' },
+        { status: 404 }
+      );
     }
     return NextResponse.json({ plan, resolved });
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to plan finish" },
-      { status: 500 },
+      { error: err instanceof Error ? err.message : 'Failed to plan finish' },
+      { status: 500 }
     );
   }
 }

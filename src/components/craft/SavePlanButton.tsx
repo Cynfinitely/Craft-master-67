@@ -1,12 +1,12 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
-import type { CraftPlan } from "@/lib/craft/types";
-import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
-import { Alert } from "@/components/ui/Alert";
+import Link from 'next/link';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { CraftPlan } from '@/lib/craft/types';
+import { ActionWithInfo } from '@/components/ui/ActionWithInfo';
+import { Alert } from '@/components/ui/Alert';
 
-type State = "idle" | "naming" | "saving" | "saved" | "error";
+type State = 'idle' | 'naming' | 'saving' | 'saved' | 'error';
 
 function defaultName(plan: CraftPlan): string {
   return `${plan.baseName} (${plan.desiredPrefixes.length}p/${plan.desiredSuffixes.length}s)`;
@@ -16,7 +16,7 @@ async function errorText(res: Response): Promise<string> {
   const raw = await res.text();
   try {
     const data = JSON.parse(raw) as { error?: unknown };
-    if (typeof data.error === "string" && data.error) return data.error;
+    if (typeof data.error === 'string' && data.error) return data.error;
   } catch {
     // not JSON — fall through to the raw body
   }
@@ -24,8 +24,8 @@ async function errorText(res: Response): Promise<string> {
 }
 
 export function SavePlanButton({ plan }: { plan: CraftPlan }) {
-  const [state, setState] = useState<State>("idle");
-  const [name, setName] = useState("");
+  const [state, setState] = useState<State>('idle');
+  const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -33,10 +33,10 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
   const reasonId = useId();
 
   useEffect(() => {
-    if (state === "naming") {
+    if (state === 'naming') {
       inputRef.current?.focus();
       inputRef.current?.select();
-    } else if (state === "saved" || state === "error") {
+    } else if (state === 'saved' || state === 'error') {
       // The form unmounted; put focus back on the trigger so it isn't lost.
       triggerRef.current?.focus();
     }
@@ -45,43 +45,43 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
   const open = () => {
     setName(defaultName(plan));
     setError(null);
-    setState("naming");
+    setState('naming');
   };
 
   const cancel = () => {
-    setState("idle");
+    setState('idle');
     requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   const save = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setState("saving");
+    setState('saving');
     setError(null);
     try {
-      const res = await fetch("/api/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed, baseId: plan.baseId, plan }),
       });
       if (!res.ok) throw new Error(await errorText(res));
-      setState("saved");
+      setState('saved');
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save the plan.");
-      setState("error");
+      setError(e instanceof Error ? e.message : 'Could not save the plan.');
+      setState('error');
     }
   };
 
-  if (state === "naming" || state === "saving") {
+  if (state === 'naming' || state === 'saving') {
     return (
       <form
         className="flex w-full flex-wrap items-end gap-2 sm:w-auto"
-        onSubmit={(e) => {
+        onSubmit={e => {
           e.preventDefault();
           void save();
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape" && state === "naming") {
+        onKeyDown={e => {
+          if (e.key === 'Escape' && state === 'naming') {
             e.preventDefault();
             cancel();
           }
@@ -98,14 +98,23 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
             value={name}
             maxLength={120}
             required
-            disabled={state === "saving"}
-            onChange={(e) => setName(e.target.value)}
+            disabled={state === 'saving'}
+            onChange={e => setName(e.target.value)}
           />
         </div>
-        <button type="submit" className="btn btn-primary" disabled={state === "saving" || !name.trim()}>
-          {state === "saving" ? "Saving…" : "Save"}
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={state === 'saving' || !name.trim()}
+        >
+          {state === 'saving' ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={cancel} disabled={state === "saving"}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={cancel}
+          disabled={state === 'saving'}
+        >
           Cancel
         </button>
       </form>
@@ -118,9 +127,9 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
         label="Save plan"
         summary="Stores the current plan locally for later."
         detail={[
-          "Saved to the local database via the plans API.",
+          'Saved to the local database via the plans API.',
           "The Saved page re-prices it at today's currency prices.",
-          "Asks for a name — includes base and mod counts by default.",
+          'Asks for a name — includes base and mod counts by default.',
         ]}
       >
         <button
@@ -131,7 +140,7 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
           disabled={!plan.feasible}
           aria-describedby={!plan.feasible ? reasonId : undefined}
         >
-          {state === "saved" ? "Save again" : "Save plan"}
+          {state === 'saved' ? 'Save again' : 'Save plan'}
         </button>
       </ActionWithInfo>
       {!plan.feasible ? (
@@ -139,15 +148,18 @@ export function SavePlanButton({ plan }: { plan: CraftPlan }) {
           Only reachable plans can be saved.
         </p>
       ) : null}
-      {state === "saved" ? (
+      {state === 'saved' ? (
         <Alert tone="success">
-          Plan saved.{" "}
-          <Link href="/plans" className="font-medium underline underline-offset-2">
+          Plan saved.{' '}
+          <Link
+            href="/plans"
+            className="font-medium underline underline-offset-2"
+          >
             View saved plans
           </Link>
         </Alert>
       ) : null}
-      {state === "error" && error ? (
+      {state === 'error' && error ? (
         <Alert tone="danger" title="Could not save the plan">
           {error}
         </Alert>

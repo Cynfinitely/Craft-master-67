@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Single-choice switcher. Behaves as a radio group: one tab stop, arrow keys
@@ -25,25 +25,30 @@ export function SegmentedControl<T extends string>({
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
+    const mq = window.matchMedia('(max-width: 767px)');
     const update = () => setCompact(mq.matches);
     update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   }, []);
 
   const labelFor = (opt: { value: T; label: string }) =>
     compact && shortLabels?.[opt.value] ? shortLabels[opt.value]! : opt.label;
 
-  const current = Math.max(0, options.findIndex((o) => o.value === value));
+  const current = Math.max(
+    0,
+    options.findIndex(o => o.value === value)
+  );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const last = options.length - 1;
     let next: number | null = null;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = current === last ? 0 : current + 1;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = current === 0 ? last : current - 1;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = last;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown')
+      next = current === last ? 0 : current + 1;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')
+      next = current === 0 ? last : current - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = last;
     if (next === null) return;
     e.preventDefault();
     refs.current[next]?.focus();
@@ -63,7 +68,7 @@ export function SegmentedControl<T extends string>({
           return (
             <button
               key={opt.value}
-              ref={(el) => {
+              ref={el => {
                 refs.current[i] = el;
               }}
               type="button"
@@ -73,8 +78,8 @@ export function SegmentedControl<T extends string>({
               onClick={() => onChange(opt.value)}
               className={`tap shrink-0 rounded px-3 py-1.5 text-sm transition-colors md:flex-1 md:shrink ${
                 selected
-                  ? "bg-forge-panel font-semibold text-forge-goldbright shadow-sm ring-1 ring-forge-rust/50"
-                  : "text-forge-muted hover:bg-forge-panel/60 hover:text-forge-goldbright"
+                  ? 'bg-forge-panel font-semibold text-forge-goldbright shadow-sm ring-1 ring-forge-rust/50'
+                  : 'text-forge-muted hover:bg-forge-panel/60 hover:text-forge-goldbright'
               }`}
             >
               {labelFor(opt)}

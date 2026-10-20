@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { cloneElement, isValidElement, useId } from "react";
+import { cloneElement, isValidElement, useId } from 'react';
 
 /**
  * Label + control + optional hint/error, wired together with ids. The single
@@ -12,7 +12,7 @@ export function Field({
   error,
   srOnlyLabel = false,
   inline = false,
-  className = "",
+  className = '',
   children,
 }: {
   label: React.ReactNode;
@@ -27,20 +27,27 @@ export function Field({
   const id = useId();
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
-  const ownId = isValidElement<{ id?: string }>(children) ? children.props.id : undefined;
+  const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
+  const ownId = isValidElement<{ id?: string }>(children)
+    ? children.props.id
+    : undefined;
   const controlId = ownId ?? id;
   const control = isValidElement(children)
     ? cloneElement(children as React.ReactElement<Record<string, unknown>>, {
         id: controlId,
-        "aria-describedby": describedBy,
-        "aria-invalid": error ? true : undefined,
+        'aria-describedby': describedBy,
+        'aria-invalid': error ? true : undefined,
       })
     : children;
 
   return (
-    <div className={`${inline ? "flex items-center gap-2" : "flex flex-col gap-1"} min-w-0 ${className}`}>
-      <label htmlFor={controlId} className={srOnlyLabel ? "sr-only" : "label shrink-0"}>
+    <div
+      className={`${inline ? 'flex items-center gap-2' : 'flex flex-col gap-1'} min-w-0 ${className}`}
+    >
+      <label
+        htmlFor={controlId}
+        className={srOnlyLabel ? 'sr-only' : 'label shrink-0'}
+      >
         {label}
       </label>
       {control}

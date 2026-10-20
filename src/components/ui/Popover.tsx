@@ -1,7 +1,13 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 
 const GUTTER = 8;
 
@@ -25,7 +31,7 @@ export function Popover({
   matchWidth = false,
   width = 288,
   maxHeight = 360,
-  className = "",
+  className = '',
   id,
   role,
   ariaLabel,
@@ -58,7 +64,9 @@ export function Popover({
     const flip = below < Math.min(maxHeight, 200) && above > below;
     const room = Math.max(120, Math.min(maxHeight, flip ? above : below) - 4);
     const panelH = panelRef.current?.offsetHeight ?? room;
-    const top = flip ? Math.max(GUTTER, r.top - 4 - Math.min(panelH, room)) : r.bottom + 4;
+    const top = flip
+      ? Math.max(GUTTER, r.top - 4 - Math.min(panelH, room))
+      : r.bottom + 4;
     setPos({ top, left, width: w, maxHeight: room });
   }, [anchorRef, matchWidth, width, maxHeight]);
 
@@ -77,25 +85,26 @@ export function Popover({
     const onScroll = () => place();
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
-      if (panelRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t) || anchorRef.current?.contains(t))
+        return;
       onClose();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === 'Escape') onClose();
     };
-    window.addEventListener("resize", onScroll);
-    window.addEventListener("scroll", onScroll, true);
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("keydown", onKey);
+    window.addEventListener('resize', onScroll);
+    window.addEventListener('scroll', onScroll, true);
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener("resize", onScroll);
-      window.removeEventListener("scroll", onScroll, true);
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
     };
   }, [open, place, onClose, anchorRef]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open || typeof document === 'undefined') return null;
 
   return createPortal(
     <div
@@ -103,18 +112,18 @@ export function Popover({
       id={id}
       role={role}
       aria-label={ariaLabel}
-      tabIndex={role === "dialog" ? -1 : undefined}
+      tabIndex={role === 'dialog' ? -1 : undefined}
       className={`fixed z-[90] overflow-y-auto overscroll-contain rounded-md border border-forge-border bg-forge-panel shadow-lg ${className}`}
       style={{
         top: pos?.top ?? -9999,
         left: pos?.left ?? -9999,
         width: pos?.width,
         maxHeight: pos?.maxHeight,
-        visibility: pos ? "visible" : "hidden",
+        visibility: pos ? 'visible' : 'hidden',
       }}
     >
       {children}
     </div>,
-    document.body,
+    document.body
   );
 }

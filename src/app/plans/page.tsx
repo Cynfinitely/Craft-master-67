@@ -1,14 +1,17 @@
-import Link from "next/link";
-import { listFavorites, listSavedPlans } from "@/lib/user/queries";
-import { repricePlan } from "@/lib/craft";
-import { SavedPlansList, type PlanDrift } from "@/components/plans/SavedPlansList";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/ui/PageHeader";
+import Link from 'next/link';
+import { listFavorites, listSavedPlans } from '@/lib/user/queries';
+import { repricePlan } from '@/lib/craft';
+import {
+  SavedPlansList,
+  type PlanDrift,
+} from '@/components/plans/SavedPlansList';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: "Saved Plans",
+  title: 'Saved Plans',
 };
 
 /** Plans re-priced on each visit (newest first); older plans show no drift. */
@@ -19,7 +22,7 @@ const REPRICE_CONCURRENCY = 4;
 async function forEachLimited<T>(
   items: T[],
   limit: number,
-  fn: (item: T) => Promise<void>,
+  fn: (item: T) => Promise<void>
 ): Promise<void> {
   let next = 0;
   const worker = async () => {
@@ -28,31 +31,40 @@ async function forEachLimited<T>(
       await fn(item);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
 }
 
 export default async function PlansPage() {
-  const [plans, favorites] = await Promise.all([listSavedPlans(), listFavorites()]);
+  const [plans, favorites] = await Promise.all([
+    listSavedPlans(),
+    listFavorites(),
+  ]);
 
   // Re-price each saved plan's cheapest method at today's currency prices from
   // its stored shopping list (no re-simulation) to show cost drift.
   const drift: Record<number, PlanDrift> = {};
-  await forEachLimited(plans.slice(0, REPRICE_LIMIT), REPRICE_CONCURRENCY, async (p) => {
-    const savedCheapest = p.plan.methods?.[0];
-    if (savedCheapest?.estCostExalted == null) return;
-    try {
-      const now = (await repricePlan(p.plan)).get(savedCheapest.id);
-      if (now != null) {
-        drift[p.id] = {
-          savedCostExalted: savedCheapest.estCostExalted,
-          nowCostExalted: now,
-          divinePriceExalted: p.plan.divinePriceExalted ?? 0,
-        };
+  await forEachLimited(
+    plans.slice(0, REPRICE_LIMIT),
+    REPRICE_CONCURRENCY,
+    async p => {
+      const savedCheapest = p.plan.methods?.[0];
+      if (savedCheapest?.estCostExalted == null) return;
+      try {
+        const now = (await repricePlan(p.plan)).get(savedCheapest.id);
+        if (now != null) {
+          drift[p.id] = {
+            savedCostExalted: savedCheapest.estCostExalted,
+            nowCostExalted: now,
+            divinePriceExalted: p.plan.divinePriceExalted ?? 0,
+          };
+        }
+      } catch {
+        /* drift is optional */
       }
-    } catch {
-      /* drift is optional */
     }
-  });
+  );
 
   return (
     <div className="space-y-6">
@@ -90,17 +102,22 @@ export default async function PlansPage() {
           </EmptyState>
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {favorites.map((f) => (
+            {favorites.map(f => (
               <li key={f.baseId} className="min-w-0">
                 <Link
                   href={`/items?base=${encodeURIComponent(f.baseId)}`}
                   className="panel flex min-h-11 min-w-0 items-center justify-between gap-3 px-4 py-3 transition-colors hover:border-forge-gold/50"
                 >
-                  <span className="min-w-0 truncate font-medium text-rarity-normal" title={f.name}>
+                  <span
+                    className="min-w-0 truncate font-medium text-rarity-normal"
+                    title={f.name}
+                  >
                     {f.name}
                   </span>
                   {f.itemClass ? (
-                    <span className="shrink-0 text-xs text-forge-muted">{f.itemClass}</span>
+                    <span className="shrink-0 text-xs text-forge-muted">
+                      {f.itemClass}
+                    </span>
                   ) : null}
                 </Link>
               </li>

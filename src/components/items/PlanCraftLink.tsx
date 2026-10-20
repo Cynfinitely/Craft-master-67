@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { ActionWithInfo } from "@/components/ui/ActionWithInfo";
+import Link from 'next/link';
+import { ActionWithInfo } from '@/components/ui/ActionWithInfo';
 
 export function PlanCraftLink({ href }: { href: string }) {
   return (
@@ -9,9 +9,9 @@ export function PlanCraftLink({ href }: { href: string }) {
       label="Plan a craft"
       summary="Opens the crafting planner with this base pre-selected."
       detail={[
-        "Carries the base, item level and your search filters into the planner.",
-        "Modifier groups are empty until you pick targets.",
-        "Use the Items page pool to see what can roll before planning.",
+        'Carries the base, item level and your search filters into the planner.',
+        'Modifier groups are empty until you pick targets.',
+        'Use the Items page pool to see what can roll before planning.',
       ]}
       className="w-full sm:w-auto"
     >

@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -11,16 +11,16 @@ let lockCount = 0;
 function lockScroll() {
   lockCount += 1;
   if (lockCount === 1) {
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
   }
 }
 
 function unlockScroll() {
   lockCount = Math.max(0, lockCount - 1);
   if (lockCount === 0) {
-    document.documentElement.style.overflow = "";
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
   }
 }
 
@@ -32,14 +32,14 @@ export function Sheet({
   open,
   onClose,
   title,
-  side = "right",
+  side = 'right',
   children,
-  className = "",
+  className = '',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
-  side?: "right" | "left" | "bottom";
+  side?: 'right' | 'left' | 'bottom';
   children: React.ReactNode;
   className?: string;
 }) {
@@ -56,12 +56,12 @@ export function Sheet({
     panel?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
         return;
       }
-      if (e.key !== "Tab" || !panel) return;
+      if (e.key !== 'Tab' || !panel) return;
       const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
       if (items.length === 0) return;
       const first = items[0];
@@ -74,9 +74,9 @@ export function Sheet({
         first.focus();
       }
     };
-    document.addEventListener("keydown", onKey);
+    document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener('keydown', onKey);
       unlockScroll();
       previous?.focus?.();
     };
@@ -85,11 +85,11 @@ export function Sheet({
   if (!mounted || !open) return null;
 
   const placement =
-    side === "bottom"
-      ? "inset-x-0 bottom-0 max-h-[85dvh] rounded-t-xl border-t"
-      : side === "left"
-        ? "inset-y-0 left-0 w-[min(22rem,88vw)] border-r"
-        : "inset-y-0 right-0 w-[min(22rem,88vw)] border-l";
+    side === 'bottom'
+      ? 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-xl border-t'
+      : side === 'left'
+        ? 'inset-y-0 left-0 w-[min(22rem,88vw)] border-r'
+        : 'inset-y-0 right-0 w-[min(22rem,88vw)] border-l';
 
   return createPortal(
     <div className="fixed inset-0 z-[100]" role="presentation">
@@ -106,17 +106,24 @@ export function Sheet({
         aria-modal="true"
         aria-label={title}
         className={`absolute flex flex-col overflow-hidden border-forge-border bg-forge-panel shadow-2xl ${placement} ${className}`}
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex items-center justify-between gap-2 border-b border-forge-border px-4 py-2">
           <p className="text-sm font-semibold text-forge-goldbright">{title}</p>
-          <button type="button" className="btn tap" onClick={onClose} aria-label={`Close ${title}`}>
+          <button
+            type="button"
+            className="btn tap"
+            onClick={onClose}
+            aria-label={`Close ${title}`}
+          >
             Close
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {children}
+        </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

@@ -1,14 +1,19 @@
 /** Loading placeholder for whole pages (variant "page") or one section. */
 export function PageSkeleton({
   label,
-  variant = "page",
+  variant = 'page',
 }: {
   label: string;
-  variant?: "page" | "section";
+  variant?: 'page' | 'section';
 }) {
   return (
-    <div role="status" aria-busy="true" aria-live="polite" className="space-y-4">
-      {variant === "page" ? (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      className="space-y-4"
+    >
+      {variant === 'page' ? (
         <>
           <div className="space-y-2">
             <div className="h-7 w-full max-w-56 animate-pulse rounded bg-forge-panel2" />

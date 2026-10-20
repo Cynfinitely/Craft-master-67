@@ -24,14 +24,14 @@ npm run data:setup        # download game data + materials, build data/poe2.db
 npm run dev               # http://localhost:3000
 ```
 
-| Script | Description |
-| --- | --- |
-| `npm run data:refresh` | Re-download the repoe-fork base/mod JSON snapshot into `data/snapshot/`. |
-| `npm run data:materials` | Re-download the poe2scout material catalog. |
-| `npm run data:seed` | Rebuild `data/poe2.db` from the snapshot. |
-| `npm run data:setup` | Refresh + materials + seed (run after each PoE2 patch). |
-| `npm run dev` / `build` / `start` | Next.js dev server / production build / serve. |
-| `npm test` | Engine, technique, optimizer and import tests. |
+| Script                            | Description                                                              |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `npm run data:refresh`            | Re-download the repoe-fork base/mod JSON snapshot into `data/snapshot/`. |
+| `npm run data:materials`          | Re-download the poe2scout material catalog.                              |
+| `npm run data:seed`               | Rebuild `data/poe2.db` from the snapshot.                                |
+| `npm run data:setup`              | Refresh + materials + seed (run after each PoE2 patch).                  |
+| `npm run dev` / `build` / `start` | Next.js dev server / production build / serve.                           |
+| `npm test`                        | Engine, technique, optimizer and import tests.                           |
 
 Set `LIBSQL_URL` / `LIBSQL_AUTH_TOKEN` to use a hosted (Turso) database instead of `data/poe2.db`.
 

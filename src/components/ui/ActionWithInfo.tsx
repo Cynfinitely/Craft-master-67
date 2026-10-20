@@ -1,11 +1,11 @@
-import { InfoTip } from "@/components/InfoTip";
+import { InfoTip } from '@/components/InfoTip';
 
 export function ActionWithInfo({
   label,
   summary,
   detail,
   children,
-  className = "",
+  className = '',
 }: {
   label: string;
   summary: string;
@@ -14,9 +14,7 @@ export function ActionWithInfo({
   className?: string;
 }) {
   return (
-    <div
-      className={`flex shrink-0 items-center gap-1.5 ${className}`}
-    >
+    <div className={`flex shrink-0 items-center gap-1.5 ${className}`}>
       {children}
       <InfoTip label={label} summary={summary} detail={detail} />
     </div>

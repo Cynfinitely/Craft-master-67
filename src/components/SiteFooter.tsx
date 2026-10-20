@@ -7,7 +7,7 @@ export function SiteFooter() {
           Games in any way.
         </p>
         <p className="mt-1">
-          Game data sourced from the community{" "}
+          Game data sourced from the community{' '}
           <a
             className="underline hover:text-forge-goldbright"
             href="https://github.com/repoe-fork/repoe"
@@ -15,8 +15,8 @@ export function SiteFooter() {
             rel="noreferrer"
           >
             repoe-fork
-          </a>{" "}
-          export. Price data from{" "}
+          </a>{' '}
+          export. Price data from{' '}
           <a
             className="underline hover:text-forge-goldbright"
             href="https://poe2scout.com/"

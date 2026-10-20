@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Popover } from "@/components/ui/Popover";
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Popover } from '@/components/ui/Popover';
 
 export function InfoTip({
   label,
@@ -18,14 +18,17 @@ export function InfoTip({
   const close = useCallback(() => {
     // Return focus to the trigger only if it was inside the panel (Escape),
     // not when the user clicked somewhere else on the page.
-    if (document.getElementById(panelId)?.contains(document.activeElement)) ref.current?.focus();
+    if (document.getElementById(panelId)?.contains(document.activeElement))
+      ref.current?.focus();
     setOpen(false);
   }, [panelId]);
 
   // Move focus into the panel so keyboard and screen-reader users land on it.
   useEffect(() => {
     if (!open) return;
-    const raf = requestAnimationFrame(() => document.getElementById(panelId)?.focus());
+    const raf = requestAnimationFrame(() =>
+      document.getElementById(panelId)?.focus()
+    );
     return () => cancelAnimationFrame(raf);
   }, [open, panelId]);
 
@@ -38,13 +41,23 @@ export function InfoTip({
         aria-label={`Info: ${label}`}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(v => !v)}
       >
         ?
       </button>
-      <Popover open={open} onClose={close} anchorRef={ref} id={panelId} role="dialog" ariaLabel={label} className="p-3 outline-none">
+      <Popover
+        open={open}
+        onClose={close}
+        anchorRef={ref}
+        id={panelId}
+        role="dialog"
+        ariaLabel={label}
+        className="p-3 outline-none"
+      >
         <p className="text-xs font-semibold text-forge-goldbright">{label}</p>
-        <p className="mt-1 text-2xs text-forge-muted max-md:text-xs">{summary}</p>
+        <p className="mt-1 text-2xs text-forge-muted max-md:text-xs">
+          {summary}
+        </p>
         <ul className="mt-2 list-inside list-disc space-y-1 text-2xs text-forge-muted max-md:text-xs">
           {detail.map((line, i) => (
             <li key={i}>{line}</li>

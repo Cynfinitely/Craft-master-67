@@ -1,5 +1,5 @@
-import type { BaseDetail } from "@/lib/data/types";
-import { cleanModText } from "@/lib/data/format";
+import type { BaseDetail } from '@/lib/data/types';
+import { cleanModText } from '@/lib/data/format';
 
 export function BaseHeader({
   base,
@@ -37,7 +37,7 @@ export function BaseHeader({
           aria-label="Implicit modifiers"
           className="panel-inset num mt-3 px-3 py-2 text-sm text-forge-gold"
         >
-          {base.implicits.map((id) => (
+          {base.implicits.map(id => (
             <li key={id}>{cleanModText(implicitTexts?.get(id) ?? id)}</li>
           ))}
         </ul>
@@ -45,16 +45,16 @@ export function BaseHeader({
 
       {reqEntries.length > 0 ? (
         <p className="num mt-3 text-xs text-forge-muted">
-          Requires{" "}
+          Requires{' '}
           {reqEntries
             .map(([k, v]) => `${v} ${k[0].toUpperCase()}${k.slice(1)}`)
-            .join(", ")}
+            .join(', ')}
         </p>
       ) : null}
 
       {base.tags.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1">
-          {base.tags.map((t) => (
+          {base.tags.map(t => (
             <span key={t} className="tag-chip">
               {t}
             </span>

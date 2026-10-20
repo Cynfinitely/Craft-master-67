@@ -1,6 +1,6 @@
 /** Format an exalted-orb amount for display. */
 export function formatExaltedOnly(cost: number | null): string {
-  if (cost == null) return "n/a";
+  if (cost == null) return 'n/a';
   if (cost >= 1000) return `${(cost / 1000).toFixed(1)}k ex`;
   if (cost >= 10) return `${Math.round(cost)} ex`;
   if (cost >= 1) return `${cost.toFixed(1)} ex`;
@@ -18,7 +18,7 @@ export function formatDivineOnly(divine: number): string {
 /** Format cost in exalted orbs, optionally with divine equivalent in parentheses. */
 export function formatCost(
   costExalted: number | null,
-  divinePriceExalted?: number,
+  divinePriceExalted?: number
 ): string {
   const ex = formatExaltedOnly(costExalted);
   if (costExalted == null || !divinePriceExalted || divinePriceExalted <= 0) {

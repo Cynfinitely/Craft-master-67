@@ -1,4 +1,4 @@
-import { FLUX_FALLBACK_PRICE } from "../data/flux";
+import { FLUX_FALLBACK_PRICE } from '../data/flux';
 
 /**
  * Fallback unit prices in Exalted Orbs, used when poe2scout has no quote for
@@ -10,36 +10,36 @@ export const FALLBACK_PRICE: Record<string, number> = {
   regal: 0.3,
   alch: 0.25,
   exalted: 1,
-  "greater-exalted-orb": 6,
-  "perfect-exalted-orb": 30,
+  'greater-exalted-orb': 6,
+  'perfect-exalted-orb': 30,
   chaos: 0.5,
-  "greater-chaos-orb": 4,
-  "perfect-chaos-orb": 20,
-  "greater-orb-of-transmutation": 0.5,
-  "perfect-orb-of-transmutation": 3,
-  "greater-orb-of-augmentation": 0.5,
-  "perfect-orb-of-augmentation": 3,
-  "greater-regal-orb": 4,
-  "perfect-regal-orb": 20,
+  'greater-chaos-orb': 4,
+  'perfect-chaos-orb': 20,
+  'greater-orb-of-transmutation': 0.5,
+  'perfect-orb-of-transmutation': 3,
+  'greater-orb-of-augmentation': 0.5,
+  'perfect-orb-of-augmentation': 3,
+  'greater-regal-orb': 4,
+  'perfect-regal-orb': 20,
   annul: 2,
-  "omen-of-sinistral-annulment": 5,
-  "omen-of-dextral-annulment": 5,
-  "omen-of-sinistral-exaltation": 10,
-  "omen-of-dextral-exaltation": 10,
-  "omen-of-greater-exaltation": 8,
-  "omen-of-whittling": 25,
-  "omen-of-abyssal-echoes": 20,
-  "omen-of-sinistral-necromancy": 10,
-  "omen-of-dextral-necromancy": 10,
+  'omen-of-sinistral-annulment': 5,
+  'omen-of-dextral-annulment': 5,
+  'omen-of-sinistral-exaltation': 10,
+  'omen-of-dextral-exaltation': 10,
+  'omen-of-greater-exaltation': 8,
+  'omen-of-whittling': 25,
+  'omen-of-abyssal-echoes': 20,
+  'omen-of-sinistral-necromancy': 10,
+  'omen-of-dextral-necromancy': 10,
   divine: 200,
-  "fracturing-orb": 30,
-  "essence-of-the-abyss": 80,
-  "preserved-jawbone": 5,
-  "ancient-jawbone": 25,
-  "preserved-rib": 5,
-  "ancient-rib": 25,
-  "preserved-collarbone": 5,
-  "ancient-collarbone": 25,
+  'fracturing-orb': 30,
+  'essence-of-the-abyss': 80,
+  'preserved-jawbone': 5,
+  'ancient-jawbone': 25,
+  'preserved-rib': 5,
+  'ancient-rib': 25,
+  'preserved-collarbone': 5,
+  'ancient-collarbone': 25,
   ...FLUX_FALLBACK_PRICE,
 };
 
@@ -60,21 +60,21 @@ export interface PriceBook {
 }
 
 const KNOWN_NAMES: Record<string, string> = {
-  alch: "Orb of Alchemy",
-  chaos: "Chaos Orb",
-  exalted: "Exalted Orb",
-  transmute: "Orb of Transmutation",
-  aug: "Orb of Augmentation",
-  regal: "Regal Orb",
-  annul: "Orb of Annulment",
-  divine: "Divine Orb",
-  "fracturing-orb": "Fracturing Orb",
+  alch: 'Orb of Alchemy',
+  chaos: 'Chaos Orb',
+  exalted: 'Exalted Orb',
+  transmute: 'Orb of Transmutation',
+  aug: 'Orb of Augmentation',
+  regal: 'Regal Orb',
+  annul: 'Orb of Annulment',
+  divine: 'Divine Orb',
+  'fracturing-orb': 'Fracturing Orb',
 };
 
 export function titleCaseApiId(apiId: string): string {
   return (
     KNOWN_NAMES[apiId] ??
-    apiId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    apiId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   );
 }
 
@@ -93,7 +93,9 @@ export function makePriceBook(opts: {
       if (hit !== undefined) return hit;
       let p = opts.live.get(apiId);
       if (p == null) {
-        p = FALLBACK_PRICE[apiId] ?? (apiId.endsWith("-alloy") ? ALLOY_FALLBACK_PRICE : undefined);
+        p =
+          FALLBACK_PRICE[apiId] ??
+          (apiId.endsWith('-alloy') ? ALLOY_FALLBACK_PRICE : undefined);
         if (p != null) fallbacksUsed.add(apiId);
       }
       const v = p ?? 0;
@@ -104,7 +106,9 @@ export function makePriceBook(opts: {
       return opts.names?.get(apiId) ?? titleCaseApiId(apiId);
     },
     divinePriceExalted:
-      opts.divinePriceExalted || opts.live.get("divine") || FALLBACK_PRICE.divine,
+      opts.divinePriceExalted ||
+      opts.live.get('divine') ||
+      FALLBACK_PRICE.divine,
     fetchedAt: opts.fetchedAt ?? 0,
     league: opts.league ?? null,
     fallbacksUsed,

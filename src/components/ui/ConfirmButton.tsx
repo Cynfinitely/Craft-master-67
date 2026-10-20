@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Two-step inline confirmation for destructive actions: the first press arms
@@ -10,9 +10,9 @@ import { useEffect, useRef, useState } from "react";
 export function ConfirmButton({
   onConfirm,
   children,
-  confirmLabel = "Confirm?",
+  confirmLabel = 'Confirm?',
   ariaLabel,
-  className = "",
+  className = '',
   disabled,
 }: {
   onConfirm: () => void;
@@ -37,8 +37,10 @@ export function ConfirmButton({
     <button
       type="button"
       disabled={disabled}
-      aria-label={armed ? `${confirmLabel} ${ariaLabel ?? ""}`.trim() : ariaLabel}
-      className={`btn tap ${armed ? "btn-danger" : ""} ${className}`}
+      aria-label={
+        armed ? `${confirmLabel} ${ariaLabel ?? ''}`.trim() : ariaLabel
+      }
+      className={`btn tap ${armed ? 'btn-danger' : ''} ${className}`}
       onClick={() => {
         if (armed) {
           clearTimeout(timer.current);
@@ -47,8 +49,8 @@ export function ConfirmButton({
         } else arm();
       }}
       onBlur={() => setArmed(false)}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") setArmed(false);
+      onKeyDown={e => {
+        if (e.key === 'Escape') setArmed(false);
       }}
     >
       {armed ? confirmLabel : children}

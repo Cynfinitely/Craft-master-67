@@ -1,24 +1,24 @@
-import Link from "next/link";
+import Link from 'next/link';
 
 const FEATURES = [
   {
-    href: "/items",
-    title: "Items & Modifiers",
-    desc: "Search any base item and see every prefix and suffix that can roll on it, grouped by mod group with tiers, value ranges, item-level requirements and spawn weights.",
+    href: '/items',
+    title: 'Items & Modifiers',
+    desc: 'Search any base item and see every prefix and suffix that can roll on it, grouped by mod group with tiers, value ranges, item-level requirements and spawn weights.',
   },
   {
-    href: "/materials",
-    title: "Crafting Materials",
-    desc: "A reference for Path of Exile 2 crafting currencies and materials \u2014 essences, omens, runes, catalysts and more \u2014 with what each one does and its live price.",
+    href: '/materials',
+    title: 'Crafting Materials',
+    desc: 'A reference for Path of Exile 2 crafting currencies and materials \u2014 essences, omens, runes, catalysts and more \u2014 with what each one does and its live price.',
   },
   {
-    href: "/craft",
-    title: "Crafting Planner",
-    desc: "Pick a base and the modifiers you want. The crafting brain simulates every technique it knows and ranks them by expected cost to finish the item.",
+    href: '/craft',
+    title: 'Crafting Planner',
+    desc: 'Pick a base and the modifiers you want. The crafting brain simulates every technique it knows and ranks them by expected cost to finish the item.',
   },
   {
-    href: "/plans",
-    title: "Saved Plans",
+    href: '/plans',
+    title: 'Saved Plans',
     desc: "Reopen saved crafting plans and see how their cost moved with today's currency prices.",
   },
 ];
@@ -44,14 +44,19 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section aria-label="Tools" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {FEATURES.map((f) => (
+      <section
+        aria-label="Tools"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {FEATURES.map(f => (
           <Link
             key={f.href}
             href={f.href}
             className="panel group flex flex-col p-4 transition-colors hover:border-forge-rust/50 focus-visible:rounded-lg sm:p-5"
           >
-            <h2 className="text-lg font-semibold text-forge-goldbright">{f.title}</h2>
+            <h2 className="text-lg font-semibold text-forge-goldbright">
+              {f.title}
+            </h2>
             <p className="mt-2 flex-1 text-sm text-forge-muted">{f.desc}</p>
             <span
               aria-hidden

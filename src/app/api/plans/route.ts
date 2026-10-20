@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import {
   createSavedPlan,
   deleteSavedPlan,
   listSavedPlans,
-} from "@/lib/user/queries";
+} from '@/lib/user/queries';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
@@ -26,17 +26,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ id }, { status: 201 });
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Invalid request" },
-      { status: 400 },
+      { error: err instanceof Error ? err.message : 'Invalid request' },
+      { status: 400 }
     );
   }
 }
 
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
-  const id = Number.parseInt(searchParams.get("id") ?? "", 10);
+  const id = Number.parseInt(searchParams.get('id') ?? '', 10);
   if (Number.isNaN(id)) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
   await deleteSavedPlan(id);
   return NextResponse.json({ ok: true });

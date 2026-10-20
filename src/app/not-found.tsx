@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { EmptyState } from "@/components/ui/EmptyState";
+import Link from 'next/link';
+import { EmptyState } from '@/components/ui/EmptyState';
 
-export const metadata = { title: "Not found" };
+export const metadata = { title: 'Not found' };
 
 export default function NotFound() {
   return (

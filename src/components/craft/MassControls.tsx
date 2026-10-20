@@ -1,22 +1,26 @@
-"use client";
+'use client';
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useId } from "react";
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useId } from 'react';
 
-export function MassControls({ techniques }: { techniques: { id: string; name: string }[] }) {
+export function MassControls({
+  techniques,
+}: {
+  techniques: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const methodId = useId();
   const countId = useId();
 
-  const method = params.get("method") ?? "auto";
-  const n = params.get("n") ?? "50";
+  const method = params.get('method') ?? 'auto';
+  const n = params.get('n') ?? '50';
 
   const push = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
-      if (v === null || v === "") next.delete(k);
+      if (v === null || v === '') next.delete(k);
       else next.set(k, v);
     }
     router.push(`${pathname}?${next.toString()}`);
@@ -24,7 +28,7 @@ export function MassControls({ techniques }: { techniques: { id: string; name: s
 
   /** Commit the batch size only when it actually changed (avoids re-running the simulation on blur). */
   const commitCount = (raw: string) => {
-    const v = raw || "50";
+    const v = raw || '50';
     if (v !== n) push({ n: v });
   };
 
@@ -38,10 +42,12 @@ export function MassControls({ techniques }: { techniques: { id: string; name: s
           id={methodId}
           className="input min-w-0 sm:w-auto"
           value={method}
-          onChange={(e) => push({ method: e.target.value === "auto" ? null : e.target.value })}
+          onChange={e =>
+            push({ method: e.target.value === 'auto' ? null : e.target.value })
+          }
         >
           <option value="auto">Let the brain pick (cheapest)</option>
-          {techniques.map((m) => (
+          {techniques.map(m => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
@@ -61,9 +67,10 @@ export function MassControls({ techniques }: { techniques: { id: string; name: s
           className="num input w-24 text-center"
           defaultValue={n}
           key={`n-${n}`}
-          onBlur={(e) => commitCount(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitCount((e.target as HTMLInputElement).value);
+          onBlur={e => commitCount(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter')
+              commitCount((e.target as HTMLInputElement).value);
           }}
         />
       </div>

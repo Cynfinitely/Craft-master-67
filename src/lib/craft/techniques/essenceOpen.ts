@@ -1,6 +1,6 @@
-import type { Trial } from "../engine/actions";
-import { label } from "./helpers";
-import type { CraftContext, EssenceOption, StepDraft } from "./types";
+import type { Trial } from '../engine/actions';
+import { label } from './helpers';
+import type { CraftContext, EssenceOption, StepDraft } from './types';
 
 /** Opens a fresh base with an essence: Transmute → essence, or a Rare → Perfect essence. */
 export function openWithEssence(t: Trial, e: EssenceOption): void {
@@ -14,14 +14,17 @@ export function openWithEssence(t: Trial, e: EssenceOption): void {
   t.essence(e);
 }
 
-export function essenceOpenSteps(ctx: CraftContext, e: EssenceOption): StepDraft[] {
+export function essenceOpenSteps(
+  ctx: CraftContext,
+  e: EssenceOption
+): StepDraft[] {
   const mod = label(ctx, e.group);
   if (e.perfect) {
     return [
       {
-        title: "Transmute, Augment, Regal",
+        title: 'Transmute, Augment, Regal',
         detail: `Rare ${ctx.baseName} with 3 mods.`,
-        currency: ctx.prices.name("regal"),
+        currency: ctx.prices.name('regal'),
       },
       {
         title: `${e.name} for ${mod}`,
@@ -32,9 +35,9 @@ export function essenceOpenSteps(ctx: CraftContext, e: EssenceOption): StepDraft
   }
   return [
     {
-      title: "Transmute",
+      title: 'Transmute',
       detail: `Orb of Transmutation on a white ${ctx.baseName}.`,
-      currency: ctx.prices.name("transmute"),
+      currency: ctx.prices.name('transmute'),
     },
     {
       title: `${e.name} for ${mod}`,

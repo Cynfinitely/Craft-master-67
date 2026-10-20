@@ -1,15 +1,15 @@
-"use client";
+'use client';
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useId, useState } from "react";
-import { InfoTip } from "@/components/InfoTip";
-import { ClassCombobox } from "@/components/ui/ClassCombobox";
-import { FilterFieldRow } from "@/components/ui/FilterFieldRow";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useId, useState } from 'react';
+import { InfoTip } from '@/components/InfoTip';
+import { ClassCombobox } from '@/components/ui/ClassCombobox';
+import { FilterFieldRow } from '@/components/ui/FilterFieldRow';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 
-type CraftMode = "base" | "recommend" | "paste" | "mass";
+type CraftMode = 'base' | 'recommend' | 'paste' | 'mass';
 /** Finish mode is reached from a pasted item; it shows under the Paste tab. */
-type PageMode = CraftMode | "finish";
+type PageMode = CraftMode | 'finish';
 
 /**
  * URL params each mode understands beyond mode/q/class/ilvl/cost. Switching
@@ -17,18 +17,18 @@ type PageMode = CraftMode | "finish";
  * drops the rest; the old URL stays in history, so Back restores it.
  */
 const MODE_PARAMS: Record<CraftMode, string[]> = {
-  base: ["base", "groups"],
-  mass: ["base", "groups"],
-  recommend: ["groups"],
+  base: ['base', 'groups'],
+  mass: ['base', 'groups'],
+  recommend: ['groups'],
   paste: [],
 };
-const MODE_SPECIFIC = ["base", "groups", "current"];
+const MODE_SPECIFIC = ['base', 'groups', 'current'];
 
 const MODE_OPTIONS: { value: CraftMode; label: string }[] = [
-  { value: "base", label: "From a base" },
-  { value: "recommend", label: "Recommend a base" },
-  { value: "mass", label: "Mass craft" },
-  { value: "paste", label: "Paste item" },
+  { value: 'base', label: 'From a base' },
+  { value: 'recommend', label: 'Recommend a base' },
+  { value: 'mass', label: 'Mass craft' },
+  { value: 'paste', label: 'Paste item' },
 ];
 
 export function CraftControls({
@@ -42,7 +42,7 @@ export function CraftControls({
   const pathname = usePathname();
   const params = useSearchParams();
 
-  const [q, setQ] = useState(params.get("q") ?? "");
+  const [q, setQ] = useState(params.get('q') ?? '');
 
   const searchId = useId();
   const ilvlId = useId();
@@ -50,7 +50,7 @@ export function CraftControls({
   const push = (updates: Record<string, string | null>, replace = false) => {
     const next = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
-      if (v === null || v === "") next.delete(k);
+      if (v === null || v === '') next.delete(k);
       else next.set(k, v);
     }
     const href = `${pathname}?${next.toString()}`;
@@ -62,22 +62,23 @@ export function CraftControls({
   useEffect(() => {
     // Only search when the box differs from the URL (also immune to StrictMode
     // double-mounting, which used to fire a search that cleared `base`).
-    if (q === (params.get("q") ?? "")) return;
+    if (q === (params.get('q') ?? '')) return;
     const handle = setTimeout(
       () => push({ q: q || null, base: null }, true),
-      300,
+      300
     );
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const itemClass = params.get("class") ?? "";
-  const ilvl = params.get("ilvl") ?? "82";
+  const itemClass = params.get('class') ?? '';
+  const ilvl = params.get('ilvl') ?? '82';
 
   const switchMode = (m: CraftMode) => {
     const next = new URLSearchParams(params.toString());
-    next.set("mode", m);
-    for (const k of MODE_SPECIFIC) if (!MODE_PARAMS[m].includes(k)) next.delete(k);
+    next.set('mode', m);
+    for (const k of MODE_SPECIFIC)
+      if (!MODE_PARAMS[m].includes(k)) next.delete(k);
     router.push(`${pathname}?${next.toString()}`);
   };
 
@@ -86,15 +87,15 @@ export function CraftControls({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <SegmentedControl
-            value={mode === "finish" ? "paste" : mode}
+            value={mode === 'finish' ? 'paste' : mode}
             onChange={switchMode}
             options={MODE_OPTIONS}
             label="Planner mode"
             shortLabels={{
-              base: "Base",
-              recommend: "Recommend",
-              mass: "Mass",
-              paste: "Paste",
+              base: 'Base',
+              recommend: 'Recommend',
+              mass: 'Mass',
+              paste: 'Paste',
             }}
           />
         </div>
@@ -102,18 +103,18 @@ export function CraftControls({
           label="Crafting planner"
           summary="Pick a mode, filter bases, then stage modifiers before building a plan."
           detail={[
-            "From a base: the brain ranks every technique for your goal.",
-            "Recommend: pick desired mods and get ranked base suggestions.",
-            "Mass craft: one pass of a technique over a batch of bases.",
-            "Paste item: plan an item again, or finish the pasted item itself.",
-            "Modifier picks are staged — nothing runs until you press the action button.",
+            'From a base: the brain ranks every technique for your goal.',
+            'Recommend: pick desired mods and get ranked base suggestions.',
+            'Mass craft: one pass of a technique over a batch of bases.',
+            'Paste item: plan an item again, or finish the pasted item itself.',
+            'Modifier picks are staged — nothing runs until you press the action button.',
           ]}
         />
       </div>
 
-      {mode === "paste" || mode === "finish" ? null : (
+      {mode === 'paste' || mode === 'finish' ? null : (
         <FilterFieldRow>
-          {mode === "base" || mode === "mass" ? (
+          {mode === 'base' || mode === 'mass' ? (
             <>
               <label htmlFor={searchId} className="sr-only">
                 Search base items
@@ -124,7 +125,7 @@ export function CraftControls({
                 className="input"
                 placeholder="Search base items"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={e => setQ(e.target.value)}
               />
             </>
           ) : null}
@@ -132,7 +133,7 @@ export function CraftControls({
             label="Item class"
             categories={classes}
             value={itemClass}
-            onChange={(v) => {
+            onChange={v => {
               // Groups are class-specific; only reset them when the class really changes.
               if (v === itemClass) return;
               push({ class: v || null, base: null, groups: null });
@@ -151,13 +152,14 @@ export function CraftControls({
               className="input w-16 text-center"
               defaultValue={ilvl}
               key={ilvl}
-              onBlur={(e) => {
-                if (e.target.value !== ilvl) push({ ilvl: e.target.value || "82" });
+              onBlur={e => {
+                if (e.target.value !== ilvl)
+                  push({ ilvl: e.target.value || '82' });
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
                   const v = (e.target as HTMLInputElement).value;
-                  if (v !== ilvl) push({ ilvl: v || "82" });
+                  if (v !== ilvl) push({ ilvl: v || '82' });
                 }
               }}
             />

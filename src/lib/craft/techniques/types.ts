@@ -1,10 +1,10 @@
-import type { AlloyUse, EssenceUse, Trial } from "../engine/actions";
-import type { SimPool } from "../engine/pool";
-import type { PriceBook } from "../engine/prices";
-import type { Item } from "../engine/state";
-import type { CraftStep, Target } from "../types";
+import type { AlloyUse, EssenceUse, Trial } from '../engine/actions';
+import type { SimPool } from '../engine/pool';
+import type { PriceBook } from '../engine/prices';
+import type { Item } from '../engine/state';
+import type { CraftStep, Target } from '../types';
 
-export type CraftMode = "craft" | "finish";
+export type CraftMode = 'craft' | 'finish';
 
 export interface EssenceOption extends EssenceUse {
   name: string;
@@ -46,7 +46,7 @@ export interface CraftContext {
 
 export type Applies = { ok: true } | { ok: false; reason: string };
 
-export type StepDraft = Omit<CraftStep, "n">;
+export type StepDraft = Omit<CraftStep, 'n'>;
 
 /**
  * A crafting technique: a policy with decision points. The brain expands

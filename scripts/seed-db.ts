@@ -3,59 +3,59 @@
  *
  * Run with: npm run data:seed  (or `npm run data:setup` to refresh + seed)
  */
-import { createClient, type InStatement } from "@libsql/client";
-import fs from "node:fs";
-import path from "node:path";
+import { createClient, type InStatement } from '@libsql/client';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   baseItemsFile,
   itemClassesFile,
   modsFile,
   tagsFile,
-} from "./lib/repoe-schema";
+} from './lib/repoe-schema';
 
-const SNAPSHOT_DIR = path.join(process.cwd(), "data", "snapshot");
-const DB_PATH = path.join(process.cwd(), "data", "poe2.db");
+const SNAPSHOT_DIR = path.join(process.cwd(), 'data', 'snapshot');
+const DB_PATH = path.join(process.cwd(), 'data', 'poe2.db');
 
 // Mod domains relevant to item crafting. Other domains (monster, area, etc.)
 // are skipped to keep the database focused.
-const MOD_DOMAINS = new Set(["item", "crafted", "desecrated"]);
+const MOD_DOMAINS = new Set(['item', 'crafted', 'desecrated']);
 
 // Core equippable gear item classes (by item_classes.category_id). Anything
 // outside this set (currency, gems, maps, soul cores, etc.) is marked
 // non-craftable so it stays out of the base browser and planner.
 const CRAFTABLE_CATEGORIES = new Set([
   // Martial / caster weapons
-  "One Hand Mace",
-  "Two Hand Mace",
-  "One Hand Sword",
-  "Two Hand Sword",
-  "One Hand Axe",
-  "Two Hand Axe",
-  "Dagger",
-  "Claw",
-  "Bow",
-  "Crossbow",
-  "Wand",
-  "Sceptre",
-  "Staff",
-  "Warstaff",
-  "Spear",
-  "Flail",
+  'One Hand Mace',
+  'Two Hand Mace',
+  'One Hand Sword',
+  'Two Hand Sword',
+  'One Hand Axe',
+  'Two Hand Axe',
+  'Dagger',
+  'Claw',
+  'Bow',
+  'Crossbow',
+  'Wand',
+  'Sceptre',
+  'Staff',
+  'Warstaff',
+  'Spear',
+  'Flail',
   // Armour
-  "Body Armour",
-  "Helmet",
-  "Gloves",
-  "Boots",
+  'Body Armour',
+  'Helmet',
+  'Gloves',
+  'Boots',
   // Off-hand
-  "Shield",
-  "Buckler",
-  "Focus",
+  'Shield',
+  'Buckler',
+  'Focus',
   // Jewellery
-  "Ring",
-  "Amulet",
-  "Belt",
+  'Ring',
+  'Amulet',
+  'Belt',
   // Ranged off-hand
-  "Quiver",
+  'Quiver',
 ]);
 
 const DDL = `
@@ -148,20 +148,20 @@ function readSnapshot<T>(file: string): T {
   const full = path.join(SNAPSHOT_DIR, file);
   if (!fs.existsSync(full)) {
     throw new Error(
-      `Missing snapshot file: ${full}\nRun \`npm run data:refresh\` first.`,
+      `Missing snapshot file: ${full}\nRun \`npm run data:refresh\` first.`
     );
   }
-  return JSON.parse(fs.readFileSync(full, "utf8")) as T;
+  return JSON.parse(fs.readFileSync(full, 'utf8')) as T;
 }
 
 async function runStatements(
   client: ReturnType<typeof createClient>,
   statements: InStatement[],
-  chunkSize = 2000,
+  chunkSize = 2000
 ): Promise<void> {
   for (let i = 0; i < statements.length; i += chunkSize) {
     const chunk = statements.slice(i, i + chunkSize);
-    await client.batch(chunk, "write");
+    await client.batch(chunk, 'write');
   }
 }
 
@@ -169,7 +169,7 @@ async function main() {
   const remote = process.env.LIBSQL_URL;
   if (!remote) {
     // Start from a clean database file.
-    for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
       const f = DB_PATH + suffix;
       if (fs.existsSync(f)) fs.rmSync(f);
     }
@@ -184,22 +184,22 @@ async function main() {
     : createClient({ url: `file:${DB_PATH}` });
   console.log(remote ? `Seeding ${remote}` : `Seeding file:${DB_PATH}`);
 
-  console.log("Creating schema...");
+  console.log('Creating schema...');
   await client.executeMultiple(DDL);
 
-  console.log("Parsing snapshot...");
-  const rawClasses = itemClassesFile.parse(readSnapshot("item_classes.json"));
-  const rawBases = baseItemsFile.parse(readSnapshot("base_items.json"));
-  const rawMods = modsFile.parse(readSnapshot("mods.json"));
+  console.log('Parsing snapshot...');
+  const rawClasses = itemClassesFile.parse(readSnapshot('item_classes.json'));
+  const rawBases = baseItemsFile.parse(readSnapshot('base_items.json'));
+  const rawMods = modsFile.parse(readSnapshot('mods.json'));
   // tags.json is validated but we don't need a dedicated table for it.
-  tagsFile.parse(readSnapshot("tags.json"));
+  tagsFile.parse(readSnapshot('tags.json'));
 
   /* ---- item classes ---- */
   const classStmts: InStatement[] = Object.entries(rawClasses).map(
     ([name, c]) => ({
-      sql: "INSERT INTO item_classes (name, category, category_id) VALUES (?, ?, ?)",
+      sql: 'INSERT INTO item_classes (name, category, category_id) VALUES (?, ?, ?)',
       args: [name, c.category ?? null, c.category_id ?? null],
-    }),
+    })
   );
   console.log(`Inserting ${classStmts.length} item classes...`);
   await runStatements(client, classStmts);
@@ -214,7 +214,7 @@ async function main() {
     const craftable =
       categoryId !== null &&
       CRAFTABLE_CATEGORIES.has(categoryId) &&
-      (b.release_state ?? "released") === "released"
+      (b.release_state ?? 'released') === 'released'
         ? 1
         : 0;
     if (craftable) craftableCount++;
@@ -241,13 +241,13 @@ async function main() {
     });
     for (const tag of tags) {
       baseTagStmts.push({
-        sql: "INSERT OR IGNORE INTO base_tags (base_id, tag) VALUES (?, ?)",
+        sql: 'INSERT OR IGNORE INTO base_tags (base_id, tag) VALUES (?, ?)',
         args: [id, tag],
       });
     }
   }
   console.log(
-    `Inserting ${baseStmts.length} bases (${craftableCount} craftable)...`,
+    `Inserting ${baseStmts.length} bases (${craftableCount} craftable)...`
   );
   await runStatements(client, baseStmts);
   console.log(`Inserting ${baseTagStmts.length} base-tag rows...`);
@@ -282,7 +282,7 @@ async function main() {
     const weights = m.spawn_weights ?? [];
     weights.forEach((w, ord) => {
       weightStmts.push({
-        sql: "INSERT INTO mod_spawn_weights (mod_id, ord, tag, weight) VALUES (?, ?, ?, ?)",
+        sql: 'INSERT INTO mod_spawn_weights (mod_id, ord, tag, weight) VALUES (?, ?, ?, ?)',
         args: [id, ord, w.tag, w.weight],
       });
     });
@@ -295,20 +295,20 @@ async function main() {
   // Quick sanity counts.
   const counts = await client.batch(
     [
-      "SELECT COUNT(*) AS n FROM bases",
-      "SELECT COUNT(*) AS n FROM mods",
-      "SELECT COUNT(*) AS n FROM mod_spawn_weights",
+      'SELECT COUNT(*) AS n FROM bases',
+      'SELECT COUNT(*) AS n FROM mods',
+      'SELECT COUNT(*) AS n FROM mod_spawn_weights',
     ],
-    "read",
+    'read'
   );
   console.log(
-    `Done. bases=${counts[0].rows[0].n}, mods=${counts[1].rows[0].n}, weights=${counts[2].rows[0].n}`,
+    `Done. bases=${counts[0].rows[0].n}, mods=${counts[1].rows[0].n}, weights=${counts[2].rows[0].n}`
   );
   console.log(`Database written to ${DB_PATH}`);
   client.close();
 }
 
-main().catch((err) => {
-  console.error("\nSeed failed:", err);
+main().catch(err => {
+  console.error('\nSeed failed:', err);
   process.exit(1);
 });

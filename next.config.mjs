@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    serverComponentsExternalPackages: ["@libsql/client", "libsql"],
+    serverComponentsExternalPackages: ['@libsql/client', 'libsql'],
   },
 };
 
