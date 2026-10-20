@@ -155,7 +155,6 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
     }
     const group = hit.groups[0] ?? hit.id;
     if (pm.desecrated) requiresDesecration = true;
-    const key = `${group}@${hit.requiredLevel}`;
     if (seen.has(group)) continue; // one target per group
     seen.add(group);
     matched.push({

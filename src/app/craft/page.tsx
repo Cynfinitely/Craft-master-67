@@ -81,10 +81,8 @@ function filterParams(
   return p;
 }
 
-export default async function CraftPage({
-  searchParams,
-}: {
-  searchParams: {
+export default async function CraftPage(props: {
+  searchParams: Promise<{
     mode?: string;
     q?: string;
     class?: string;
@@ -95,8 +93,9 @@ export default async function CraftPage({
     method?: string;
     n?: string;
     current?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const modes: Mode[] = ['base', 'recommend', 'paste', 'mass', 'finish'];
   const mode: Mode = modes.includes(searchParams.mode as Mode)
     ? (searchParams.mode as Mode)

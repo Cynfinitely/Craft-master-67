@@ -52,17 +52,16 @@ function buildFilterParams(
   return p;
 }
 
-export default async function ItemsPage({
-  searchParams,
-}: {
-  searchParams: {
+export default async function ItemsPage(props: {
+  searchParams: Promise<{
     q?: string;
     class?: string;
     ilvl?: string;
     base?: string;
     tag?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const itemLevel = clampIlvl(searchParams.ilvl);
   const filterActive = hasBaseSearchFilter({
     q: searchParams.q,

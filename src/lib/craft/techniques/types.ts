@@ -74,7 +74,7 @@ export interface Technique<C = unknown> {
 }
 
 /** Erases the choice type for the registry. */
-export type AnyTechnique = Technique<any>;
+export type AnyTechnique = Technique<unknown>;
 
 export function defineTechnique<C>(t: Technique<C>): Technique<C> {
   return t;

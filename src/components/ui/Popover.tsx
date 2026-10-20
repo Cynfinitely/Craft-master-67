@@ -38,7 +38,7 @@ export function Popover({
 }: {
   open: boolean;
   onClose: () => void;
-  anchorRef: React.RefObject<HTMLElement>;
+  anchorRef: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
   matchWidth?: boolean;
   width?: number;
@@ -50,6 +50,8 @@ export function Popover({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<Position | null>(null);
+  // Forget the last position while closed so reopening measures afresh.
+  if (!open && pos) setPos(null);
 
   const place = useCallback(() => {
     const anchor = anchorRef.current;
@@ -71,10 +73,7 @@ export function Popover({
   }, [anchorRef, matchWidth, width, maxHeight]);
 
   useLayoutEffect(() => {
-    if (!open) {
-      setPos(null);
-      return;
-    }
+    if (!open) return;
     place();
     const raf = requestAnimationFrame(place);
     return () => cancelAnimationFrame(raf);

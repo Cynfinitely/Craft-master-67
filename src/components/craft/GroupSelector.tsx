@@ -119,16 +119,25 @@ export function GroupSelector({
   const uid = useId();
   const search = params.toString();
 
-  useEffect(() => {
+  // Re-sync the staged selection when the applied URL values change.
+  const [applied, setApplied] = useState({
+    raw: appliedRaw,
+    cost: appliedCost,
+  });
+  if (applied.raw !== appliedRaw || applied.cost !== appliedCost) {
+    setApplied({ raw: appliedRaw, cost: appliedCost });
     setStaged(toMap(parseGoalList(appliedRaw)));
     setCost(appliedCost);
-  }, [appliedRaw, appliedCost]);
+  }
 
   // Any navigation ends the "Working…" state; so does a timeout, in case the
   // push was a no-op or failed, so the button can never stay stuck.
-  useEffect(() => {
+  const location = `${pathname}?${search}`;
+  const [builtAt, setBuiltAt] = useState(location);
+  if (builtAt !== location) {
+    setBuiltAt(location);
     setBuilding(false);
-  }, [pathname, search]);
+  }
 
   useEffect(() => {
     if (!building) return;

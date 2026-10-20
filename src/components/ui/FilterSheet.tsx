@@ -28,9 +28,13 @@ export function FilterSheet({
   const params = useSearchParams();
   const query = params.toString();
 
-  useEffect(() => {
+  // Close the sheet once the filters it holds have navigated.
+  const location = `${pathname}?${query}`;
+  const [openedAt, setOpenedAt] = useState(location);
+  if (openedAt !== location) {
+    setOpenedAt(location);
     setOpen(false);
-  }, [pathname, query]);
+  }
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');

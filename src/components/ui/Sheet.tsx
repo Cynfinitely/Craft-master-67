@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 const FOCUSABLE =
@@ -28,6 +28,8 @@ function unlockScroll() {
  * Viewport-level overlay panel. Rendered into `document.body` so no ancestor
  * transform/filter/backdrop-filter can trap its `position: fixed`.
  */
+const noopSubscribe = () => () => {};
+
 export function Sheet({
   open,
   onClose,
@@ -44,9 +46,12 @@ export function Sheet({
   className?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  // False during SSR and hydration, true on the client: the portal needs `document`.
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
 
   useEffect(() => {
     if (!open) return;

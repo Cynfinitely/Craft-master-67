@@ -73,9 +73,13 @@ export function ClassCombobox({
     setQuery('');
   }, []);
 
-  useEffect(() => {
+  // Reset the highlighted row whenever the list is reopened or refiltered.
+  const listKey = `${open}|${query}`;
+  const [highlightKey, setHighlightKey] = useState(listKey);
+  if (highlightKey !== listKey) {
+    setHighlightKey(listKey);
     setHighlight(0);
-  }, [query, open]);
+  }
 
   const select = (className: string) => {
     onChange(className);

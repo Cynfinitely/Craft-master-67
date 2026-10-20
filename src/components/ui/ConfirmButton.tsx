@@ -23,7 +23,7 @@ export function ConfirmButton({
   disabled?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 

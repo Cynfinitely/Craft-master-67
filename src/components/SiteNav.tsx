@@ -60,9 +60,12 @@ export function SiteNav() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  useEffect(() => {
+  // Close the drawer on navigation (state adjusted during render, not in an effect).
+  const [drawerPath, setDrawerPath] = useState(pathname);
+  if (drawerPath !== pathname) {
+    setDrawerPath(pathname);
     setDrawerOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!drawerOpen) return;

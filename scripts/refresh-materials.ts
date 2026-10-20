@@ -52,21 +52,45 @@ interface SourceMaterial {
   maxStackSize: number | null;
 }
 
-async function fetchJson(url: string): Promise<any> {
+/** poe2scout API shapes, limited to the fields this script reads. */
+interface ApiLeague {
+  Value: string;
+  IsCurrent?: boolean;
+}
+
+interface ApiCurrencyPage {
+  Pages?: number;
+  Items?: {
+    ApiId: string;
+    Text?: string;
+    CategoryApiId?: string;
+    IconUrl?: string;
+    ItemMetadata?: {
+      name?: string;
+      effect?: unknown;
+      description?: string;
+      icon?: string;
+      stack_size?: unknown;
+      max_stack_size?: unknown;
+    };
+  }[];
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
+  return (await res.json()) as T;
 }
 
 async function getCurrentLeague(): Promise<string> {
-  const leagues = await fetchJson(`${BASE_URL}/Leagues`);
+  const leagues = await fetchJson<ApiLeague[]>(`${BASE_URL}/Leagues`);
   const sc = leagues.find(
-    (l: any) => l.IsCurrent && !String(l.Value).startsWith('HC')
+    l => l.IsCurrent && !String(l.Value).startsWith('HC')
   );
   if (sc) return sc.Value;
-  const cur = leagues.find((l: any) => l.IsCurrent);
+  const cur = leagues.find(l => l.IsCurrent);
   // Fall back to the first listed league when none is flagged current.
   return cur?.Value ?? leagues[0]?.Value ?? 'Standard';
 }
@@ -85,7 +109,7 @@ async function fetchCategory(
   let page = 1;
   let pages = 1;
   do {
-    const data = await fetchJson(`${base}&Page=${page}`);
+    const data = await fetchJson<ApiCurrencyPage>(`${base}&Page=${page}`);
     pages = data.Pages ?? 1;
     for (const i of data.Items ?? []) {
       const meta = i.ItemMetadata ?? {};
@@ -94,7 +118,7 @@ async function fetchCategory(
         name: i.Text ?? meta.name ?? i.ApiId,
         category: i.CategoryApiId ?? cat.apiId,
         label: cat.label,
-        effect: Array.isArray(meta.effect) ? meta.effect : [],
+        effect: Array.isArray(meta.effect) ? (meta.effect as string[]) : [],
         description: meta.description ?? null,
         iconUrl: i.IconUrl ?? meta.icon ?? null,
         stackSize: typeof meta.stack_size === 'number' ? meta.stack_size : null,

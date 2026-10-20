@@ -53,7 +53,11 @@ export function ItemControls({
   // Item level is edited locally and committed on blur/Enter so the field can
   // be cleared while typing without triggering a navigation per keystroke.
   const [ilvlDraft, setIlvlDraft] = useState(ilvl);
-  useEffect(() => setIlvlDraft(ilvl), [ilvl]);
+  const [committedIlvl, setCommittedIlvl] = useState(ilvl);
+  if (committedIlvl !== ilvl) {
+    setCommittedIlvl(ilvl);
+    setIlvlDraft(ilvl);
+  }
 
   const commitIlvl = () => {
     const n = Number.parseInt(ilvlDraft, 10);
