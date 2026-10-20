@@ -35,3 +35,15 @@ next-env.d.ts
 
 /graphify-out
 .vercel
+
+# dev-standards
+dist/
+coverage/
+test-results/
+.env.*
+!.env.example
+*.log
+Thumbs.db
+.idea/
+.cursor/
+.claude/settings.local.json

@@ -1,0 +1,81 @@
+# PR gates: conventional PR title, no AI attribution, and the same quality
+# scripts the pre-push hook runs. Hooks can be skipped with --no-verify;
+# these cannot. Mark the jobs as required checks in branch protection.
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title-and-attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Lint PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: sh scripts/lint-pr-title.sh
+      # docs/agent-rules/no-ai-attribution.md
+      - name: No AI attribution in PR title and body
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" | node scripts/check-ai-attribution.mjs --stdin --label "PR title/body"
+      - name: No AI attribution in PR commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-ai-attribution.mjs --git-range "$BASE_SHA..$HEAD_SHA"
+
+  quality:
+    # Title/body edits don't change code; skip the expensive job for them.
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Format check
+        run: npm run format:check
+      # Same list as PRE_PUSH_SCRIPTS in scripts/pre-push-check.sh.
+      - run: npm run lint --if-present
+      - run: npm run typecheck --if-present
+      - run: npm run knip --if-present
+      - run: npm run test --if-present
+      - run: npm run build --if-present
+      - name: Dependency audit
+        run: npm run audit:ci
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Free for personal accounts. A GitHub organization needs a
+      # GITLEAKS_LICENSE secret (free key from gitleaks.io).
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
