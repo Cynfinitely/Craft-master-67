@@ -1,15 +1,10 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 /**
  * Zod schemas for the subset of the repoe-fork PoE2 export that we ingest.
  * The export contains many more fields; we keep `.passthrough()` so unknown
  * fields don't break parsing when the upstream format evolves.
  */
-
-export const minMax = z.object({
-  min: z.number(),
-  max: z.number(),
-});
 
 export const baseItemSchema = z
   .object({
@@ -74,7 +69,3 @@ export const baseItemsFile = z.record(baseItemSchema);
 export const modsFile = z.record(modSchema);
 export const itemClassesFile = z.record(itemClassSchema);
 export const tagsFile = z.array(z.string());
-
-export type RawBaseItem = z.infer<typeof baseItemSchema>;
-export type RawMod = z.infer<typeof modSchema>;
-export type RawItemClass = z.infer<typeof itemClassSchema>;

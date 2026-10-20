@@ -54,9 +54,3 @@ export interface ModPool {
   prefixTotalWeight: number;
   suffixTotalWeight: number;
 }
-
-export interface ItemClassInfo {
-  name: string;
-  category: string | null;
-  categoryId: string | null;
-}

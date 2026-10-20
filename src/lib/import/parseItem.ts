@@ -23,7 +23,7 @@
  */
 
 export interface ParsedMod {
-  kind: "prefix" | "suffix";
+  kind: 'prefix' | 'suffix';
   /** True for desecrated (Well of Souls) modifiers. */
   desecrated: boolean;
   /** Affix name, e.g. "Phantasm's" or "of Granite Skin". */
@@ -56,30 +56,24 @@ const DASH_LINE = /^[-—\s]{3,}$/;
 const MOD_ANCHOR =
   /^\{\s*(Desecrated\s+)?(Prefix|Suffix)\s+Modifier\b(?:\s+"([^"]+)")?(?:\s*\(Tier:\s*(\d+)\))?(?:\s*[—–-]\s*(.+?))?\s*\}$/i;
 
-function num(s: string | undefined): number | null {
-  if (!s) return null;
-  const m = s.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
-  return m ? Number.parseFloat(m[0]) : null;
-}
-
 /** Returns true for property/metadata lines we don't treat as mod stats. */
 function isMetaLine(line: string): boolean {
   return (
     /^(Item Class|Rarity|Quality|Sockets|Requires|Item Level|Level|Stack Size|Corrupted|Unidentified|Note):/i.test(
-      line,
+      line
     ) ||
     /\((augmented|implicit|rune|enchant|crafted|fractured)\)\s*$/i.test(line) ||
     /^(Armour|Evasion Rating|Energy Shield|Runic Ward|Block chance|Spirit|Physical Damage|Critical|Attacks per Second|Elemental Damage|Reload Time):/i.test(
-      line,
+      line
     )
   );
 }
 
 export function parseItem(raw: string): ParsedItem {
   const lines = raw
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((l) => l.trim());
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(l => l.trim());
 
   const item: ParsedItem = {
     itemClass: null,
@@ -131,7 +125,7 @@ export function parseItem(raw: string): ParsedItem {
       continue;
     }
     if (/\(rune\)\s*$/i.test(line)) {
-      item.runeLines.push(line.replace(/\s*\(rune\)\s*$/i, "").trim());
+      item.runeLines.push(line.replace(/\s*\(rune\)\s*$/i, '').trim());
       continue;
     }
 
@@ -146,7 +140,7 @@ export function parseItem(raw: string): ParsedItem {
   if (headerNames.length === 1) {
     item.baseTypeLine = headerNames[0];
   } else if (headerNames.length >= 2) {
-    item.nameLine = headerNames.slice(0, -1).join(" ");
+    item.nameLine = headerNames.slice(0, -1).join(' ');
     item.baseTypeLine = headerNames[headerNames.length - 1];
   }
 
@@ -157,12 +151,12 @@ export function parseItem(raw: string): ParsedItem {
     if (!line || DASH_LINE.test(line)) continue;
     const m = line.match(MOD_ANCHOR);
     if (m) {
-      const tags = (m[5] ?? "")
+      const tags = (m[5] ?? '')
         .split(/[,/]/)
-        .map((t) => t.trim().toLowerCase())
+        .map(t => t.trim().toLowerCase())
         .filter(Boolean);
       current = {
-        kind: m[2].toLowerCase() === "prefix" ? "prefix" : "suffix",
+        kind: m[2].toLowerCase() === 'prefix' ? 'prefix' : 'suffix',
         desecrated: Boolean(m[1]),
         name: m[3] ?? null,
         tier: m[4] ? Number.parseInt(m[4], 10) : null,
@@ -188,12 +182,10 @@ export function parseItem(raw: string): ParsedItem {
 export function normalizeStatLine(line: string): string {
   return line
     .toLowerCase()
-    .replace(/\d+(\.\d+)?\s*\(\s*-?\d+(\.\d+)?\s*-\s*-?\d+(\.\d+)?\s*\)/g, "#")
-    .replace(/[+\-]?\d+(\.\d+)?/g, "#")
-    .replace(/#+/g, "#")
-    .replace(/[^a-z#% ]/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/\d+(\.\d+)?\s*\(\s*-?\d+(\.\d+)?\s*-\s*-?\d+(\.\d+)?\s*\)/g, '#')
+    .replace(/[+\-]?\d+(\.\d+)?/g, '#')
+    .replace(/#+/g, '#')
+    .replace(/[^a-z#% ]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
-
-export { num as parseLeadingNumber };

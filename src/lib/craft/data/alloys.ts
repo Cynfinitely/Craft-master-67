@@ -168,25 +168,6 @@ export interface AlloyGuarantee {
   generationType: "prefix" | "suffix";
 }
 
-/** Effect lines an Alloy can apply to a given item class (display/advisory). */
-export function alloysForClass(
-  itemClass: string,
-): { alloy: Alloy; effects: string[] }[] {
-  const out: { alloy: Alloy; effects: string[] }[] = [];
-  for (const alloy of ALLOYS) {
-    const applicable: string[] = [];
-    for (const raw of alloy.effects) {
-      const idx = raw.indexOf(":");
-      if (idx <= 0) continue;
-      if (labelAppliesToClass(raw.slice(0, idx), itemClass)) {
-        applicable.push(raw.slice(idx + 1).trim());
-      }
-    }
-    if (applicable.length) out.push({ alloy, effects: applicable });
-  }
-  return out;
-}
-
 /**
  * Like resolveDeterminism for essences: maps each reachable mod group to the
  * Alloys that guarantee it on this item class (only fires when the Alloy's mod

@@ -1,19 +1,17 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { Field } from "@/components/ui/Field";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import type { MaterialTier } from "@/lib/materials/source";
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Field } from '@/components/ui/Field';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import type { MaterialTier } from '@/lib/materials/source';
 import {
   CurrencyTierTable,
   EssenceMatrixTable,
   LeagueAccordion,
   MaterialListTable,
-} from "./MaterialsTable";
-
-export type MaterialTierView = MaterialTier;
+} from './MaterialsTable';
 
 export interface MaterialView {
   apiId: string;
@@ -57,44 +55,44 @@ export interface MaterialsCatalog {
   gemsGroups: MaterialGroup[];
 }
 
-type TabId = "essentials" | "league" | "gems";
+type TabId = 'essentials' | 'league' | 'gems';
 
-const DEFAULT_TAB: TabId = "essentials";
+const DEFAULT_TAB: TabId = 'essentials';
 
 function isTabId(v: string | null): v is TabId {
-  return v === "essentials" || v === "league" || v === "gems";
+  return v === 'essentials' || v === 'league' || v === 'gems';
 }
 
 const TABS: { value: TabId; label: string }[] = [
-  { value: "essentials", label: "Crafting essentials" },
-  { value: "league", label: "League materials" },
-  { value: "gems", label: "Gems & other" },
+  { value: 'essentials', label: 'Crafting essentials' },
+  { value: 'league', label: 'League materials' },
+  { value: 'gems', label: 'Gems & other' },
 ];
 
 function matchesSearch(m: MaterialView, needle: string): boolean {
   return (
     m.name.toLowerCase().includes(needle) ||
-    m.effect.some((e) => e.toLowerCase().includes(needle)) ||
+    m.effect.some(e => e.toLowerCase().includes(needle)) ||
     (m.description?.toLowerCase().includes(needle) ?? false)
   );
 }
 
 function filterItems(items: MaterialView[], needle: string): MaterialView[] {
   if (!needle) return items;
-  return items.filter((m) => matchesSearch(m, needle));
+  return items.filter(m => matchesSearch(m, needle));
 }
 
 function filterGroups(
   groups: MaterialGroup[],
-  needle: string,
+  needle: string
 ): MaterialGroup[] {
   if (!needle) return groups;
   return groups
-    .map((g) => ({
+    .map(g => ({
       label: g.label,
-      items: g.items.filter((m) => matchesSearch(m, needle)),
+      items: g.items.filter(m => matchesSearch(m, needle)),
     }))
-    .filter((g) => g.items.length > 0);
+    .filter(g => g.items.length > 0);
 }
 
 /**
@@ -118,11 +116,11 @@ export function MaterialsBrowser({
 
 function UrlSyncedBrowser({ catalog }: { catalog: MaterialsCatalog }) {
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
+  const tabParam = searchParams.get('tab');
   return (
     <BrowserView
       catalog={catalog}
-      initialQ={searchParams.get("q") ?? ""}
+      initialQ={searchParams.get('q') ?? ''}
       initialTab={isTabId(tabParam) ? tabParam : DEFAULT_TAB}
       syncUrl
     />
@@ -151,13 +149,15 @@ function BrowserView({
     const t = setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
       const trimmed = q.trim();
-      if (trimmed) params.set("q", trimmed);
-      else params.delete("q");
-      if (tab !== DEFAULT_TAB) params.set("tab", tab);
-      else params.delete("tab");
+      if (trimmed) params.set('q', trimmed);
+      else params.delete('q');
+      if (tab !== DEFAULT_TAB) params.set('tab', tab);
+      else params.delete('tab');
       const next = params.toString();
-      if (next === window.location.search.replace(/^\?/, "")) return;
-      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+      if (next === window.location.search.replace(/^\?/, '')) return;
+      router.replace(next ? `${pathname}?${next}` : pathname, {
+        scroll: false,
+      });
     }, 300);
     return () => clearTimeout(t);
   }, [q, tab, syncUrl, router, pathname]);
@@ -181,23 +181,23 @@ function BrowserView({
 
   const filtered = useMemo(() => {
     const essenceRows = needle
-      ? catalog.essenceRows.filter((row) => {
+      ? catalog.essenceRows.filter(row => {
           const familyMatch = row.family.toLowerCase().includes(needle);
           const tierMatch = Object.values(row.tiers).some(
-            (m) =>
+            m =>
               m &&
               (m.name.toLowerCase().includes(needle) ||
-                m.effect.some((e) => e.toLowerCase().includes(needle))),
+                m.effect.some(e => e.toLowerCase().includes(needle)))
           );
           return familyMatch || tierMatch;
         })
       : catalog.essenceRows;
 
     const currencyRows = needle
-      ? catalog.currencyRows.filter((row) => {
+      ? catalog.currencyRows.filter(row => {
           const familyMatch = row.family.toLowerCase().includes(needle);
-          const tierMatch = Object.values(row.tiers).some((m) =>
-            m?.name.toLowerCase().includes(needle),
+          const tierMatch = Object.values(row.tiers).some(m =>
+            m?.name.toLowerCase().includes(needle)
           );
           return familyMatch || tierMatch;
         })
@@ -216,10 +216,13 @@ function BrowserView({
   }, [catalog, needle]);
 
   const tabCount = useMemo(() => {
-    if (tab === "essentials") {
+    if (tab === 'essentials') {
       // Tier rows hold one material per present tier; count the materials.
-      const tierItems = (rows: MaterialsCatalog["essenceRows"]) =>
-        rows.reduce((n, row) => n + Object.values(row.tiers).filter(Boolean).length, 0);
+      const tierItems = (rows: MaterialsCatalog['essenceRows']) =>
+        rows.reduce(
+          (n, row) => n + Object.values(row.tiers).filter(Boolean).length,
+          0
+        );
       return (
         tierItems(filtered.essenceRows) +
         tierItems(filtered.currencyRows) +
@@ -229,7 +232,7 @@ function BrowserView({
         filtered.soulCores.length
       );
     }
-    if (tab === "league") {
+    if (tab === 'league') {
       return filtered.leagueGroups.reduce((n, g) => n + g.items.length, 0);
     }
     return filtered.gemsGroups.reduce((n, g) => n + g.items.length, 0);
@@ -244,7 +247,7 @@ function BrowserView({
             className="input"
             placeholder="Search materials (e.g. life, fire resistance, exalted)"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={e => setQ(e.target.value)}
           />
         </Field>
       </div>
@@ -255,18 +258,18 @@ function BrowserView({
         options={TABS}
         label="Material category"
         shortLabels={{
-          essentials: "Essentials",
-          league: "League",
-          gems: "Gems",
+          essentials: 'Essentials',
+          league: 'League',
+          gems: 'Gems',
         }}
       />
 
       <p role="status" aria-live="polite" className="text-xs text-forge-muted">
-        <span className="num">{tabCount}</span>{" "}
-        {tabCount === 1 ? "material" : "materials"} in view
+        <span className="num">{tabCount}</span>{' '}
+        {tabCount === 1 ? 'material' : 'materials'} in view
       </p>
 
-      {tab === "essentials" ? (
+      {tab === 'essentials' ? (
         <div className="space-y-6">
           <EssenceMatrixTable rows={filtered.essenceRows} prices={priceMap} />
           <CurrencyTierTable rows={filtered.currencyRows} prices={priceMap} />
@@ -283,7 +286,7 @@ function BrowserView({
             </EmptyState>
           ) : null}
         </div>
-      ) : tab === "league" ? (
+      ) : tab === 'league' ? (
         filtered.leagueGroups.length === 0 ? (
           <EmptyState title="No league materials match your search">
             Try a different name or effect, or check the other categories.

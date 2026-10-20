@@ -1,16 +1,16 @@
-import { alchChaos } from "./alchChaos";
-import { alchSpam } from "./alchSpam";
-import { alloyExalt } from "./alloyExalt";
-import { desecrateExalt } from "./desecrateExalt";
-import { essenceDesecrateExalt } from "./essenceDesecrateExalt";
-import { essenceExalt } from "./essenceExalt";
-import { finishDesecrate, finishEssence, finishSlam } from "./finish";
-import { fractureExalt } from "./fractureExalt";
-import { magicSeedEssence } from "./magicSeedEssence";
-import { omenExalt } from "./omenExalt";
-import { perfectSeed } from "./perfectSeed";
-import { transmuteRegalExalt } from "./transmuteRegalExalt";
-import type { AnyTechnique, CraftMode } from "./types";
+import { alchChaos } from './alchChaos';
+import { alchSpam } from './alchSpam';
+import { alloyExalt } from './alloyExalt';
+import { desecrateExalt } from './desecrateExalt';
+import { essenceDesecrateExalt } from './essenceDesecrateExalt';
+import { essenceExalt } from './essenceExalt';
+import { finishDesecrate, finishEssence, finishSlam } from './finish';
+import { fractureExalt } from './fractureExalt';
+import { magicSeedEssence } from './magicSeedEssence';
+import { omenExalt } from './omenExalt';
+import { perfectSeed } from './perfectSeed';
+import { transmuteRegalExalt } from './transmuteRegalExalt';
+import type { AnyTechnique, CraftMode } from './types';
 
 /**
  * Every technique the brain may consider. To add one, write a file exporting
@@ -35,11 +35,11 @@ export const TECHNIQUES: AnyTechnique[] = [
 ];
 
 export function techniquesFor(mode: CraftMode): AnyTechnique[] {
-  return TECHNIQUES.filter((t) => t.modes.includes(mode));
+  return TECHNIQUES.filter(t => t.modes.includes(mode));
 }
 
 export function getTechnique(id: string): AnyTechnique | undefined {
-  return TECHNIQUES.find((t) => t.id === id);
+  return TECHNIQUES.find(t => t.id === id);
 }
 
-export type { AnyTechnique, CraftContext, CraftMode, Technique } from "./types";
+export type { AnyTechnique, CraftMode } from './types';
