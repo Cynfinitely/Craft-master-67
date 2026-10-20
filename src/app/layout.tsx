@@ -30,7 +30,7 @@ export default function RootLayout({
         <main
           id="main"
           tabIndex={-1}
-          className="container-shell flex-1 py-6 outline-none"
+          className="container-shell flex-1 py-6 outline-hidden"
         >
           {children}
         </main>

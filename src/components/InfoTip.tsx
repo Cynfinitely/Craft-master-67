@@ -52,7 +52,7 @@ export function InfoTip({
         id={panelId}
         role="dialog"
         ariaLabel={label}
-        className="p-3 outline-none"
+        className="p-3 outline-hidden"
       >
         <p className="text-xs font-semibold text-forge-goldbright">{label}</p>
         <p className="mt-1 text-2xs text-forge-muted max-md:text-xs">

@@ -320,7 +320,7 @@ export function GroupSelector({
                     <span className="flex min-w-0 items-center gap-2">
                       <span
                         aria-hidden="true"
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-2xs max-md:h-5 max-md:w-5 ${
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border text-2xs max-md:h-5 max-md:w-5 ${
                           on
                             ? 'border-forge-gold bg-forge-gold text-forge-bg'
                             : 'border-forge-border'
@@ -340,7 +340,7 @@ export function GroupSelector({
                       {g.tags.map(t => (
                         <span
                           key={t}
-                          className={`rounded px-1.5 py-0.5 text-2xs font-medium ${tagStyle(t)}`}
+                          className={`rounded-sm px-1.5 py-0.5 text-2xs font-medium ${tagStyle(t)}`}
                         >
                           {t}
                         </span>
@@ -502,7 +502,7 @@ export function GroupSelector({
             {[...staged.values()].map(e => (
               <span
                 key={e.group}
-                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs ${
+                className={`inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs ${
                   e.optional
                     ? 'border-dashed border-forge-gold/30 text-forge-muted'
                     : 'border-forge-gold/30 bg-forge-panel2/70 text-forge-goldbright'
@@ -523,7 +523,7 @@ export function GroupSelector({
                 ) : null}
                 <button
                   type="button"
-                  className="-my-0.5 -mr-1 ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded text-forge-muted hover:text-forge-rust-strong max-md:min-h-8 max-md:min-w-8 max-md:text-base"
+                  className="-my-0.5 -mr-1 ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded-sm text-forge-muted hover:text-forge-rust-strong max-md:min-h-8 max-md:min-w-8 max-md:text-base"
                   onClick={() => update(e.group, () => null)}
                   title="Remove"
                   aria-label={`Remove ${labelOf.get(e.group) ?? e.group}`}

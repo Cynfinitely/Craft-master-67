@@ -76,9 +76,9 @@ export function SegmentedControl<T extends string>({
               aria-checked={selected}
               tabIndex={selected ? 0 : -1}
               onClick={() => onChange(opt.value)}
-              className={`tap shrink-0 rounded px-3 py-1.5 text-sm transition-colors md:flex-1 md:shrink ${
+              className={`tap shrink-0 rounded-sm px-3 py-1.5 text-sm transition-colors md:flex-1 md:shrink ${
                 selected
-                  ? 'bg-forge-panel font-semibold text-forge-goldbright shadow-sm ring-1 ring-forge-rust/50'
+                  ? 'bg-forge-panel font-semibold text-forge-goldbright shadow-xs ring-1 ring-forge-rust/50'
                   : 'text-forge-muted hover:bg-forge-panel/60 hover:text-forge-goldbright'
               }`}
             >

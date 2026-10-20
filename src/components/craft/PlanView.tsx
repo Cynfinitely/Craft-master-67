@@ -209,7 +209,7 @@ function TargetChip({ d }: { d: DesiredMod }) {
       : 'border-affix-suffix/40 bg-affix-suffix/10 text-affix-suffix';
   return (
     <li
-      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs ${color} ${d.optional ? 'border-dashed' : ''}`}
+      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs ${color} ${d.optional ? 'border-dashed' : ''}`}
     >
       <AffixMark kind={d.generationType === 'suffix' ? 'suffix' : 'prefix'} />
       {d.label}

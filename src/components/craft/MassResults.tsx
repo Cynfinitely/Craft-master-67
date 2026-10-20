@@ -114,7 +114,7 @@ export function MassResults({ plan }: { plan: MassCraftPlan }) {
                       aria-valuemax={100}
                       aria-valuenow={Math.round(value * 10) / 10}
                       aria-valuetext={pct(frac)}
-                      className="h-2 flex-1 overflow-hidden rounded bg-forge-panel2"
+                      className="h-2 flex-1 overflow-hidden rounded-sm bg-forge-panel2"
                     >
                       <span
                         className={`block h-full ${k === nTargets ? 'bg-rarity-currency' : 'bg-forge-gold/30'}`}

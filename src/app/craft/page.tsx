@@ -362,7 +362,7 @@ function CurrentItemCard({
           {current.map(m => (
             <li
               key={m.group}
-              className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs ${
+              className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs ${
                 m.side === 'prefix'
                   ? 'border-affix-prefix/40 text-affix-prefix'
                   : 'border-affix-suffix/40 text-affix-suffix'

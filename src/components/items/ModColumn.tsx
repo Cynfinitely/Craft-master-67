@@ -100,7 +100,7 @@ export function ModColumn({
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
                     <span
-                      className="num rounded bg-forge-panel2 px-1.5 py-0.5 text-xs text-forge-goldbright"
+                      className="num rounded-sm bg-forge-panel2 px-1.5 py-0.5 text-xs text-forge-goldbright"
                       title={`Combined spawn weight ${g.weight} of ${totalWeight}`}
                     >
                       {weightPct(g.weight, totalWeight)}

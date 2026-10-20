@@ -54,5 +54,5 @@ General conventions for any agent or human working in this repo. Repo-specific n
 - **Server-only code:** modules that touch the DB or the network (`src/lib/craft` brain + data, `src/lib/materials`) start with `import "server-only"`. Never import them from client components (`"use client"`); add the import to any new module of that kind.
 - **API routes:** `src/app/api/<resource>/route.ts`, usually with `export const dynamic = "force-dynamic"`. Validate request bodies with zod; respond with `NextResponse.json({ <resource> })` on success and `{ error }` with a 4xx status on failure.
 - **Naming:** React components in PascalCase files (`SavedPlansList.tsx`); lib modules in camelCase (`resolveItem.ts`).
-- **Styling:** Tailwind utility classes; shared tokens in `tailwind.config.ts` and `src/app/globals.css`.
+- **Styling:** Tailwind 4 utility classes. Colors, font and text-size tokens live in the `@theme` block of `src/app/globals.css`; shared component classes (`.panel`, `.btn`, `.input`, …) in its `@layer components`. Add a token there rather than hard-coding a hex value.
 - **Game data:** never hand-edit `data/snapshot/*.json`. Regenerate with the `data:*` scripts. Hand-curated tables live in `src/lib/craft/data/`.

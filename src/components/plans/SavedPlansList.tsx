@@ -187,7 +187,7 @@ export function SavedPlansList({
                   {p.plan.desiredPrefixes.map(d => (
                     <li
                       key={d.group}
-                      className="inline-flex items-center gap-1 rounded border border-affix-prefix/40 bg-affix-prefix/10 px-2 py-0.5 text-xs text-affix-prefix"
+                      className="inline-flex items-center gap-1 rounded-sm border border-affix-prefix/40 bg-affix-prefix/10 px-2 py-0.5 text-xs text-affix-prefix"
                     >
                       <AffixMark kind="prefix" />
                       {d.label}
@@ -196,7 +196,7 @@ export function SavedPlansList({
                   {p.plan.desiredSuffixes.map(d => (
                     <li
                       key={d.group}
-                      className="inline-flex items-center gap-1 rounded border border-affix-suffix/40 bg-affix-suffix/10 px-2 py-0.5 text-xs text-affix-suffix"
+                      className="inline-flex items-center gap-1 rounded-sm border border-affix-suffix/40 bg-affix-suffix/10 px-2 py-0.5 text-xs text-affix-suffix"
                     >
                       <AffixMark kind="suffix" />
                       {d.label}

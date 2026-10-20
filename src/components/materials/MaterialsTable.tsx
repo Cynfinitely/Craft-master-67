@@ -96,7 +96,7 @@ function TierChip({
   return (
     <button
       type="button"
-      className="block w-full rounded border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5 text-left disabled:cursor-default"
+      className="block w-full rounded-sm border border-forge-border/40 bg-forge-panel2/40 px-2 py-1.5 text-left disabled:cursor-default"
       title={summary || m.name}
       aria-expanded={summary ? open : undefined}
       disabled={!summary}
@@ -104,7 +104,7 @@ function TierChip({
     >
       {tier ? (
         <span
-          className={`mb-1 inline-block rounded px-1 text-2xs uppercase ${TIER_STYLES[tier]}`}
+          className={`mb-1 inline-block rounded-sm px-1 text-2xs uppercase ${TIER_STYLES[tier]}`}
         >
           {tier}
         </span>
@@ -178,7 +178,7 @@ function TierMatrix({
                   className="px-2 py-2 text-center font-semibold"
                 >
                   <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-2xs uppercase ${TIER_STYLES[t]}`}
+                    className={`inline-block rounded-sm px-1.5 py-0.5 text-2xs uppercase ${TIER_STYLES[t]}`}
                   >
                     {t}
                   </span>

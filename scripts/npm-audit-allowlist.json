@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "advisory": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces",
+    "workspaces": ["Craft-master-67"],
+    "reason": "No patched braces release (all <=3.0.3 affected, 3.0.3 is latest). Dev-only: eslint-config-next 16.4.2 > @next/eslint-plugin-next > fast-glob > micromatch > braces; only lints our own source, never runs on user input. Remove when braces or eslint-config-next ships a fix.",
+    "review_by": "2027-01-20"
+  }
+]

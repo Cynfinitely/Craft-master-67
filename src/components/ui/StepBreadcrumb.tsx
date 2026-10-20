@@ -17,7 +17,7 @@ export function StepBreadcrumb({
               aria-current={step.active ? 'step' : undefined}
               className={
                 step.active
-                  ? 'rounded bg-forge-panel px-1.5 py-0.5 font-semibold text-forge-goldbright ring-1 ring-forge-rust/50'
+                  ? 'rounded-sm bg-forge-panel px-1.5 py-0.5 font-semibold text-forge-goldbright ring-1 ring-forge-rust/50'
                   : 'font-medium text-forge-muted'
               }
             >

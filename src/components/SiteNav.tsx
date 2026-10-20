@@ -76,7 +76,7 @@ export function SiteNav() {
   }, [drawerOpen]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-forge-border bg-forge-panel shadow-sm">
+    <header className="sticky top-0 z-50 border-b border-forge-border bg-forge-panel shadow-xs">
       <a
         href="#main"
         className="btn sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-[60]"
@@ -127,9 +127,9 @@ export function SiteNav() {
           onClick={() => setDrawerOpen(true)}
         >
           <span aria-hidden className="flex flex-col gap-[3px]">
-            <span className="block h-0.5 w-4 rounded bg-current" />
-            <span className="block h-0.5 w-4 rounded bg-current" />
-            <span className="block h-0.5 w-4 rounded bg-current" />
+            <span className="block h-0.5 w-4 rounded-sm bg-current" />
+            <span className="block h-0.5 w-4 rounded-sm bg-current" />
+            <span className="block h-0.5 w-4 rounded-sm bg-current" />
           </span>
           Menu
         </button>

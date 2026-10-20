@@ -34,7 +34,7 @@ export function AffixMark({ kind }: { kind: 'prefix' | 'suffix' }) {
   return (
     <abbr
       title={kind === 'prefix' ? 'Prefix' : 'Suffix'}
-      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-2xs font-bold no-underline ${
+      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-2xs font-bold no-underline ${
         kind === 'prefix'
           ? 'bg-affix-prefix/15 text-affix-prefix'
           : 'bg-affix-suffix/15 text-affix-suffix'

@@ -30,12 +30,14 @@ Shared project knowledge for AI assistants. Commit this file.
 <!-- Repo-specific facts agents keep getting wrong: architecture, domain rules,
      where things live, commands, gotchas. One bullet per fact. -->
 
-- **Stack:** Next.js 14 (App Router) + React 18 + TypeScript (strict), Tailwind 3, drizzle-orm over libSQL/SQLite, zod. npm, single package. Path of Exile 2 crafting helper.
+- **Stack:** Next.js 16 (App Router, Turbopack) + React 19 + TypeScript (strict), Tailwind 4, drizzle-orm over libSQL/SQLite, zod. npm, single package, Node >=20.9. Path of Exile 2 crafting helper.
+- **Next 16 gotchas:** page `searchParams`/`params` are Promises; await them (`const searchParams = await props.searchParams`). Reset-on-change state is adjusted during render, not in `useEffect` (the `react-hooks/set-state-in-effect` lint rule fails the build).
 - **Layout:** `src/app` (pages + `api/` route handlers), `src/components` (by feature, shared bits in `ui/`), `src/lib/craft` (crafting brain: `engine/`, `techniques/`, `brain/`, `data/`; see README), `src/lib/{data,user}` (DB queries), `src/lib/{pricing,materials,import}`, `src/db` (client, drizzle schema, `ensureAppTables`).
 - **Data:** `data/snapshot/*.json` is the committed source of truth. `npm run data:seed` builds the git-ignored `data/poe2.db`; `npm run data:setup` refreshes snapshots from upstream first. The app reads `data/poe2.db` (`src/db/index.ts`), not the tracked `data/craft.db`.
 - **DB target:** `LIBSQL_URL` (+ `LIBSQL_AUTH_TOKEN`) switches the app to hosted libSQL; unset means the local file. Check `.env` before running anything that writes.
 - **Techniques:** adding one = new file in `src/lib/craft/techniques/`, register in `TECHNIQUES`, bump `ENGINE_VERSION` in `brain/cache.ts` if existing behavior changed.
 - **Tests:** `npm test` runs `node --test` via tsx with `scripts/shim-server-only.cjs` so `server-only` modules import outside Next. Tests live in `tests/*.test.ts`.
-- **Checks:** `npm run lint` is `next lint` (ESLint 8, legacy `.eslintrc.json`, so no flat-config-only flags like `--no-warn-ignored`). `npm run typecheck` is `tsc --noEmit`.
+- **Checks:** `npm run lint` is `eslint . --max-warnings 0` (ESLint 9 flat config in `eslint.config.mjs`, extends `eslint-config-next`). `npm run typecheck` is `tsc --noEmit`.
+- **Tailwind 4:** no `tailwind.config.ts`. Theme tokens are `@theme` variables in `src/app/globals.css` (`--color-forge-*` → `bg-forge-*`); custom utilities that need variants use `@utility`. v4 scale names: `rounded-sm`/`shadow-xs`/`outline-hidden` are the old `rounded`/`shadow-sm`/`outline-none`.
 - **Codebase map:** `graphify-out/` (git-ignored). Read `graphify-out/GRAPH_REPORT.md` before exploring; run `graphify update .` after code changes.
 - **Design docs:** `docs/superpowers/specs/` and `docs/superpowers/plans/`.
