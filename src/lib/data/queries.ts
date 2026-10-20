@@ -6,7 +6,6 @@ import type {
   BaseDetail,
   BaseSummary,
   EligibleMod,
-  ItemClassInfo,
   ModPool,
   ModStat,
 } from "./types";
@@ -64,16 +63,6 @@ function toBaseDetail(row: BaseRow): BaseDetail {
 }
 
 /* ----------------------------- item classes ----------------------------- */
-
-export async function listItemClasses(): Promise<ItemClassInfo[]> {
-  const db = getDb();
-  const rows = await db.select().from(itemClasses).orderBy(asc(itemClasses.name));
-  return rows.map((r) => ({
-    name: r.name,
-    category: r.category,
-    categoryId: r.categoryId,
-  }));
-}
 
 /** Item classes that actually have at least one base, grouped by category. */
 export async function listCraftableCategories(): Promise<

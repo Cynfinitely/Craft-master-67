@@ -1,5 +1,5 @@
-import { directedFill, type FillOptions } from "../engine/fill";
-import type { Target } from "../types";
+import { directedFill, type FillOptions } from '../engine/fill';
+import type { Target } from '../types';
 import {
   OK,
   desecratableTargets,
@@ -10,10 +10,14 @@ import {
   no,
   orbTiers,
   wantsFor,
-} from "./helpers";
-import { essenceChoices, essenceOpenSteps, openWithEssence } from "./essenceOpen";
-import { desecrateStep } from "./desecrateStep";
-import { defineTechnique, type EssenceOption } from "./types";
+} from './helpers';
+import {
+  essenceChoices,
+  essenceOpenSteps,
+  openWithEssence,
+} from './essenceOpen';
+import { desecrateStep } from './desecrateStep';
+import { defineTechnique, type EssenceOption } from './types';
 
 interface Choice {
   essence: EssenceOption;
@@ -23,14 +27,16 @@ interface Choice {
 }
 
 export const essenceDesecrateExalt = defineTechnique<Choice>({
-  id: "essence-desecrate-exalt",
-  name: "Essence → Desecrate → directed Exalts",
+  id: 'essence-desecrate-exalt',
+  name: 'Essence → Desecrate → directed Exalts',
   summary:
-    "Essence-lock one mod, desecrate a second at the Well of Souls, then directed Exalts (with a Greater Exaltation double-slam) for the rest.",
-  modes: ["craft"],
+    'Essence-lock one mod, desecrate a second at the Well of Souls, then directed Exalts (with a Greater Exaltation double-slam) for the rest.',
+  modes: ['craft'],
   applies(ctx) {
-    if (!ctx.essences.length) return no("No essence guarantees a target at its tier");
-    if (!desecratableTargets(ctx).length) return no("No target can be desecrated on this class");
+    if (!ctx.essences.length)
+      return no('No essence guarantees a target at its tier');
+    if (!desecratableTargets(ctx).length)
+      return no('No target can be desecrated on this class');
     return OK;
   },
   choices(ctx) {
@@ -40,12 +46,18 @@ export const essenceDesecrateExalt = defineTechnique<Choice>({
         if (desec.group === essence.group) continue;
         for (const echoes of [false, true])
           for (const cleanup of [true, false])
-            for (const exaltTier of orbTiers(ctx, "exalt"))
-              out.push({ essence, desec, echoes, fill: { exaltTier, cleanup, double: true } });
+            for (const exaltTier of orbTiers(ctx, 'exalt'))
+              out.push({
+                essence,
+                desec,
+                echoes,
+                fill: { exaltTier, cleanup, double: true },
+              });
       }
     return out;
   },
-  key: (c) => `${c.essence.apiId}:${c.desec.group}:${c.echoes ? "e" : ""}${fillKey(c.fill)}`,
+  key: c =>
+    `${c.essence.apiId}:${c.desec.group}:${c.echoes ? 'e' : ''}${fillKey(c.fill)}`,
   run(c, t, ctx) {
     openWithEssence(t, c.essence);
     t.desecrate({
@@ -65,9 +77,11 @@ export const essenceDesecrateExalt = defineTechnique<Choice>({
   options: (c, ctx) => [
     c.essence.name,
     `desecrate for ${label(ctx, c.desec.group)}`,
-    c.echoes ? "Abyssal Echoes (5 options)" : "3 reveal options",
+    c.echoes ? 'Abyssal Echoes (5 options)' : '3 reveal options',
     ...fillOptionsLabels(c.fill),
   ],
-  pros: () => ["Two mods are chosen, not rolled."],
-  cons: () => ["Bones and Necromancy omens are pricey; a bad reveal still fills the slot."],
+  pros: () => ['Two mods are chosen, not rolled.'],
+  cons: () => [
+    'Bones and Necromancy omens are pricey; a bad reveal still fills the slot.',
+  ],
 });

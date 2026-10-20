@@ -1,13 +1,13 @@
-import "server-only";
-import type { GoalEntry } from "../goal";
-import { TECHNIQUES, getTechnique } from "../techniques";
-import type { MassCraftPlan } from "../types";
-import { buildContext } from "./context";
-import { evaluate } from "./evaluate";
-import { optimize } from "./optimize";
-import { loadPriceBook } from "./prices";
-import { round2 } from "./present";
-import { hashSeed } from "../engine/rng";
+import 'server-only';
+import type { GoalEntry } from '../goal';
+import { TECHNIQUES, getTechnique } from '../techniques';
+import type { MassCraftPlan } from '../types';
+import { buildContext } from './context';
+import { evaluate } from './evaluate';
+import { optimize } from './optimize';
+import { loadPriceBook } from './prices';
+import { round2 } from './present';
+import { hashSeed } from '../engine/rng';
 
 const MASS_ATTEMPTS = 5000;
 
@@ -45,15 +45,25 @@ export async function massCraft(input: {
   const n = Math.max(1, Math.min(10000, Math.round(input.basesCount)));
   const warnings = [...built.warnings];
 
-  const tech = input.techniqueId === "auto" ? null : getTechnique(input.techniqueId);
-  if (input.techniqueId !== "auto" && !tech) warnings.push(`Unknown technique "${input.techniqueId}".`);
+  const tech =
+    input.techniqueId === 'auto' ? null : getTechnique(input.techniqueId);
+  if (input.techniqueId !== 'auto' && !tech)
+    warnings.push(`Unknown technique "${input.techniqueId}".`);
 
-  const seedKey = `mass|${input.baseId}|${input.itemLevel}|${input.goal.map((g) => g.group).join(",")}`;
+  const seedKey = `mass|${input.baseId}|${input.itemLevel}|${input.goal.map(g => g.group).join(',')}`;
   const best = built.feasible
-    ? optimize(ctx, tech ? [tech] : TECHNIQUES, { baseCost, seedKey, budgetMs: 800 }).ranked[0]
+    ? optimize(ctx, tech ? [tech] : TECHNIQUES, {
+        baseCost,
+        seedKey,
+        budgetMs: 800,
+      }).ranked[0]
     : undefined;
   if (built.feasible && !best) {
-    warnings.push(tech ? `${tech.name} doesn't reach this goal.` : "No technique reaches this goal.");
+    warnings.push(
+      tech
+        ? `${tech.name} doesn't reach this goal.`
+        : 'No technique reaches this goal.'
+    );
   }
   if (!best) return null;
 
@@ -69,7 +79,9 @@ export async function massCraft(input: {
       perItem: round2(per),
       unitPriceExalted: round2(prices.price(apiId)),
     }))
-    .sort((a, b) => b.perItem * b.unitPriceExalted - a.perItem * a.unitPriceExalted);
+    .sort(
+      (a, b) => b.perItem * b.unitPriceExalted - a.perItem * a.unitPriceExalted
+    );
   const currencyCost = stats.meanAttemptCost - baseCost;
   const total = n * stats.meanAttemptCost;
   const hits = n * stats.p;
@@ -87,8 +99,13 @@ export async function massCraft(input: {
       options: best.tech.options(best.choice, ctx),
     },
     targets: ctx.targets
-      .filter((t) => !t.optional)
-      .map((t) => ({ group: t.group, label: ctx.labels.get(t.group) ?? t.group, side: t.side, minLevel: t.minLevel })),
+      .filter(t => !t.optional)
+      .map(t => ({
+        group: t.group,
+        label: ctx.labels.get(t.group) ?? t.group,
+        side: t.side,
+        minLevel: t.minLevel,
+      })),
     hitRate: stats.p,
     partialCounts: stats.partial,
     batchHits: binomialQuantiles(n, stats.p),

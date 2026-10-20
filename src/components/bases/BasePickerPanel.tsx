@@ -1,8 +1,8 @@
-import type { BaseDetail, BaseSummary } from "@/lib/data/types";
-import { BasePickerList } from "./BasePickerList";
-import { SelectedBaseCard } from "./SelectedBaseCard";
-import { StepBreadcrumb } from "@/components/ui/StepBreadcrumb";
-import { EmptyState } from "@/components/ui/EmptyState";
+import type { BaseDetail, BaseSummary } from '@/lib/data/types';
+import { BasePickerList } from './BasePickerList';
+import { SelectedBaseCard } from './SelectedBaseCard';
+import { StepBreadcrumb } from '@/components/ui/StepBreadcrumb';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export function BasePickerPanel({
   filterActive,
@@ -14,13 +14,13 @@ export function BasePickerPanel({
   itemLevel,
   buildBaseHref,
   buildClearBaseHref,
-  maxHeight = "70vh",
+  maxHeight = '70vh',
   steps,
-  emptyHint = "Choose an item class or search for a base name (min. 2 characters).",
+  emptyHint = 'Choose an item class or search for a base name (min. 2 characters).',
 }: {
   filterActive: boolean;
   results: BaseSummary[];
-  selectedBase?: Pick<BaseDetail, "id" | "name" | "itemClass"> | null;
+  selectedBase?: Pick<BaseDetail, 'id' | 'name' | 'itemClass'> | null;
   selectedBaseId?: string;
   itemClass?: string;
   query?: string;
@@ -55,11 +55,11 @@ export function BasePickerPanel({
           {query?.trim() ? (
             <>
               Nothing matches &ldquo;{query.trim()}&rdquo;
-              {itemClass ? ` in ${itemClass}` : ""}. Try a shorter name or a
+              {itemClass ? ` in ${itemClass}` : ''}. Try a shorter name or a
               different item class.
             </>
           ) : (
-            "Try a different item class or search for a base name."
+            'Try a different item class or search for a base name.'
           )}
         </EmptyState>
       ) : (

@@ -1,12 +1,12 @@
-import "server-only";
-import { getEligibleMods, getModPool, searchBases } from "@/lib/data/queries";
-import { cleanModText } from "@/lib/data/format";
-import type { EligibleMod } from "@/lib/data/types";
-import { parseItem, normalizeStatLine, type ParsedMod } from "./parseItem";
+import 'server-only';
+import { getEligibleMods, getModPool, searchBases } from '@/lib/data/queries';
+import { cleanModText } from '@/lib/data/format';
+import type { EligibleMod } from '@/lib/data/types';
+import { parseItem, normalizeStatLine, type ParsedMod } from './parseItem';
 
 export interface ResolvedMod {
   name: string | null;
-  kind: "prefix" | "suffix";
+  kind: 'prefix' | 'suffix';
   group: string;
   tierLevel: number;
   /** Display value, e.g. "+(98-124) to Stun Threshold". */
@@ -30,13 +30,13 @@ export interface ResolvedItem {
 
 function stripBasePrefixes(line: string): string {
   // 0.5 runeforged bases prepend "Runeforged"; quality words can also appear.
-  return line.replace(/^\s*(Runeforged|Superior)\s+/i, "").trim();
+  return line.replace(/^\s*(Runeforged|Superior)\s+/i, '').trim();
 }
 
 /** Finds the base whose name is the longest match within the base-type line. */
 async function matchBase(
   itemClass: string | null,
-  baseTypeLine: string | null,
+  baseTypeLine: string | null
 ): Promise<{ id: string; name: string } | null> {
   if (!baseTypeLine) return null;
   const target = stripBasePrefixes(baseTypeLine).toLowerCase();
@@ -56,17 +56,14 @@ async function matchBase(
   return best;
 }
 
-function matchMod(
-  parsed: ParsedMod,
-  pool: EligibleMod[],
-): EligibleMod | null {
+function matchMod(parsed: ParsedMod, pool: EligibleMod[]): EligibleMod | null {
   const wantName = parsed.name?.trim().toLowerCase() ?? null;
   const wantText = parsed.statLines.length
-    ? normalizeStatLine(parsed.statLines.join(" "))
+    ? normalizeStatLine(parsed.statLines.join(' '))
     : null;
 
   const byName = wantName
-    ? pool.filter((m) => (m.name ?? "").trim().toLowerCase() === wantName)
+    ? pool.filter(m => (m.name ?? '').trim().toLowerCase() === wantName)
     : [];
 
   const pickByText = (cands: EligibleMod[]): EligibleMod | null => {
@@ -74,7 +71,7 @@ function matchMod(
     if (cands.length === 0) return null;
     if (wantText) {
       const exact = cands.find(
-        (m) => normalizeStatLine(cleanModText(m.text)) === wantText,
+        m => normalizeStatLine(cleanModText(m.text)) === wantText
       );
       if (exact) return exact;
     }
@@ -87,7 +84,7 @@ function matchMod(
   // No name match (e.g. desecrated-only naming): match by normalized text.
   if (wantText) {
     const byText = pool.filter(
-      (m) => normalizeStatLine(cleanModText(m.text)) === wantText,
+      m => normalizeStatLine(cleanModText(m.text)) === wantText
     );
     if (byText.length) return pickByText(byText);
   }
@@ -110,11 +107,11 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
       desiredGroups: [],
       matched: [],
       warnings: [
-        `Could not match a base item from "${parsed.baseTypeLine ?? "?"}"${
-          parsed.itemClass ? ` (${parsed.itemClass})` : ""
+        `Could not match a base item from "${parsed.baseTypeLine ?? '?'}"${
+          parsed.itemClass ? ` (${parsed.itemClass})` : ''
         }. It may be a new 0.5 base not in the current data snapshot.`,
       ],
-      requiresDesecration: parsed.mods.some((m) => m.desecrated),
+      requiresDesecration: parsed.mods.some(m => m.desecrated),
       requiresRuneforging: parsed.runicWard != null,
     };
   }
@@ -125,14 +122,14 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
 
   // Desecrated mods live in their own domain and are absent from the
   // normal pool; fetch them lazily only if the pasted item has any.
-  const hasDesecrated = parsed.mods.some((m) => m.desecrated);
+  const hasDesecrated = parsed.mods.some(m => m.desecrated);
   const desecMods = hasDesecrated
     ? await getEligibleMods(pool?.base.tags ?? [], itemLevel, {
-        domains: ["desecrated"],
+        domains: ['desecrated'],
       })
     : [];
-  const desecPrefixes = desecMods.filter((m) => m.generationType === "prefix");
-  const desecSuffixes = desecMods.filter((m) => m.generationType === "suffix");
+  const desecPrefixes = desecMods.filter(m => m.generationType === 'prefix');
+  const desecSuffixes = desecMods.filter(m => m.generationType === 'suffix');
 
   const matched: ResolvedMod[] = [];
   const seen = new Set<string>();
@@ -140,25 +137,24 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
 
   for (const pm of parsed.mods) {
     const poolForKind = pm.desecrated
-      ? pm.kind === "prefix"
+      ? pm.kind === 'prefix'
         ? desecPrefixes
         : desecSuffixes
-      : pm.kind === "prefix"
+      : pm.kind === 'prefix'
         ? prefixes
         : suffixes;
     const hit = matchMod(pm, poolForKind);
     if (!hit) {
       warnings.push(
-        `Could not match ${pm.desecrated ? "desecrated " : ""}${pm.kind} "${
-          pm.name ?? pm.statLines[0] ?? "?"
-        }".`,
+        `Could not match ${pm.desecrated ? 'desecrated ' : ''}${pm.kind} "${
+          pm.name ?? pm.statLines[0] ?? '?'
+        }".`
       );
       if (pm.desecrated) requiresDesecration = true;
       continue;
     }
     const group = hit.groups[0] ?? hit.id;
     if (pm.desecrated) requiresDesecration = true;
-    const key = `${group}@${hit.requiredLevel}`;
     if (seen.has(group)) continue; // one target per group
     seen.add(group);
     matched.push({
@@ -166,18 +162,18 @@ export async function resolveItem(raw: string): Promise<ResolvedItem> {
       kind: pm.kind,
       group,
       tierLevel: hit.requiredLevel,
-      value: cleanModText(hit.text) || pm.statLines.join(" "),
+      value: cleanModText(hit.text) || pm.statLines.join(' '),
       desecrated: pm.desecrated,
     });
   }
 
   const desiredGroups = matched.map(
-    (m) => `${m.group}@${m.tierLevel}${m.desecrated ? "~d" : ""}`,
+    m => `${m.group}@${m.tierLevel}${m.desecrated ? '~d' : ''}`
   );
 
   if (parsed.runeLines.length) {
     warnings.push(
-      `Ignored ${parsed.runeLines.length} rune line(s) — those come from socketed runes, not crafting.`,
+      `Ignored ${parsed.runeLines.length} rune line(s) — those come from socketed runes, not crafting.`
     );
   }
 

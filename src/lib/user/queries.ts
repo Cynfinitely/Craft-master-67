@@ -1,8 +1,8 @@
-import "server-only";
-import { desc, eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { bases, favorites, savedPlans } from "@/db/schema";
-import type { CraftPlan } from "@/lib/craft/types";
+import 'server-only';
+import { desc, eq } from 'drizzle-orm';
+import { getDb } from '@/db';
+import { bases, favorites, savedPlans } from '@/db/schema';
+import type { CraftPlan } from '@/lib/craft/types';
 
 export interface SavedPlanSummary {
   id: number;
@@ -15,7 +15,7 @@ export interface SavedPlanSummary {
 export async function createSavedPlan(
   name: string,
   baseId: string | null,
-  plan: CraftPlan,
+  plan: CraftPlan
 ): Promise<number> {
   const db = getDb();
   const rows = await db
@@ -36,7 +36,7 @@ export async function listSavedPlans(): Promise<SavedPlanSummary[]> {
     .select()
     .from(savedPlans)
     .orderBy(desc(savedPlans.createdAt));
-  return rows.map((r) => ({
+  return rows.map(r => ({
     id: r.id,
     name: r.name,
     baseId: r.baseId,
@@ -96,10 +96,10 @@ export async function listFavorites(): Promise<FavoriteSummary[]> {
     .from(favorites)
     .leftJoin(bases, eq(favorites.baseId, bases.id))
     .orderBy(desc(favorites.createdAt));
-  return rows.map((r) => ({
+  return rows.map(r => ({
     baseId: r.baseId,
     name: r.name ?? r.baseId,
-    itemClass: r.itemClass ?? "",
+    itemClass: r.itemClass ?? '',
     createdAt: r.createdAt,
   }));
 }

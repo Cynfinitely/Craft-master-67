@@ -1,4 +1,4 @@
-import { inflateSync } from "node:zlib";
+import { inflateSync } from 'node:zlib';
 
 /**
  * Path of Building (PoB2) build-code handling — pure string/buffer work so it
@@ -9,14 +9,14 @@ import { inflateSync } from "node:zlib";
 
 /** Decodes a PoB build code into its XML payload (null if not a PoB code). */
 export function decodePobCode(code: string): string | null {
-  const cleaned = code.trim().replace(/\s+/g, "");
+  const cleaned = code.trim().replace(/\s+/g, '');
   if (cleaned.length < 40 || !/^[A-Za-z0-9_\-+/=]+$/.test(cleaned)) {
     return null;
   }
-  const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");
+  const b64 = cleaned.replace(/-/g, '+').replace(/_/g, '/');
   try {
-    const xml = inflateSync(Buffer.from(b64, "base64")).toString("utf8");
-    return xml.includes("<PathOfBuilding") || xml.includes("<Item")
+    const xml = inflateSync(Buffer.from(b64, 'base64')).toString('utf8');
+    return xml.includes('<PathOfBuilding') || xml.includes('<Item')
       ? xml
       : null;
   } catch {
@@ -32,13 +32,13 @@ export function extractPobItems(xml: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
     const text = m[1]
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-      .split("\n")
-      .map((l) => l.trim())
-      .join("\n")
+      .replace(/&amp;/g, '&')
+      .split('\n')
+      .map(l => l.trim())
+      .join('\n')
       .trim();
     if (text) out.push(text);
   }
@@ -57,7 +57,8 @@ export interface PobParsedItem {
 /** Lines that are item metadata, never mod text. */
 const POB_META =
   /^(Unique ID|Item Level|Quality|Sockets|LevelReq|Level|Implicits|Radius|Limited to|Rune|Crucible|Catalyst|Variant|Selected Variant|League|Source|Talisman Tier|Armour|Evasion|Energy Shield|Ward|Prefix|Suffix|Influence|Requires|Has Alt Variant|Cluster Jewel|Grants Skill):/i;
-const POB_FLAG = /^(Corrupted|Mirrored|Split|Fractured Item|Shaper Item|Elder Item)$/i;
+const POB_FLAG =
+  /^(Corrupted|Mirrored|Split|Fractured Item|Shaper Item|Elder Item)$/i;
 
 /**
  * Parses one PoB item text block. PoB format has no "{ Prefix Modifier }"
@@ -66,10 +67,10 @@ const POB_FLAG = /^(Corrupted|Mirrored|Split|Fractured Item|Shaper Item|Elder It
  */
 export function parsePobItemText(text: string): PobParsedItem {
   const lines = text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
 
   const item: PobParsedItem = {
     rarity: null,
@@ -107,7 +108,7 @@ export function parsePobItemText(text: string): PobParsedItem {
     }
 
     // Annotation-only handling: strip every leading {...} block.
-    const line = raw.replace(/^(\{[^}]*\})+/, "").trim();
+    const line = raw.replace(/^(\{[^}]*\})+/, '').trim();
     if (!line) continue;
     // Skip explicit per-line markers PoB sometimes leaves inline.
     if (/\((implicit|enchant|rune|scourge)\)$/i.test(line)) continue;
@@ -126,7 +127,7 @@ export function parsePobItemText(text: string): PobParsedItem {
   if (headerNames.length === 1) {
     item.baseLine = headerNames[0];
   } else if (headerNames.length >= 2) {
-    item.nameLine = headerNames.slice(0, -1).join(" ");
+    item.nameLine = headerNames.slice(0, -1).join(' ');
     item.baseLine = headerNames[headerNames.length - 1];
   }
   return item;

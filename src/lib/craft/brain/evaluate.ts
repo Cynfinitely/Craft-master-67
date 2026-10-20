@@ -1,7 +1,13 @@
-import { Trial } from "../engine/actions";
-import { mulberry32 } from "../engine/rng";
-import { cloneItem, countRequiredHits, requiredDone, targetSatisfied, type Item } from "../engine/state";
-import type { AnyTechnique, CraftContext } from "../techniques/types";
+import { Trial } from '../engine/actions';
+import { mulberry32 } from '../engine/rng';
+import {
+  cloneItem,
+  countRequiredHits,
+  requiredDone,
+  targetSatisfied,
+  type Item,
+} from '../engine/state';
+import type { AnyTechnique, CraftContext } from '../techniques/types';
 
 export interface EvalOptions {
   /** Attempts to run at minimum. */
@@ -42,9 +48,11 @@ const BOOTSTRAP_MIN_P = 0.02;
 function needsFlux(item: Item, ctx: CraftContext): boolean {
   const flux = ctx.flux;
   if (!flux) return false;
-  const t = ctx.targets.find((x) => x.group === flux.targetGroup);
+  const t = ctx.targets.find(x => x.group === flux.targetGroup);
   if (!t) return false;
-  return !item.mods.some((m) => m.group === t.group && m.side === t.side && m.level >= t.minLevel);
+  return !item.mods.some(
+    m => m.group === t.group && m.side === t.side && m.level >= t.minLevel
+  );
 }
 
 /** Simulates attempts of one technique choice and summarizes the cost to one finished item. */
@@ -52,15 +60,19 @@ export function evaluate(
   tech: AnyTechnique,
   choice: unknown,
   ctx: CraftContext,
-  opts: EvalOptions,
+  opts: EvalOptions
 ): EvalStats {
   const rng = mulberry32(opts.seed);
   const counts = new Map<string, number>();
-  const sink = (apiId: string, n: number) => counts.set(apiId, (counts.get(apiId) ?? 0) + n);
+  const sink = (apiId: string, n: number) =>
+    counts.set(apiId, (counts.get(apiId) ?? 0) + n);
   const price = (apiId: string) => ctx.prices.price(apiId);
-  const required = ctx.targets.filter((t) => !t.optional);
-  const optional = ctx.targets.filter((t) => t.optional);
-  const maxAttempts = Math.max(opts.attempts, opts.maxAttempts ?? opts.attempts);
+  const required = ctx.targets.filter(t => !t.optional);
+  const optional = ctx.targets.filter(t => t.optional);
+  const maxAttempts = Math.max(
+    opts.attempts,
+    opts.maxAttempts ?? opts.attempts
+  );
   const minSuccesses = opts.minSuccesses ?? 0;
 
   const costs: number[] = [];
@@ -75,15 +87,28 @@ export function evaluate(
   while (n < maxAttempts) {
     if (n >= opts.attempts) {
       if (successes >= minSuccesses) break;
-      if (opts.deadline != null && (n & 63) === 0 && performance.now() > opts.deadline) break;
+      if (
+        opts.deadline != null &&
+        (n & 63) === 0 &&
+        performance.now() > opts.deadline
+      )
+        break;
     }
-    const t = new Trial(ctx.pool, ctx.desecPool, rng, price, sink, ctx.start ? cloneItem(ctx.start) : undefined);
+    const t = new Trial(
+      ctx.pool,
+      ctx.desecPool,
+      rng,
+      price,
+      sink,
+      ctx.start ? cloneItem(ctx.start) : undefined
+    );
     tech.run(choice, t, ctx);
     const ok = requiredDone(t.item, ctx.targets);
     if (ok) {
       if (needsFlux(t.item, ctx)) t.spend(ctx.flux!.apiId);
       successes++;
-      if (optional.length && optional.every((o) => targetSatisfied(t.item, o))) optionalHits++;
+      if (optional.length && optional.every(o => targetSatisfied(t.item, o)))
+        optionalHits++;
     }
     partial[countRequiredHits(t.item, ctx.targets)]++;
     const cost = t.cost + opts.baseCost;
@@ -133,13 +158,17 @@ export function evaluate(
     avgActions: actions / n,
     currencyPerAttempt,
     optionalHitRate: successes ? optionalHits / successes : 0,
-    partial: partial.map((x) => x / n),
+    partial: partial.map(x => x / n),
     lowConfidence: successes < 10,
   };
 }
 
 /** Resamples observed attempts into "run until one success" totals. */
-function bootstrapQuantiles(costs: number[], oks: boolean[], seed: number): [number, number] {
+function bootstrapQuantiles(
+  costs: number[],
+  oks: boolean[],
+  seed: number
+): [number, number] {
   const rng = mulberry32(seed);
   const n = costs.length;
   const totals: number[] = [];
@@ -153,6 +182,7 @@ function bootstrapQuantiles(costs: number[], oks: boolean[], seed: number): [num
     totals.push(sum);
   }
   totals.sort((a, b) => a - b);
-  const at = (q: number) => totals[Math.min(totals.length - 1, Math.floor(q * totals.length))];
+  const at = (q: number) =>
+    totals[Math.min(totals.length - 1, Math.floor(q * totals.length))];
   return [at(0.5), at(0.9)];
 }

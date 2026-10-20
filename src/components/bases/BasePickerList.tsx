@@ -1,5 +1,5 @@
-import Link from "next/link";
-import type { BaseSummary } from "@/lib/data/types";
+import Link from 'next/link';
+import type { BaseSummary } from '@/lib/data/types';
 
 /** Matches the default `limit` of searchBases() in src/lib/data/queries.ts. */
 const DEFAULT_RESULT_LIMIT = 60;
@@ -10,7 +10,7 @@ export function BasePickerList({
   itemClass,
   query,
   buildBaseHref,
-  maxHeight = "70vh",
+  maxHeight = '70vh',
   resultLimit = DEFAULT_RESULT_LIMIT,
 }: {
   results: BaseSummary[];
@@ -30,25 +30,28 @@ export function BasePickerList({
         <span role="status" className="num text-xs text-forge-muted">
           {capped
             ? `Showing the first ${resultLimit} — refine your search`
-            : `${results.length} base${results.length === 1 ? "" : "s"}`}
+            : `${results.length} base${results.length === 1 ? '' : 's'}`}
         </span>
         {itemClass ? <span className="tag-chip">{itemClass}</span> : null}
         {query?.trim() ? (
           <span className="tag-chip">&ldquo;{query.trim()}&rdquo;</span>
         ) : null}
       </div>
-      <ul aria-label="Matching bases" className="divide-y divide-forge-border/50">
-        {results.map((b) => {
+      <ul
+        aria-label="Matching bases"
+        className="divide-y divide-forge-border/50"
+      >
+        {results.map(b => {
           const active = b.id === selectedBaseId;
           return (
             <li key={b.id}>
               <Link
                 href={buildBaseHref(b.id)}
-                aria-current={active ? "true" : undefined}
+                aria-current={active ? 'true' : undefined}
                 className={`flex items-center justify-between gap-2 border-l-2 px-4 py-2 text-sm transition-colors max-md:min-h-11 ${
                   active
-                    ? "border-forge-rust bg-forge-panel2 font-semibold text-forge-goldbright"
-                    : "border-transparent text-forge-gold hover:bg-forge-panel2 hover:text-forge-goldbright"
+                    ? 'border-forge-rust bg-forge-panel2 font-semibold text-forge-goldbright'
+                    : 'border-transparent text-forge-gold hover:bg-forge-panel2 hover:text-forge-goldbright'
                 }`}
               >
                 <span className="min-w-0 truncate">{b.name}</span>

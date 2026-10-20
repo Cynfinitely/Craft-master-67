@@ -1,35 +1,35 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { PlanCraftLink } from "@/components/items/PlanCraftLink";
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { PlanCraftLink } from '@/components/items/PlanCraftLink';
 import {
   getModPool,
   getModTexts,
   hasBaseSearchFilter,
   listCraftableCategories,
   searchBases,
-} from "@/lib/data";
-import { BasePickerPanel } from "@/components/bases/BasePickerPanel";
-import { ItemControls } from "@/components/items/ItemControls";
-import { FilterSheet } from "@/components/ui/FilterSheet";
-import { BaseHeader } from "@/components/items/BaseHeader";
-import { ModColumn } from "@/components/items/ModColumn";
-import { FavoriteButton } from "@/components/items/FavoriteButton";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { isFavorite } from "@/lib/user/queries";
+} from '@/lib/data';
+import { BasePickerPanel } from '@/components/bases/BasePickerPanel';
+import { ItemControls } from '@/components/items/ItemControls';
+import { FilterSheet } from '@/components/ui/FilterSheet';
+import { BaseHeader } from '@/components/items/BaseHeader';
+import { ModColumn } from '@/components/items/ModColumn';
+import { FavoriteButton } from '@/components/items/FavoriteButton';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { isFavorite } from '@/lib/user/queries';
 import {
   guaranteedGroups,
   modHasTag,
   NOTABLE_TAGS,
-} from "@/lib/craft/data/essences";
-import type { EligibleMod } from "@/lib/data/types";
+} from '@/lib/craft/data/essences';
+import type { EligibleMod } from '@/lib/data/types';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: "Items & Modifiers" };
+export const metadata: Metadata = { title: 'Items & Modifiers' };
 
 function clampIlvl(raw: string | undefined): number {
-  const n = Number.parseInt(raw ?? "82", 10);
+  const n = Number.parseInt(raw ?? '82', 10);
   if (Number.isNaN(n)) return 82;
   return Math.min(100, Math.max(1, n));
 }
@@ -42,27 +42,26 @@ function buildFilterParams(
     tag?: string;
   },
   itemLevel: number,
-  tag: string,
+  tag: string
 ): URLSearchParams {
   const p = new URLSearchParams();
-  if (searchParams.q) p.set("q", searchParams.q);
-  if (searchParams.class) p.set("class", searchParams.class);
-  if (tag) p.set("tag", tag);
-  p.set("ilvl", String(itemLevel));
+  if (searchParams.q) p.set('q', searchParams.q);
+  if (searchParams.class) p.set('class', searchParams.class);
+  if (tag) p.set('tag', tag);
+  p.set('ilvl', String(itemLevel));
   return p;
 }
 
-export default async function ItemsPage({
-  searchParams,
-}: {
-  searchParams: {
+export default async function ItemsPage(props: {
+  searchParams: Promise<{
     q?: string;
     class?: string;
     ilvl?: string;
     base?: string;
     tag?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const itemLevel = clampIlvl(searchParams.ilvl);
   const filterActive = hasBaseSearchFilter({
     q: searchParams.q,
@@ -83,7 +82,7 @@ export default async function ItemsPage({
     : undefined;
   const favorited = pool ? await isFavorite(pool.base.id) : false;
 
-  const tag = searchParams.tag?.trim() || "";
+  const tag = searchParams.tag?.trim() || '';
   const guaranteed = pool
     ? guaranteedGroups(pool.base.itemClass, [
         ...pool.prefixes,
@@ -96,7 +95,7 @@ export default async function ItemsPage({
 
   const buildBaseHref = (baseId: string) => {
     const p = buildFilterParams(searchParams, itemLevel, tag);
-    p.set("base", baseId);
+    p.set('base', baseId);
     return `/items?${p.toString()}`;
   };
 
@@ -111,23 +110,23 @@ export default async function ItemsPage({
   // StepBreadcrumb numbers the steps itself.
   const steps = pool
     ? [
-        { label: "Filter" },
-        { label: "Select base" },
-        { label: "Explore mods", active: true },
+        { label: 'Filter' },
+        { label: 'Select base' },
+        { label: 'Explore mods', active: true },
       ]
     : filterActive
-      ? [{ label: "Filter" }, { label: "Select base", active: true }]
-      : [{ label: "Filter", active: true }];
+      ? [{ label: 'Filter' }, { label: 'Select base', active: true }]
+      : [{ label: 'Filter', active: true }];
 
   // Carry the current filters into the planner so its "Change base" list
   // isn't empty.
   const planHref = (() => {
-    if (!pool) return "/craft";
+    if (!pool) return '/craft';
     const p = new URLSearchParams();
-    if (searchParams.q) p.set("q", searchParams.q);
-    if (searchParams.class) p.set("class", searchParams.class);
-    p.set("ilvl", String(pool.itemLevel));
-    p.set("base", pool.base.id);
+    if (searchParams.q) p.set('q', searchParams.q);
+    if (searchParams.class) p.set('class', searchParams.class);
+    p.set('ilvl', String(pool.itemLevel));
+    p.set('base', pool.base.id);
     return `/craft?${p.toString()}`;
   })();
 
@@ -144,8 +143,8 @@ export default async function ItemsPage({
             title="Filters & base"
             summary={
               pool
-                ? `${pool.base.name} · ilvl ${pool.itemLevel}${tag ? ` · ${tag}` : ""}`
-                : "Choose a base"
+                ? `${pool.base.name} · ilvl ${pool.itemLevel}${tag ? ` · ${tag}` : ''}`
+                : 'Choose a base'
             }
             collapsed={!!pool}
           >
@@ -179,14 +178,14 @@ export default async function ItemsPage({
                 </Link>
               }
             >
-              No base item matches the id in this link. It may have been
-              renamed or removed — pick one from the list instead.
+              No base item matches the id in this link. It may have been renamed
+              or removed — pick one from the list instead.
             </EmptyState>
           ) : !pool ? (
             <EmptyState title="No base selected">
               {filterActive
-                ? "Select a base item from the list to view its modifier pool."
-                : "Choose an item class or search for a base name, then pick a base to view its modifier pool."}
+                ? 'Select a base item from the list to view its modifier pool.'
+                : 'Choose an item class or search for a base name, then pick a base to view its modifier pool.'}
             </EmptyState>
           ) : (
             <>

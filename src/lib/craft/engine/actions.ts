@@ -1,4 +1,4 @@
-import type { Side } from "../types";
+import type { Side } from '../types';
 import {
   MAX_CRAFTED_MODS,
   MAX_DESECRATED_MODS,
@@ -6,13 +6,13 @@ import {
   openSlots,
   type Item,
   type Mod,
-} from "./state";
-import { eligibleAt, type PoolGroup, type SimPool } from "./pool";
-import type { Rng } from "./rng";
+} from './state';
+import { eligibleAt, type PoolGroup, type SimPool } from './pool';
+import type { Rng } from './rng';
 
 /** Orb strength: 0 = regular, 1 = Greater, 2 = Perfect. */
 export type OrbTier = 0 | 1 | 2;
-export type OrbKind = "transmute" | "augment" | "regal" | "exalt" | "chaos";
+export type OrbKind = 'transmute' | 'augment' | 'regal' | 'exalt' | 'chaos';
 
 /** Minimum modifier level the added mod must have, per orb and tier (0.5). */
 export const ORB_MIN_LEVEL: Record<OrbKind, [number, number, number]> = {
@@ -24,11 +24,19 @@ export const ORB_MIN_LEVEL: Record<OrbKind, [number, number, number]> = {
 };
 
 const ORB_API: Record<OrbKind, [string, string, string]> = {
-  transmute: ["transmute", "greater-orb-of-transmutation", "perfect-orb-of-transmutation"],
-  augment: ["aug", "greater-orb-of-augmentation", "perfect-orb-of-augmentation"],
-  regal: ["regal", "greater-regal-orb", "perfect-regal-orb"],
-  exalt: ["exalted", "greater-exalted-orb", "perfect-exalted-orb"],
-  chaos: ["chaos", "greater-chaos-orb", "perfect-chaos-orb"],
+  transmute: [
+    'transmute',
+    'greater-orb-of-transmutation',
+    'perfect-orb-of-transmutation',
+  ],
+  augment: [
+    'aug',
+    'greater-orb-of-augmentation',
+    'perfect-orb-of-augmentation',
+  ],
+  regal: ['regal', 'greater-regal-orb', 'perfect-regal-orb'],
+  exalt: ['exalted', 'greater-exalted-orb', 'perfect-exalted-orb'],
+  chaos: ['chaos', 'greater-chaos-orb', 'perfect-chaos-orb'],
 };
 
 export function orbApiId(kind: OrbKind, tier: OrbTier): string {
@@ -36,31 +44,31 @@ export function orbApiId(kind: OrbKind, tier: OrbTier): string {
 }
 
 export const OMEN = {
-  sinistralExalt: "omen-of-sinistral-exaltation",
-  dextralExalt: "omen-of-dextral-exaltation",
-  greaterExalt: "omen-of-greater-exaltation",
-  sinistralAnnul: "omen-of-sinistral-annulment",
-  dextralAnnul: "omen-of-dextral-annulment",
-  sinistralNecro: "omen-of-sinistral-necromancy",
-  dextralNecro: "omen-of-dextral-necromancy",
-  echoes: "omen-of-abyssal-echoes",
+  sinistralExalt: 'omen-of-sinistral-exaltation',
+  dextralExalt: 'omen-of-dextral-exaltation',
+  greaterExalt: 'omen-of-greater-exaltation',
+  sinistralAnnul: 'omen-of-sinistral-annulment',
+  dextralAnnul: 'omen-of-dextral-annulment',
+  sinistralNecro: 'omen-of-sinistral-necromancy',
+  dextralNecro: 'omen-of-dextral-necromancy',
+  echoes: 'omen-of-abyssal-echoes',
 } as const;
 
 export const CURRENCY = {
-  alchemy: "alch",
-  annul: "annul",
-  fracture: "fracturing-orb",
-  abyss: "essence-of-the-abyss",
+  alchemy: 'alch',
+  annul: 'annul',
+  fracture: 'fracturing-orb',
+  abyss: 'essence-of-the-abyss',
 } as const;
 
 export function exaltSideOmen(side: Side): string {
-  return side === "prefix" ? OMEN.sinistralExalt : OMEN.dextralExalt;
+  return side === 'prefix' ? OMEN.sinistralExalt : OMEN.dextralExalt;
 }
 export function annulSideOmen(side: Side): string {
-  return side === "prefix" ? OMEN.sinistralAnnul : OMEN.dextralAnnul;
+  return side === 'prefix' ? OMEN.sinistralAnnul : OMEN.dextralAnnul;
 }
 export function necroSideOmen(side: Side): string {
-  return side === "prefix" ? OMEN.sinistralNecro : OMEN.dextralNecro;
+  return side === 'prefix' ? OMEN.sinistralNecro : OMEN.dextralNecro;
 }
 
 export interface EssenceUse {
@@ -109,9 +117,9 @@ export class Trial {
     readonly rng: Rng,
     private readonly priceOf: (apiId: string) => number,
     private readonly sink: SpendSink | null,
-    start?: Item,
+    start?: Item
   ) {
-    this.item = start ?? { rarity: "normal", mods: [] };
+    this.item = start ?? { rarity: 'normal', mods: [] };
   }
 
   spend(apiId: string, n = 1): void {
@@ -128,42 +136,43 @@ export class Trial {
   // ---- orbs ------------------------------------------------------------
 
   transmute(tier: OrbTier = 0): boolean {
-    if (this.item.rarity !== "normal") return false;
-    this.spend(orbApiId("transmute", tier));
-    this.item.rarity = "magic";
+    if (this.item.rarity !== 'normal') return false;
+    this.spend(orbApiId('transmute', tier));
+    this.item.rarity = 'magic';
     this.addRandom(ORB_MIN_LEVEL.transmute[tier]);
     return true;
   }
 
   augment(tier: OrbTier = 0): boolean {
-    if (this.item.rarity !== "magic" || this.item.mods.length >= 2) return false;
-    this.spend(orbApiId("augment", tier));
+    if (this.item.rarity !== 'magic' || this.item.mods.length >= 2)
+      return false;
+    this.spend(orbApiId('augment', tier));
     this.addRandom(ORB_MIN_LEVEL.augment[tier]);
     return true;
   }
 
   regal(tier: OrbTier = 0): boolean {
-    if (this.item.rarity !== "magic") return false;
-    this.spend(orbApiId("regal", tier));
-    this.item.rarity = "rare";
+    if (this.item.rarity !== 'magic') return false;
+    this.spend(orbApiId('regal', tier));
+    this.item.rarity = 'rare';
     this.addRandom(ORB_MIN_LEVEL.regal[tier]);
     return true;
   }
 
   alchemy(): boolean {
-    if (this.item.rarity !== "normal") return false;
+    if (this.item.rarity !== 'normal') return false;
     this.spend(CURRENCY.alchemy);
-    this.item.rarity = "rare";
+    this.item.rarity = 'rare';
     for (let i = 0; i < 4; i++) this.addRandom(0);
     return true;
   }
 
   exalt(opts: { tier?: OrbTier; side?: Side; double?: boolean } = {}): boolean {
     const it = this.item;
-    if (it.rarity !== "rare" || it.mods.length >= 6) return false;
+    if (it.rarity !== 'rare' || it.mods.length >= 6) return false;
     if (opts.side && openSlots(it, opts.side) === 0) return false;
     const tier = opts.tier ?? 0;
-    this.spend(orbApiId("exalt", tier));
+    this.spend(orbApiId('exalt', tier));
     if (opts.side) this.spend(exaltSideOmen(opts.side));
     if (opts.double) this.spend(OMEN.greaterExalt);
     const min = ORB_MIN_LEVEL.exalt[tier];
@@ -174,10 +183,10 @@ export class Trial {
 
   chaos(tier: OrbTier = 0): boolean {
     const it = this.item;
-    if (it.rarity !== "rare") return false;
+    if (it.rarity !== 'rare') return false;
     const idx = pickRemovable(it, this.rng);
     if (idx < 0) return false;
-    this.spend(orbApiId("chaos", tier));
+    this.spend(orbApiId('chaos', tier));
     it.mods.splice(idx, 1);
     this.addRandom(ORB_MIN_LEVEL.chaos[tier]);
     return true;
@@ -185,7 +194,7 @@ export class Trial {
 
   annul(side?: Side): boolean {
     const it = this.item;
-    if (it.rarity === "normal") return false;
+    if (it.rarity === 'normal') return false;
     const idx = pickRemovable(it, this.rng, side);
     if (idx < 0) return false;
     this.spend(CURRENCY.annul);
@@ -196,9 +205,9 @@ export class Trial {
 
   fracture(): boolean {
     const it = this.item;
-    if (it.rarity !== "rare" || it.mods.length < 4) return false;
-    if (it.mods.some((m) => m.fractured)) return false;
-    const pool = it.mods.filter((m) => !m.desecrated);
+    if (it.rarity !== 'rare' || it.mods.length < 4) return false;
+    if (it.mods.some(m => m.fractured)) return false;
+    const pool = it.mods.filter(m => !m.desecrated);
     if (pool.length === 0) return false;
     this.spend(CURRENCY.fracture);
     pool[Math.floor(this.rng() * pool.length)].fractured = true;
@@ -211,32 +220,43 @@ export class Trial {
     const it = this.item;
     if (craftedCount(it) >= MAX_CRAFTED_MODS) return false;
     if (e.perfect) {
-      if (it.rarity !== "rare") return false;
+      if (it.rarity !== 'rare') return false;
       const idx = pickRemovable(it, this.rng);
       if (idx < 0 && it.mods.length >= 6) return false;
       this.spend(e.apiId);
       if (idx >= 0) it.mods.splice(idx, 1);
     } else {
-      if (it.rarity !== "magic") return false;
+      if (it.rarity !== 'magic') return false;
       this.spend(e.apiId);
-      it.rarity = "rare";
+      it.rarity = 'rare';
     }
-    const same = it.mods.findIndex((m) => m.group === e.group && !m.fractured);
+    const same = it.mods.findIndex(m => m.group === e.group && !m.fractured);
     if (same >= 0) it.mods.splice(same, 1);
     if (hasGroup(it, e.group) || openSlots(it, e.side) === 0) return true;
-    it.mods.push({ group: e.group, side: e.side, level: e.level, crafted: true });
+    it.mods.push({
+      group: e.group,
+      side: e.side,
+      level: e.level,
+      crafted: true,
+    });
     return true;
   }
 
   alloy(a: AlloyUse): boolean {
     const it = this.item;
-    if (it.rarity !== "rare" || craftedCount(it) >= MAX_CRAFTED_MODS) return false;
+    if (it.rarity !== 'rare' || craftedCount(it) >= MAX_CRAFTED_MODS)
+      return false;
     const idx = pickRemovable(it, this.rng);
     if (idx < 0) return false;
     this.spend(a.apiId);
     it.mods.splice(idx, 1);
     if (hasGroup(it, a.group) || openSlots(it, a.side) === 0) return true;
-    it.mods.push({ group: a.group, side: a.side, level: a.level, crafted: true });
+    it.mods.push({
+      group: a.group,
+      side: a.side,
+      level: a.level,
+      crafted: true,
+    });
     return true;
   }
 
@@ -247,7 +267,7 @@ export class Trial {
   desecrate(d: DesecrateUse): boolean {
     const it = this.item;
     const pool = this.desecPool;
-    if (!pool || it.rarity !== "rare") return false;
+    if (!pool || it.rarity !== 'rare') return false;
     if (desecratedCount(it) >= MAX_DESECRATED_MODS) return false;
     if (openSlots(it, d.side) === 0) {
       if (!d.abyss) return false;
@@ -285,7 +305,8 @@ export function desecratedCount(item: Item): number {
 /** Index of a random non-fractured mod (optionally on one side), or -1. */
 export function pickRemovable(item: Item, rng: Rng, side?: Side): number {
   let n = 0;
-  for (const m of item.mods) if (!m.fractured && (!side || m.side === side)) n++;
+  for (const m of item.mods)
+    if (!m.fractured && (!side || m.side === side)) n++;
   if (n === 0) return -1;
   let k = Math.floor(rng() * n);
   for (let i = 0; i < item.mods.length; i++) {
@@ -297,7 +318,7 @@ export function pickRemovable(item: Item, rng: Rng, side?: Side): number {
 }
 
 function sideGroups(pool: SimPool, side: Side): PoolGroup[] {
-  return side === "prefix" ? pool.prefixes : pool.suffixes;
+  return side === 'prefix' ? pool.prefixes : pool.suffixes;
 }
 
 /** Weighted pick of a group + tier the item can still take; mutates the item. */
@@ -306,9 +327,9 @@ export function rollInto(
   pool: SimPool,
   rng: Rng,
   minLevel: number,
-  forceSide?: Side,
+  forceSide?: Side
 ): Mod | null {
-  const sides: Side[] = forceSide ? [forceSide] : ["prefix", "suffix"];
+  const sides: Side[] = forceSide ? [forceSide] : ['prefix', 'suffix'];
   let total = 0;
   const cands: { g: PoolGroup; w: number }[] = [];
   for (const side of sides) {
@@ -341,17 +362,27 @@ export function rollInto(
       break;
     }
   }
-  const mod: Mod = { group: chosen.g.group, side: chosen.g.side, level: tier.level };
+  const mod: Mod = {
+    group: chosen.g.group,
+    side: chosen.g.side,
+    level: tier.level,
+  };
   item.mods.push(mod);
   return mod;
 }
 
 /** Up to `n` distinct desecrated options for one side (no mutation). */
-function revealOptions(item: Item, pool: SimPool, rng: Rng, side: Side, n: number): Mod[] {
+function revealOptions(
+  item: Item,
+  pool: SimPool,
+  rng: Rng,
+  side: Side,
+  n: number
+): Mod[] {
   const cands = sideGroups(pool, side)
-    .filter((g) => !hasGroup(item, g.group))
-    .map((g) => ({ g, w: eligibleAt(g, 0).weight }))
-    .filter((c) => c.w > 0);
+    .filter(g => !hasGroup(item, g.group))
+    .map(g => ({ g, w: eligibleAt(g, 0).weight }))
+    .filter(c => c.w > 0);
   const out: Mod[] = [];
   while (out.length < n && cands.length) {
     const total = cands.reduce((s, c) => s + c.w, 0);

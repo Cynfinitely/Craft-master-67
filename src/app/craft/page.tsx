@@ -1,8 +1,12 @@
-import Link from "next/link";
-import { Suspense } from "react";
-import { hasBaseSearchFilter, listCraftableCategories, searchBases } from "@/lib/data";
-import { BasePickerPanel } from "@/components/bases/BasePickerPanel";
-import { SelectedBaseCard } from "@/components/bases/SelectedBaseCard";
+import Link from 'next/link';
+import { Suspense } from 'react';
+import {
+  hasBaseSearchFilter,
+  listCraftableCategories,
+  searchBases,
+} from '@/lib/data';
+import { BasePickerPanel } from '@/components/bases/BasePickerPanel';
+import { SelectedBaseCard } from '@/components/bases/SelectedBaseCard';
 import {
   getBaseGroups,
   getClassPool,
@@ -15,31 +19,34 @@ import {
   techniquesFor,
   type CurrentMod,
   type GroupChoice,
-} from "@/lib/craft";
-import { CraftControls } from "@/components/craft/CraftControls";
-import { FilterSheet } from "@/components/ui/FilterSheet";
-import { GroupSelector, type SelectableGroup } from "@/components/craft/GroupSelector";
-import { MassControls } from "@/components/craft/MassControls";
-import { MassResults } from "@/components/craft/MassResults";
-import { PasteImport } from "@/components/craft/PasteImport";
-import { PlanView } from "@/components/craft/PlanView";
-import { Recommendations } from "@/components/craft/Recommendations";
-import { PageSkeleton } from "@/components/PageSkeleton";
-import { Alert } from "@/components/ui/Alert";
-import { AffixMark } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/ui/PageHeader";
+} from '@/lib/craft';
+import { CraftControls } from '@/components/craft/CraftControls';
+import { FilterSheet } from '@/components/ui/FilterSheet';
+import {
+  GroupSelector,
+  type SelectableGroup,
+} from '@/components/craft/GroupSelector';
+import { MassControls } from '@/components/craft/MassControls';
+import { MassResults } from '@/components/craft/MassResults';
+import { PasteImport } from '@/components/craft/PasteImport';
+import { PlanView } from '@/components/craft/PlanView';
+import { Recommendations } from '@/components/craft/Recommendations';
+import { PageSkeleton } from '@/components/PageSkeleton';
+import { Alert } from '@/components/ui/Alert';
+import { AffixMark } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: "Crafting Planner",
+  title: 'Crafting Planner',
 };
 
-type Mode = "base" | "recommend" | "paste" | "mass" | "finish";
+type Mode = 'base' | 'recommend' | 'paste' | 'mass' | 'finish';
 
 function clampIlvl(raw: string | undefined): number {
-  const n = Number.parseInt(raw ?? "82", 10);
+  const n = Number.parseInt(raw ?? '82', 10);
   if (Number.isNaN(n)) return 82;
   return Math.min(100, Math.max(1, n));
 }
@@ -50,7 +57,7 @@ function parseCost(raw: string | undefined): number {
 }
 
 function toSelectable(choices: GroupChoice[]): SelectableGroup[] {
-  return choices.map((g) => ({
+  return choices.map(g => ({
     group: g.group,
     label: g.label,
     generationType: g.generationType,
@@ -60,19 +67,22 @@ function toSelectable(choices: GroupChoice[]): SelectableGroup[] {
   }));
 }
 
-function filterParams(mode: Mode, q?: string, itemClass?: string, itemLevel?: number): URLSearchParams {
+function filterParams(
+  mode: Mode,
+  q?: string,
+  itemClass?: string,
+  itemLevel?: number
+): URLSearchParams {
   const p = new URLSearchParams();
-  p.set("mode", mode);
-  if (q) p.set("q", q);
-  if (itemClass) p.set("class", itemClass);
-  if (itemLevel != null) p.set("ilvl", String(itemLevel));
+  p.set('mode', mode);
+  if (q) p.set('q', q);
+  if (itemClass) p.set('class', itemClass);
+  if (itemLevel != null) p.set('ilvl', String(itemLevel));
   return p;
 }
 
-export default async function CraftPage({
-  searchParams,
-}: {
-  searchParams: {
+export default async function CraftPage(props: {
+  searchParams: Promise<{
     mode?: string;
     q?: string;
     class?: string;
@@ -83,12 +93,15 @@ export default async function CraftPage({
     method?: string;
     n?: string;
     current?: string;
-  };
+  }>;
 }) {
-  const modes: Mode[] = ["base", "recommend", "paste", "mass", "finish"];
-  const mode: Mode = modes.includes(searchParams.mode as Mode) ? (searchParams.mode as Mode) : "base";
+  const searchParams = await props.searchParams;
+  const modes: Mode[] = ['base', 'recommend', 'paste', 'mass', 'finish'];
+  const mode: Mode = modes.includes(searchParams.mode as Mode)
+    ? (searchParams.mode as Mode)
+    : 'base';
   const itemLevel = clampIlvl(searchParams.ilvl);
-  const goalParam = searchParams.groups ?? "";
+  const goalParam = searchParams.groups ?? '';
   const baseCost = parseCost(searchParams.cost);
   const categories = await listCraftableCategories();
 
@@ -98,8 +111,9 @@ export default async function CraftPage({
         title="Crafting Planner"
         description={
           <>
-            Pick a base and the modifiers you want. The crafting brain simulates every technique it knows, tunes each
-            one&apos;s options, and ranks them by expected cost per finished item.
+            Pick a base and the modifiers you want. The crafting brain simulates
+            every technique it knows, tunes each one&apos;s options, and ranks
+            them by expected cost per finished item.
           </>
         }
       />
@@ -107,16 +121,22 @@ export default async function CraftPage({
       <FilterSheet
         title="Planner settings"
         summary={[
-          { base: "Base", mass: "Mass craft", recommend: "Recommend", paste: "Paste", finish: "Finish item" }[mode],
+          {
+            base: 'Base',
+            mass: 'Mass craft',
+            recommend: 'Recommend',
+            paste: 'Paste',
+            finish: 'Finish item',
+          }[mode],
           searchParams.class,
           `ilvl ${itemLevel}`,
         ]
           .filter(Boolean)
-          .join(" · ")}
+          .join(' · ')}
         collapsed={
-          mode === "base" || mode === "mass" || mode === "finish"
+          mode === 'base' || mode === 'mass' || mode === 'finish'
             ? !!searchParams.base
-            : mode === "recommend" && !!searchParams.class
+            : mode === 'recommend' && !!searchParams.class
         }
       >
         <div className="panel p-4">
@@ -124,10 +144,17 @@ export default async function CraftPage({
         </div>
       </FilterSheet>
 
-      {mode === "paste" ? (
+      {mode === 'paste' ? (
         <PasteImport />
-      ) : mode === "base" ? (
-        <Suspense fallback={<PageSkeleton variant="section" label="The brain is simulating techniques…" />}>
+      ) : mode === 'base' ? (
+        <Suspense
+          fallback={
+            <PageSkeleton
+              variant="section"
+              label="The brain is simulating techniques…"
+            />
+          }
+        >
           <BaseMode
             q={searchParams.q}
             itemClass={searchParams.class}
@@ -137,8 +164,15 @@ export default async function CraftPage({
             baseCost={baseCost}
           />
         </Suspense>
-      ) : mode === "finish" ? (
-        <Suspense fallback={<PageSkeleton variant="section" label="Simulating how to finish your item…" />}>
+      ) : mode === 'finish' ? (
+        <Suspense
+          fallback={
+            <PageSkeleton
+              variant="section"
+              label="Simulating how to finish your item…"
+            />
+          }
+        >
           <FinishMode
             baseId={searchParams.base}
             itemLevel={itemLevel}
@@ -147,8 +181,12 @@ export default async function CraftPage({
             current={parseCurrentMods(searchParams.current)}
           />
         </Suspense>
-      ) : mode === "mass" ? (
-        <Suspense fallback={<PageSkeleton variant="section" label="Simulating the batch…" />}>
+      ) : mode === 'mass' ? (
+        <Suspense
+          fallback={
+            <PageSkeleton variant="section" label="Simulating the batch…" />
+          }
+        >
           <MassMode
             q={searchParams.q}
             itemClass={searchParams.class}
@@ -161,7 +199,14 @@ export default async function CraftPage({
           />
         </Suspense>
       ) : (
-        <Suspense fallback={<PageSkeleton variant="section" label="Ranking bases for your goal…" />}>
+        <Suspense
+          fallback={
+            <PageSkeleton
+              variant="section"
+              label="Ranking bases for your goal…"
+            />
+          }
+        >
           <RecommendMode
             itemClass={searchParams.class}
             itemLevel={itemLevel}
@@ -174,7 +219,13 @@ export default async function CraftPage({
   );
 }
 
-function BaseNotFound({ href, actionLabel }: { href: string; actionLabel: string }) {
+function BaseNotFound({
+  href,
+  actionLabel,
+}: {
+  href: string;
+  actionLabel: string;
+}) {
   return (
     <EmptyState
       title="Base not found"
@@ -184,7 +235,8 @@ function BaseNotFound({ href, actionLabel }: { href: string; actionLabel: string
         </Link>
       }
     >
-      This base doesn&apos;t exist in the current data, or the link is out of date.
+      This base doesn&apos;t exist in the current data, or the link is out of
+      date.
     </EmptyState>
   );
 }
@@ -198,14 +250,14 @@ async function CraftBasePicker({
   q?: string;
   itemClass?: string;
   itemLevel: number;
-  mode: "base" | "mass";
+  mode: 'base' | 'mass';
 }) {
   const filterActive = hasBaseSearchFilter({ q, itemClass });
   const results = filterActive ? await searchBases({ q, itemClass }) : [];
 
   const buildBaseHref = (id: string) => {
     const p = filterParams(mode, q, itemClass, itemLevel);
-    p.set("base", id);
+    p.set('base', id);
     return `/craft?${p.toString()}`;
   };
 
@@ -217,9 +269,11 @@ async function CraftBasePicker({
       query={q}
       itemLevel={itemLevel}
       buildBaseHref={buildBaseHref}
-      buildClearBaseHref={() => `/craft?${filterParams(mode, q, itemClass, itemLevel).toString()}`}
+      buildClearBaseHref={() =>
+        `/craft?${filterParams(mode, q, itemClass, itemLevel).toString()}`
+      }
       maxHeight="60vh"
-      steps={[{ label: "Filter" }, { label: "Select base", active: true }]}
+      steps={[{ label: 'Filter' }, { label: 'Select base', active: true }]}
       emptyHint="Choose an item class or search for a base name (min. 2 characters) above, then pick a base from the list."
     />
   );
@@ -240,20 +294,30 @@ async function BaseMode({
   goalParam: string;
   baseCost: number;
 }) {
-  if (!baseId) return <CraftBasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="base" />;
+  if (!baseId)
+    return (
+      <CraftBasePicker
+        q={q}
+        itemClass={itemClass}
+        itemLevel={itemLevel}
+        mode="base"
+      />
+    );
 
   const groups = await getBaseGroups(baseId, itemLevel);
   if (!groups) {
     return (
       <BaseNotFound
-        href={`/craft?${filterParams("base", q, itemClass, itemLevel).toString()}`}
+        href={`/craft?${filterParams('base', q, itemClass, itemLevel).toString()}`}
         actionLabel="Choose another base"
       />
     );
   }
 
   const goal = parseGoalList(goalParam);
-  const plan = goal.length ? await solve({ baseId, itemLevel, goal, baseCost }) : null;
+  const plan = goal.length
+    ? await solve({ baseId, itemLevel, goal, baseCost })
+    : null;
 
   return (
     <div className="space-y-4">
@@ -261,7 +325,7 @@ async function BaseMode({
         name={groups.base.name}
         itemClass={groups.base.itemClass}
         itemLevel={itemLevel}
-        changeHref={`/craft?${filterParams("base", q, itemClass, itemLevel).toString()}`}
+        changeHref={`/craft?${filterParams('base', q, itemClass, itemLevel).toString()}`}
       />
       <div>
         <h2 className="section-title mb-2">Select the modifiers you want</h2>
@@ -283,26 +347,38 @@ async function BaseMode({
   );
 }
 
-function CurrentItemCard({ current, labels }: { current: CurrentMod[]; labels: Map<string, string> }) {
+function CurrentItemCard({
+  current,
+  labels,
+}: {
+  current: CurrentMod[];
+  labels: Map<string, string>;
+}) {
   return (
     <div className="panel p-4">
       <h2 className="section-title">Your item right now</h2>
       {current.length ? (
         <ul className="mt-2 flex flex-wrap gap-1.5">
-          {current.map((m) => (
+          {current.map(m => (
             <li
               key={m.group}
-              className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs ${
-                m.side === "prefix"
-                  ? "border-affix-prefix/40 text-affix-prefix"
-                  : "border-affix-suffix/40 text-affix-suffix"
+              className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs ${
+                m.side === 'prefix'
+                  ? 'border-affix-prefix/40 text-affix-prefix'
+                  : 'border-affix-suffix/40 text-affix-suffix'
               }`}
             >
               <AffixMark kind={m.side} />
               {labels.get(m.group) ?? m.group}
-              {m.level ? <span className="text-forge-muted">lvl {m.level}</span> : null}
-              {m.fractured ? <span className="text-forge-muted">(fractured)</span> : null}
-              {m.desecrated ? <span className="text-forge-muted">(desecrated)</span> : null}
+              {m.level ? (
+                <span className="text-forge-muted">lvl {m.level}</span>
+              ) : null}
+              {m.fractured ? (
+                <span className="text-forge-muted">(fractured)</span>
+              ) : null}
+              {m.desecrated ? (
+                <span className="text-forge-muted">(desecrated)</span>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -310,8 +386,9 @@ function CurrentItemCard({ current, labels }: { current: CurrentMod[]; labels: M
         <p className="mt-2 text-sm text-forge-muted">No modifiers.</p>
       )}
       <p className="mt-2 text-xs text-forge-muted">
-        Keep the mods you want ticked below and add the ones you&apos;re missing. Set “Base cost” to what another copy
-        of this item would cost you — a bricked attempt means starting over from one.
+        Keep the mods you want ticked below and add the ones you&apos;re
+        missing. Set “Base cost” to what another copy of this item would cost
+        you — a bricked attempt means starting over from one.
       </p>
     </div>
   );
@@ -345,13 +422,21 @@ async function FinishMode({
     );
   }
   const groups = await getBaseGroups(baseId, itemLevel);
-  if (!groups) return <BaseNotFound href="/craft?mode=paste" actionLabel="Paste another item" />;
+  if (!groups)
+    return (
+      <BaseNotFound href="/craft?mode=paste" actionLabel="Paste another item" />
+    );
   const labels = new Map(
-    [...groups.prefixes, ...groups.suffixes, ...groups.desecrated].map((g) => [g.group, g.label]),
+    [...groups.prefixes, ...groups.suffixes, ...groups.desecrated].map(g => [
+      g.group,
+      g.label,
+    ])
   );
 
   const goal = parseGoalList(goalParam);
-  const plan = goal.length ? await solve({ baseId, itemLevel, goal, baseCost, current }) : null;
+  const plan = goal.length
+    ? await solve({ baseId, itemLevel, goal, baseCost, current })
+    : null;
 
   return (
     <div className="space-y-4">
@@ -363,7 +448,9 @@ async function FinishMode({
       />
       <CurrentItemCard current={current} labels={labels} />
       <div>
-        <h2 className="section-title mb-2">Select the modifiers the finished item needs</h2>
+        <h2 className="section-title mb-2">
+          Select the modifiers the finished item needs
+        </h2>
         <GroupSelector
           prefixes={toSelectable(groups.prefixes)}
           suffixes={toSelectable(groups.suffixes)}
@@ -375,7 +462,8 @@ async function FinishMode({
         <PlanView plan={plan} />
       ) : (
         <EmptyState title="No modifiers applied yet">
-          Tick the modifiers the finished item should have, then press “Plan the finish”.
+          Tick the modifiers the finished item should have, then press “Plan the
+          finish”.
         </EmptyState>
       )}
     </div>
@@ -401,22 +489,40 @@ async function MassMode({
   methodId?: string;
   basesCount?: string;
 }) {
-  if (!baseId) return <CraftBasePicker q={q} itemClass={itemClass} itemLevel={itemLevel} mode="mass" />;
+  if (!baseId)
+    return (
+      <CraftBasePicker
+        q={q}
+        itemClass={itemClass}
+        itemLevel={itemLevel}
+        mode="mass"
+      />
+    );
 
   const groups = await getBaseGroups(baseId, itemLevel);
   if (!groups) {
     return (
       <BaseNotFound
-        href={`/craft?${filterParams("mass", q, itemClass, itemLevel).toString()}`}
+        href={`/craft?${filterParams('mass', q, itemClass, itemLevel).toString()}`}
         actionLabel="Choose another base"
       />
     );
   }
 
-  const n = Math.min(10000, Math.max(1, Number.parseInt(basesCount ?? "50", 10) || 50));
+  const n = Math.min(
+    10000,
+    Math.max(1, Number.parseInt(basesCount ?? '50', 10) || 50)
+  );
   const goal = parseGoalList(goalParam);
   const plan = goal.length
-    ? await massCraft({ baseId, itemLevel, goal, techniqueId: methodId ?? "auto", basesCount: n, baseCost })
+    ? await massCraft({
+        baseId,
+        itemLevel,
+        goal,
+        techniqueId: methodId ?? 'auto',
+        basesCount: n,
+        baseCost,
+      })
     : null;
 
   return (
@@ -425,13 +531,20 @@ async function MassMode({
         name={groups.base.name}
         itemClass={groups.base.itemClass}
         itemLevel={itemLevel}
-        changeHref={`/craft?${filterParams("mass", q, itemClass, itemLevel).toString()}`}
+        changeHref={`/craft?${filterParams('mass', q, itemClass, itemLevel).toString()}`}
       />
       <div className="panel p-4">
-        <MassControls techniques={techniquesFor("craft").map((t) => ({ id: t.id, name: t.name }))} />
+        <MassControls
+          techniques={techniquesFor('craft').map(t => ({
+            id: t.id,
+            name: t.name,
+          }))}
+        />
       </div>
       <div>
-        <h2 className="section-title mb-2">Select the modifiers you&apos;re hunting</h2>
+        <h2 className="section-title mb-2">
+          Select the modifiers you&apos;re hunting
+        </h2>
         <GroupSelector
           prefixes={toSelectable(groups.prefixes)}
           suffixes={toSelectable(groups.suffixes)}
@@ -473,7 +586,8 @@ async function RecommendMode({
   if (!itemClass) {
     return (
       <EmptyState title="Choose an item class">
-        Choose an item class above to see which modifiers are available and get base recommendations.
+        Choose an item class above to see which modifiers are available and get
+        base recommendations.
       </EmptyState>
     );
   }
@@ -481,12 +595,16 @@ async function RecommendMode({
   const classPool = await getClassPool(itemClass, itemLevel);
   const withOdds = (choices: GroupChoice[]) => {
     const total = choices.reduce((s, g) => s + g.weight, 0);
-    return toSelectable(choices.map((g) => ({ ...g, weight: total ? g.weight / total : 0 })));
+    return toSelectable(
+      choices.map(g => ({ ...g, weight: total ? g.weight / total : 0 }))
+    );
   };
 
   const goal = parseGoalList(goalParam);
   const [recs, prices] = await Promise.all([
-    goal.length ? recommendBases({ itemClass, itemLevel, goal, baseCost }) : Promise.resolve([]),
+    goal.length
+      ? recommendBases({ itemClass, itemLevel, goal, baseCost })
+      : Promise.resolve([]),
     loadPriceBook(),
   ]);
 
@@ -494,11 +612,14 @@ async function RecommendMode({
     <div className="space-y-4">
       {!prices.fetchedAt ? (
         <Alert tone="warn">
-          Live currency prices are unavailable right now; costs use conservative default prices.
+          Live currency prices are unavailable right now; costs use conservative
+          default prices.
         </Alert>
       ) : null}
       <div>
-        <h2 className="section-title mb-2">Desired modifiers for {itemClass}</h2>
+        <h2 className="section-title mb-2">
+          Desired modifiers for {itemClass}
+        </h2>
         <GroupSelector
           prefixes={withOdds(classPool.prefixes)}
           suffixes={withOdds(classPool.suffixes)}
@@ -507,7 +628,7 @@ async function RecommendMode({
       </div>
       <Recommendations
         recs={recs}
-        hasGoal={goal.some((g) => !g.optional)}
+        hasGoal={goal.some(g => !g.optional)}
         itemLevel={itemLevel}
         goalParam={goalParam}
         baseCost={baseCost}

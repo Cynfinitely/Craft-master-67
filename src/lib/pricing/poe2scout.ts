@@ -1,9 +1,9 @@
-import "server-only";
-import { eq } from "drizzle-orm";
-import { z } from "zod";
-import { getDb } from "@/db";
-import { ensureAppTables } from "@/db/ensure";
-import { priceCache } from "@/db/schema";
+import 'server-only';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { getDb } from '@/db';
+import { ensureAppTables } from '@/db/ensure';
+import { priceCache } from '@/db/schema';
 
 /**
  * Price data client for Path of Exile 2.
@@ -17,29 +17,29 @@ import { priceCache } from "@/db/schema";
  * Divine Orb price for the league lets us also show Divine-equivalent values.
  */
 
-const BASE_URL = "https://api.poe2scout.com/poe2";
+const BASE_URL = 'https://api.poe2scout.com/poe2';
 const USER_AGENT =
-  "poe2-crafting-helper/0.1 (local-first dev tool; contact: set-your-email@example.com)";
+  'poe2-crafting-helper/0.1 (local-first dev tool; contact: set-your-email@example.com)';
 const CACHE_TTL_MS = 60 * 60 * 1000; // poe2scout updates ~hourly
 // All material categories poe2scout tracks, so essences/omens/fragments/etc.
 // are all priced (used by the Materials page and the crafting solver).
 const CATEGORIES = [
-  "currency",
-  "fragments",
-  "runes",
-  "essences",
-  "ultimatum",
-  "expedition",
-  "ritual",
-  "vaultkeys",
-  "breach",
-  "abyss",
-  "uncutgems",
-  "lineagesupportgems",
-  "delirium",
-  "incursion",
-  "idol",
-  "vaal",
+  'currency',
+  'fragments',
+  'runes',
+  'essences',
+  'ultimatum',
+  'expedition',
+  'ritual',
+  'vaultkeys',
+  'breach',
+  'abyss',
+  'uncutgems',
+  'lineagesupportgems',
+  'delirium',
+  'incursion',
+  'idol',
+  'vaal',
 ] as const;
 
 export interface PoeLeague {
@@ -69,10 +69,10 @@ export interface PriceData {
 
 const leagueSchema = z.object({
   Value: z.string(),
-  ShortName: z.string().optional().default(""),
+  ShortName: z.string().optional().default(''),
   IsCurrent: z.boolean().optional().default(false),
   DivinePrice: z.number().optional().default(0),
-  BaseCurrencyText: z.string().optional().default("Exalted Orb"),
+  BaseCurrencyText: z.string().optional().default('Exalted Orb'),
 });
 
 const currencyItemSchema = z
@@ -98,7 +98,7 @@ const byCategorySchema = z.object({
 
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
     // Next.js fetch cache: revalidate hourly as a secondary layer.
     next: { revalidate: 3600 },
   });
@@ -123,14 +123,17 @@ async function fetchLeaguesNetwork(): Promise<PoeLeague[]> {
   return z.array(leagueSchema).parse(raw).map(toLeague);
 }
 
-async function readLeagueCache(): Promise<{ leagues: PoeLeague[]; fetchedAt: number } | null> {
+async function readLeagueCache(): Promise<{
+  leagues: PoeLeague[];
+  fetchedAt: number;
+} | null> {
   try {
     await ensureAppTables();
     const db = getDb();
     const rows = await db
       .select()
       .from(priceCache)
-      .where(eq(priceCache.key, "leagues"))
+      .where(eq(priceCache.key, 'leagues'))
       .limit(1);
     if (!rows[0]) return null;
     const parsed = JSON.parse(rows[0].payload) as { leagues: PoeLeague[] };
@@ -146,7 +149,11 @@ async function writeLeagueCache(leagues: PoeLeague[]): Promise<void> {
     const fetchedAt = Date.now();
     await db
       .insert(priceCache)
-      .values({ key: "leagues", payload: JSON.stringify({ leagues }), fetchedAt })
+      .values({
+        key: 'leagues',
+        payload: JSON.stringify({ leagues }),
+        fetchedAt,
+      })
       .onConflictDoUpdate({
         target: priceCache.key,
         set: { payload: JSON.stringify({ leagues }), fetchedAt },
@@ -158,7 +165,8 @@ async function writeLeagueCache(leagues: PoeLeague[]): Promise<void> {
 
 export async function getLeagues(): Promise<PoeLeague[]> {
   const cached = await readLeagueCache();
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.leagues;
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS)
+    return cached.leagues;
   try {
     const leagues = await fetchLeaguesNetwork();
     await writeLeagueCache(leagues);
@@ -178,19 +186,19 @@ export async function getCurrentLeagueName(): Promise<string> {
   if (pinned) return pinned;
   const leagues = await getLeagues();
   // Prefer the current softcore (non-HC) temp league.
-  const sc = leagues.find((l) => l.isCurrent && !l.value.startsWith("HC"));
+  const sc = leagues.find(l => l.isCurrent && !l.value.startsWith('HC'));
   if (sc) return sc.value;
-  const anyCurrent = leagues.find((l) => l.isCurrent);
-  return anyCurrent?.value ?? "Standard";
+  const anyCurrent = leagues.find(l => l.isCurrent);
+  return anyCurrent?.value ?? 'Standard';
 }
 
 async function fetchCategory(
   league: string,
-  category: string,
+  category: string
 ): Promise<PricedItem[]> {
   const out: PricedItem[] = [];
   const base = `${BASE_URL}/Leagues/${encodeURIComponent(
-    league,
+    league
   )}/Currencies/ByCategory?Category=${encodeURIComponent(category)}&PerPage=200`;
 
   let page = 1;
@@ -250,27 +258,27 @@ async function writeCache(key: string, data: PriceData): Promise<void> {
 async function fetchFreshPrices(league: string): Promise<PriceData> {
   const leagues = await fetchLeaguesNetwork();
   await writeLeagueCache(leagues);
-  const divinePrice = leagues.find((l) => l.value === league)?.divinePrice ?? 0;
+  const divinePrice = leagues.find(l => l.value === league)?.divinePrice ?? 0;
 
   const perCategory = await Promise.all(
-    CATEGORIES.map((c) =>
-      fetchCategory(league, c).catch((err) => {
+    CATEGORIES.map(c =>
+      fetchCategory(league, c).catch(err => {
         console.warn(`poe2scout: skipping category ${c}: ${err}`);
         return [] as PricedItem[];
-      }),
-    ),
+      })
+    )
   );
   const items = perCategory.flat();
 
   // Exalted Orb is the base unit.
-  if (!items.some((i) => i.name === "Exalted Orb")) {
+  if (!items.some(i => i.name === 'Exalted Orb')) {
     items.unshift({
-      apiId: "exalted",
-      name: "Exalted Orb",
-      category: "currency",
+      apiId: 'exalted',
+      name: 'Exalted Orb',
+      category: 'currency',
       iconUrl: null,
       priceExalted: 1,
-      description: "The base currency unit for pricing.",
+      description: 'The base currency unit for pricing.',
     });
   }
   items.sort((a, b) => b.priceExalted - a.priceExalted);
@@ -316,8 +324,8 @@ export async function getPrices(leagueName?: string): Promise<PriceData> {
   if (cached) {
     // Serve stale instantly; refresh in the background (errors are logged
     // and the stale snapshot simply stays in place).
-    refreshPrices(league).catch((err) =>
-      console.warn(`poe2scout: background refresh failed: ${err}`),
+    refreshPrices(league).catch(err =>
+      console.warn(`poe2scout: background refresh failed: ${err}`)
     );
     return { ...cached, stale: true };
   }
@@ -332,7 +340,7 @@ export async function getPrices(leagueName?: string): Promise<PriceData> {
  * Returns an empty map on failure rather than throwing.
  */
 export async function getPriceByApiId(
-  leagueName?: string,
+  leagueName?: string
 ): Promise<Map<string, number>> {
   try {
     const data = await getPrices(leagueName);

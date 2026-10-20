@@ -1,4 +1,4 @@
-export type Side = "prefix" | "suffix";
+export type Side = 'prefix' | 'suffix';
 
 /** A mod the user wants on the finished item. */
 export interface Target {

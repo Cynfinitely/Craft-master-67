@@ -1,11 +1,11 @@
-import "server-only";
-import { getModPool, searchBases } from "@/lib/data/queries";
-import { modLabel } from "@/lib/data/format";
-import type { PriceBook } from "../engine/prices";
-import type { GoalEntry } from "../goal";
-import type { BaseRecommendation } from "../types";
-import { loadPriceBook } from "./prices";
-import { solve } from "./solve";
+import 'server-only';
+import { getModPool, searchBases } from '@/lib/data/queries';
+import { modLabel } from '@/lib/data/format';
+import type { PriceBook } from '../engine/prices';
+import type { GoalEntry } from '../goal';
+import type { BaseRecommendation } from '../types';
+import { loadPriceBook } from './prices';
+import { solve } from './solve';
 
 const SOLVE_TOP = 10;
 
@@ -21,7 +21,7 @@ export async function recommendBases(input: {
   baseCost?: number;
   prices?: PriceBook;
 }): Promise<BaseRecommendation[]> {
-  const required = input.goal.filter((g) => !g.optional);
+  const required = input.goal.filter(g => !g.optional);
   if (!required.length) return [];
   const bases = await searchBases({ itemClass: input.itemClass, limit: 500 });
 
@@ -29,16 +29,19 @@ export async function recommendBases(input: {
   for (const b of bases) {
     const pool = await getModPool(b.id, input.itemLevel);
     if (!pool) continue;
-    const weights = new Map<string, { weight: number; label: string; side: "prefix" | "suffix" }>();
+    const weights = new Map<
+      string,
+      { weight: number; label: string; side: 'prefix' | 'suffix' }
+    >();
     for (const m of [...pool.prefixes, ...pool.suffixes]) {
       const g = m.groups[0] ?? m.id;
-      const side = m.generationType === "suffix" ? "suffix" : "prefix";
+      const side = m.generationType === 'suffix' ? 'suffix' : 'prefix';
       const cur = weights.get(g);
       if (cur) cur.weight += m.weight;
       else weights.set(g, { weight: m.weight, label: modLabel(m), side });
     }
     let score = 1;
-    const perGroup: BaseRecommendation["perGroup"] = [];
+    const perGroup: BaseRecommendation['perGroup'] = [];
     const missing: string[] = [];
     for (const e of required) {
       if (e.desecrated) continue;
@@ -48,7 +51,10 @@ export async function recommendBases(input: {
         score *= 0.0001;
         continue;
       }
-      const total = info.side === "prefix" ? pool.prefixTotalWeight : pool.suffixTotalWeight;
+      const total =
+        info.side === 'prefix'
+          ? pool.prefixTotalWeight
+          : pool.suffixTotalWeight;
       const odds = total ? info.weight / total : 0;
       score *= odds || 0.0001;
       perGroup.push({ group: e.group, label: info.label, odds });
@@ -67,7 +73,7 @@ export async function recommendBases(input: {
   recs.sort((a, b) => a.missing.length - b.missing.length || b.score - a.score);
 
   const prices = input.prices ?? (await loadPriceBook());
-  const top = recs.filter((r) => r.missing.length === 0).slice(0, SOLVE_TOP);
+  const top = recs.filter(r => r.missing.length === 0).slice(0, SOLVE_TOP);
   for (const r of top) {
     const plan = await solve({
       baseId: r.baseId,
@@ -86,7 +92,8 @@ export async function recommendBases(input: {
   }
 
   recs.sort((a, b) => {
-    if (a.missing.length !== b.missing.length) return a.missing.length - b.missing.length;
+    if (a.missing.length !== b.missing.length)
+      return a.missing.length - b.missing.length;
     const ca = a.cheapestCostExalted ?? Infinity;
     const cb = b.cheapestCostExalted ?? Infinity;
     if (ca !== cb) return ca - cb;

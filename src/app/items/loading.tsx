@@ -1,4 +1,4 @@
-import { PageSkeleton } from "@/components/PageSkeleton";
+import { PageSkeleton } from '@/components/PageSkeleton';
 
 export default function Loading() {
   return <PageSkeleton label="Loading items and modifiers…" />;

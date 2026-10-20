@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import { listFavorites, toggleFavorite } from "@/lib/user/queries";
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { listFavorites, toggleFavorite } from '@/lib/user/queries';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 const toggleSchema = z.object({ baseId: z.string().min(1) });
 
@@ -17,9 +17,8 @@ export async function POST(request: Request) {
     const favorited = await toggleFavorite(baseId);
     return NextResponse.json({ favorited });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Invalid request" },
-      { status: 400 },
-    );
+    // Log the detail server-side; clients get a fixed message.
+    console.error('[api/favorites POST]', err);
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 }

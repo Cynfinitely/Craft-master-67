@@ -1,6 +1,6 @@
-import { hashSeed } from "../engine/rng";
-import type { AnyTechnique, CraftContext } from "../techniques/types";
-import { evaluate, type EvalStats } from "./evaluate";
+import { hashSeed } from '../engine/rng';
+import type { AnyTechnique, CraftContext } from '../techniques/types';
+import { evaluate, type EvalStats } from './evaluate';
 
 export const MAX_CHOICES_PER_TECHNIQUE = 24;
 const STAGE1_ATTEMPTS = 300;
@@ -63,14 +63,20 @@ function compareRanked(a: RankedMethod, b: RankedMethod): number {
 export function optimize(
   ctx: CraftContext,
   techniques: AnyTechnique[],
-  opts: OptimizeOptions,
+  opts: OptimizeOptions
 ): OptimizeResult {
   const start = performance.now();
   const deadline = start + (opts.budgetMs ?? DEFAULT_BUDGET_MS);
-  const rejected: OptimizeResult["rejected"] = [];
-  const seedFor = (tech: AnyTechnique, key: string) => hashSeed(`${opts.seedKey}|${tech.id}|${key}`);
+  const rejected: OptimizeResult['rejected'] = [];
+  const seedFor = (tech: AnyTechnique, key: string) =>
+    hashSeed(`${opts.seedKey}|${tech.id}|${key}`);
 
-  type Cand = { tech: AnyTechnique; choice: unknown; key: string; stats: EvalStats };
+  type Cand = {
+    tech: AnyTechnique;
+    choice: unknown;
+    key: string;
+    stats: EvalStats;
+  };
   const perTech = new Map<string, Cand[]>();
   let evaluated = 0;
 
@@ -126,7 +132,8 @@ export function optimize(
         : c.stats;
     if (stats.successes === 0 && c.stats.successes > 0) stats = c.stats;
     if (stats.successes === 0) continue;
-    if (stats.expectedCost != null && stats.expectedCost < leader) leader = stats.expectedCost;
+    if (stats.expectedCost != null && stats.expectedCost < leader)
+      leader = stats.expectedCost;
     const ranked: RankedMethod = {
       tech: c.tech,
       choice: c.choice,
@@ -149,5 +156,9 @@ export function optimize(
     }
   }
 
-  return { ranked: [...best.values()].sort(compareRanked), evaluated, rejected };
+  return {
+    ranked: [...best.values()].sort(compareRanked),
+    evaluated,
+    rejected,
+  };
 }

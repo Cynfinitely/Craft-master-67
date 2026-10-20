@@ -1,4 +1,4 @@
-import { getClient } from "./index";
+import { getClient } from './index';
 
 /**
  * Idempotent DDL for the app-owned tables, so a database seeded by an older
@@ -31,7 +31,7 @@ export function ensureAppTables(): Promise<void> {
   if (!ensured) {
     ensured = getClient()
       .executeMultiple(APP_TABLES_DDL)
-      .catch((err) => {
+      .catch(err => {
         ensured = null; // allow a retry on transient failure
         throw err;
       });

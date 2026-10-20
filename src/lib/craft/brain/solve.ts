@@ -1,14 +1,14 @@
-import "server-only";
-import { formatCurrentMods, formatGoalEntry, type GoalEntry } from "../goal";
-import type { PriceBook } from "../engine/prices";
-import { TECHNIQUES } from "../techniques";
-import type { AnyTechnique } from "../techniques/types";
-import type { CraftPlan, CurrentMod } from "../types";
-import { ENGINE_VERSION, Lru } from "./cache";
-import { buildContext } from "./context";
-import { optimize } from "./optimize";
-import { loadPriceBook } from "./prices";
-import { round2, toCraftMethod } from "./present";
+import 'server-only';
+import { formatCurrentMods, formatGoalEntry, type GoalEntry } from '../goal';
+import type { PriceBook } from '../engine/prices';
+import { TECHNIQUES } from '../techniques';
+import type { AnyTechnique } from '../techniques/types';
+import type { CraftPlan, CurrentMod } from '../types';
+import { ENGINE_VERSION, Lru } from './cache';
+import { buildContext } from './context';
+import { optimize } from './optimize';
+import { loadPriceBook } from './prices';
+import { round2, toCraftMethod } from './present';
 
 export interface SolveInput {
   baseId: string;
@@ -32,11 +32,11 @@ function goalKey(input: SolveInput): string {
   return [
     input.baseId,
     input.itemLevel,
-    input.goal.map(formatGoalEntry).sort().join(","),
-    input.current ? formatCurrentMods(input.current) : "",
+    input.goal.map(formatGoalEntry).sort().join(','),
+    input.current ? formatCurrentMods(input.current) : '',
     input.baseCost ?? 0,
-    input.stage1Attempts ?? "",
-  ].join("|");
+    input.stage1Attempts ?? '',
+  ].join('|');
 }
 
 /** Ranks every applicable technique (with its best options) for a goal on one base. */
@@ -56,7 +56,10 @@ export async function solve(input: SolveInput): Promise<CraftPlan | null> {
   return p;
 }
 
-async function runSolve(input: SolveInput, prices: PriceBook): Promise<CraftPlan | null> {
+async function runSolve(
+  input: SolveInput,
+  prices: PriceBook
+): Promise<CraftPlan | null> {
   const built = await buildContext({
     baseId: input.baseId,
     itemLevel: input.itemLevel,
@@ -70,9 +73,9 @@ async function runSolve(input: SolveInput, prices: PriceBook): Promise<CraftPlan
   const warnings = [...built.warnings];
   const notes = [...built.notes];
 
-  let methods: CraftPlan["methods"] = [];
+  let methods: CraftPlan['methods'] = [];
   let evaluated = 0;
-  let rejected: CraftPlan["rejected"] = [];
+  let rejected: CraftPlan['rejected'] = [];
   if (built.feasible) {
     const result = optimize(ctx, input.techniques ?? TECHNIQUES, {
       baseCost,
@@ -82,15 +85,20 @@ async function runSolve(input: SolveInput, prices: PriceBook): Promise<CraftPlan
     });
     evaluated = result.evaluated;
     rejected = result.rejected;
-    methods = result.ranked.map((r) => toCraftMethod(r, ctx, baseCost));
+    methods = result.ranked.map(r => toCraftMethod(r, ctx, baseCost));
     if (!methods.length) {
-      warnings.push("No technique reached this goal in simulation. Try fewer targets or lower minimum tiers.");
+      warnings.push(
+        'No technique reached this goal in simulation. Try fewer targets or lower minimum tiers.'
+      );
     }
   }
   if (prices.fallbacksUsed.size) {
     notes.push(
-      `No live price for ${[...prices.fallbacksUsed].slice(0, 6).map((id) => prices.name(id)).join(", ")}` +
-        `${prices.fallbacksUsed.size > 6 ? " and more" : ""}; conservative defaults were used.`,
+      `No live price for ${[...prices.fallbacksUsed]
+        .slice(0, 6)
+        .map(id => prices.name(id))
+        .join(', ')}` +
+        `${prices.fallbacksUsed.size > 6 ? ' and more' : ''}; conservative defaults were used.`
     );
   }
 

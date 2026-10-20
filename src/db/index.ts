@@ -1,17 +1,12 @@
-import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
-import path from "node:path";
-import * as schema from "./schema";
+import { createClient, type Client } from '@libsql/client';
+import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
+import path from 'node:path';
+import * as schema from './schema';
 
-export const DB_PATH = path.join(process.cwd(), "data", "poe2.db");
+export const DB_PATH = path.join(process.cwd(), 'data', 'poe2.db');
 
 let _client: Client | null = null;
 let _db: LibSQLDatabase<typeof schema> | null = null;
-
-/** True when the app is pointed at hosted libSQL (Turso) instead of the local file. */
-export function isRemoteDb(): boolean {
-  return Boolean(process.env.LIBSQL_URL);
-}
 
 export function getClient(): Client {
   if (!_client) {

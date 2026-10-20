@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { Sheet } from "@/components/ui/Sheet";
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
+import { Sheet } from '@/components/ui/Sheet';
 
 /**
  * Filters that stay inline on desktop. Below `lg`, once `collapsed` is set
@@ -28,16 +28,20 @@ export function FilterSheet({
   const params = useSearchParams();
   const query = params.toString();
 
-  useEffect(() => {
+  // Close the sheet once the filters it holds have navigated.
+  const location = `${pathname}?${query}`;
+  const [openedAt, setOpenedAt] = useState(location);
+  if (openedAt !== location) {
+    setOpenedAt(location);
     setOpen(false);
-  }, [pathname, query]);
+  }
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
+    const mq = window.matchMedia('(min-width: 1024px)');
     const update = () => setIsLg(mq.matches);
     update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   }, []);
 
   if (!collapsed) return <>{children}</>;
@@ -55,7 +59,9 @@ export function FilterSheet({
         <span className="block text-2xs font-semibold uppercase tracking-wide text-forge-muted">
           {title}
         </span>
-        <span className="block truncate text-sm text-forge-goldbright">{summary}</span>
+        <span className="block truncate text-sm text-forge-goldbright">
+          {summary}
+        </span>
       </span>
       <span className="btn shrink-0">Change</span>
     </button>
