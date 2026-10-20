@@ -25,10 +25,9 @@ export async function POST(request: Request) {
     const id = await createSavedPlan(body.name, body.baseId ?? null, body.plan);
     return NextResponse.json({ id }, { status: 201 });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Invalid request' },
-      { status: 400 }
-    );
+    // Log the detail server-side; clients get a fixed message.
+    console.error('[api/plans POST]', err);
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 }
 

@@ -75,8 +75,10 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ plan, resolved });
   } catch (err) {
+    // Log the detail server-side; clients get a fixed message.
+    console.error('[api/craft/finish POST]', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to plan finish' },
+      { error: 'Failed to plan finish' },
       { status: 500 }
     );
   }

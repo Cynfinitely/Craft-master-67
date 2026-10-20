@@ -38,8 +38,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ resolved, plan });
   } catch (err) {
+    // Log the detail server-side; clients get a fixed message.
+    console.error('[api/import POST]', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to parse item' },
+      { error: 'Failed to parse item' },
       { status: 500 }
     );
   }
